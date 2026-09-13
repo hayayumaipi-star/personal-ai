@@ -1600,6 +1600,76 @@
              "applyFields が自前の式を持っている");
         }
 
+        /* AU. AIが返す prefer / memo / condition / idea を、直接 applyOps に渡して確かめる
+           （v5.9・4周目の調査）。ここは決まり9「AIの ops を信用しない」の担当なのに、
+           これらの op を**直接渡すテストが1件も無かった**。
+           書いてみたら、`prefer` の値を検算しているのは**新規作成のときだけ**で、
+           既にある希望を更新する道は素通しだった。`noEveningWork` は「分」として
+           計画に効くので、0 が入ると**その日が丸ごと使えなくなる**。 */
+        {
+          const L5 = zoned(2026, 9, 13, 9, 0, TZ).toISOString();
+          const mk5 = text => ({ id: uid(), text, hash: "au" + Math.random(),
+            capturedAt: L5, source: "talk", createdAt: L5 });
+          const pv = () => {
+            const p = state.items.find(i => i.kind === "preference" && i.preferKey === "noEveningWork");
+            return p ? p.preferValue : null;
+          };
+          reset();
+          const n1 = mk5("20時以降は予定を入れないで"); await putNote(n1);
+          await applyOps([{ op: "prefer", key: "noEveningWork", value: 20 * 60,
+            text: "20時以降は入れないで", quote: "20時以降" }], n1);
+          ok("AU. 希望の値は、範囲の中なら そのまま入る", pv() === 20 * 60, String(pv()));
+
+          // 同じ希望をもう一度（更新の道）。範囲外の値を入れさせない
+          await applyOps([{ op: "prefer", key: "noEveningWork", value: 0,
+            text: "夜は入れないで", quote: "夜" }], n1);
+          ok("AU. 更新でも、範囲外の値は入れない",
+             typeof pv() !== "number" || (pv() >= 12 * 60 && pv() <= 23 * 60), String(pv()));
+          const pf1 = prefs(KEY);
+          ok("AU. 計画に渡る値も、範囲の中に収まる",
+             pf1.noEveningWork === null || (pf1.noEveningWork >= 12 * 60 && pf1.noEveningWork <= 23 * 60),
+             String(pf1.noEveningWork));
+
+          await applyOps([{ op: "prefer", key: "noEveningWork", value: "あいうえお",
+            text: "夜は入れないで", quote: "夜" }], n1);
+          ok("AU. 数字でない値も入れない",
+             typeof pv() !== "number" || (pv() >= 12 * 60 && pv() <= 23 * 60), String(pv()));
+
+          // 知らない key は "free" に落ちる（捨てない）
+          reset();
+          const n2 = mk5("いい感じにして"); await putNote(n2);
+          await applyOps([{ op: "prefer", key: "<script>", value: true,
+            text: "いい感じにして", quote: "いい感じ" }], n2);
+          const fp = state.items.find(i => i.kind === "preference");
+          ok("AU. 知らない希望の種類は free にする（捨てない）",
+             !!fp && fp.preferKey === "free", fp && fp.preferKey);
+
+          // memo / condition / idea：空文字は作らない、長すぎるものは切る
+          reset();
+          const n3 = mk5("なにか"); await putNote(n3);
+          await applyOps([{ op: "memo", text: "   ", quote: "x" },
+                          { op: "idea", text: "", quote: "x" },
+                          { op: "condition", text: null, quote: "x" }], n3);
+          ok("AU. 中身が空なら、memo も idea も condition も作らない",
+             state.items.length === 0, JSON.stringify(state.items.map(i => i.kind)));
+
+          reset();
+          const n4 = mk5("なにか"); await putNote(n4);
+          const long = "あ".repeat(2000);
+          await applyOps([{ op: "memo", text: long, quote: "x" },
+                          { op: "idea", text: long, quote: "x" },
+                          { op: "condition", text: long, quote: "x" }], n4);
+          const byKind = k => state.items.find(i => i.kind === k);
+          ok("AU. 長すぎる memo は切る", !!byKind("memo") && byKind("memo").title.length <= 500,
+             byKind("memo") && String(byKind("memo").title.length));
+          ok("AU. 長すぎる idea は切る", !!byKind("idea") && byKind("idea").title.length <= 200,
+             byKind("idea") && String(byKind("idea").title.length));
+          ok("AU. 体調は本人の言葉のまま残し、点数を作らない",
+             !!byKind("condition") && byKind("condition").selfReport.length <= 300
+             && byKind("condition").score === undefined,
+             byKind("condition") && String(byKind("condition").selfReport.length));
+        }
+
         // AIに日付の言葉を書かせない（決まり8の日付版）
         {
           const nq = mkNote("30分勉強する");

@@ -3448,13 +3448,20 @@ async function applyOps(rawOps, note) {
       const text = typeof o.text === "string" && o.text.trim() ? o.text.trim().slice(0, 120) : String(o.quote || "").slice(0, 120);
       if (!text) continue;
       const scopeDay = isDate(o.scopeDay) ? o.scopeDay : null;
+      /* 値の検算は**1か所**（v5.9・4周目の調査で発見）。
+         新しく作るときだけ検算していて、**既にある希望を更新する道は素通し**だった。
+         `noEveningWork` は「分」として `planFor` に効くので、`0` が入ると
+         **その日が丸ごと使えなくなる**（実測でそうなった）。決まり9そのもの。 */
+      const value = key === "noEveningWork"
+        ? (num(o.value, 12 * 60, 23 * 60) || 18 * 60)   // 12:00〜23:00 に収める
+        : (o.value !== false);
       const existing = liveItems().find(i => i.kind === "preference" && i.preferKey === key && key !== "free"
         && (i.scopeDay || null) === scopeDay);
-      if (existing) { existing.preferValue = o.value; existing.title = text; existing.updatedAt = new Date().toISOString(); note2(existing, "言い直しで更新"); await putItem(existing); }
+      if (existing) { existing.preferValue = value; existing.title = text; existing.updatedAt = new Date().toISOString(); note2(existing, "言い直しで更新"); await putItem(existing); }
       else {
         await putItem({
           id: uid(), noteId: note.id, kind: "preference", title: text, preferKey: key, scopeDay,
-          preferValue: key === "noEveningWork" ? (num(o.value, 12 * 60, 23 * 60) || 18 * 60) : (o.value !== false),
+          preferValue: value,
           evidence: evidenceOf(note, o.quote), origin: "user", corrected: false, confirmed: true, status: "open",
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: [],
           dedupeKey: "pref|" + key + "|" + (scopeDay || "always")
