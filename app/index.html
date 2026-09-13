@@ -3954,7 +3954,7 @@ async function callAI(prompt, isJson, options) {
   if (key) {
     if (p === "gemini") {
       const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${key}";
-      const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 8192 } };
+      const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 4096 } };
       /* if (isJson) payload.generationConfig.responseMimeType = "application/json"; // Remove this to prevent 400 Bad Request on some models */
       const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
       if (options && options.signal) fetchOpts.signal = options.signal;
@@ -4138,7 +4138,7 @@ async function sendTurn(text) {
   let ops = null, reply = "", usedAI = false, err = null;
   if (useAI) {
     try { const r = await aiTurn(note); ops = r.ops; reply = r.reply; usedAI = true; }
-    catch (e) { err = AI_ERR[e && e.code] || "AIに接続できなかったので、ルールだけで読み取りました。"; }
+    catch (e) { err = AI_ERR[e && e.code] || ("AI接続エラー: " + (e.message || "不明") + " のためルールで読み取りました。"); }
   }
   if (!ops) ops = ruleOps(note);
   const quickText = quick ? await quick : "";
