@@ -1520,7 +1520,7 @@ function prefs(forDay) {
     else if (p.preferKey === "buffer") out.buffer = p.preferValue !== false;
     // 「夜までずっと作業したくない」＝ 終了を早めるだけでなく、
     //   残り時間を別の作業で埋めない。急がないものは今日に置かない。
-    else if (p.preferKey === "noEveningWork") { out.noEveningWork = typeof p.preferValue === "number" ? p.preferValue : 18 * 60; out.lightDay = true; }
+    else if (p.preferKey === "noEveningWork") { out.noEveningWork = typeof p.preferValue === "number" ? p.preferValue : EVENING_DEFAULT_MIN; out.lightDay = true; }
     else out.free.push(p);
   }
   return out;
@@ -1721,8 +1721,8 @@ function safeSettings(s) {
   if (!["auto", "light", "dark"].includes(o.theme)) o.theme = DEFAULTS.theme;
   /* `isTime` は形しか見ない（"25:99" も通る）ので、ここでは中身まで確かめる。 */
   const okClock = t => {
-    if (typeof t !== "string" || !/^\d{1,2}:\d{2}$/.test(t)) return false;
-    const [h, m] = t.split(":").map(Number);
+    if (!isTime(t)) return false;              // 形は `isTime` が見る（同じ正規表現を2か所に書かない）
+    const [h, m] = t.split(":").map(Number);   // `isTime` は形しか見ないので、中身はここで確かめる
     return h >= 0 && h <= 23 && m >= 0 && m <= 59;
   };
   if (!okClock(o.workStart)) o.workStart = DEFAULTS.workStart;
@@ -3171,6 +3171,11 @@ function askConfirm({ title, body, yes, danger }) {
    ======================================================================= */
 const OPS = ["add", "update", "done", "defer", "drop", "prefer", "memo", "condition", "profile", "progress", "idea"];
 const PREF_KEYS = ["nextOnly", "buffer", "noEveningWork", "free"];
+/* 「夜は予定を入れないで」の既定＝18:00（分）。**3か所に同じ数字が散っていた**（v6.0・5周目）。
+   ルールが作る値・検算のフォールバック・`prefs` の読み取り、その全部でこれを使う。
+   **`WINDOWS.afternoon` の `18 * 60` とは別物**——あちらは「午後の終わり」で、意味が違う。
+   同じ数字でも意味が違うものは、まとめてはいけない。 */
+const EVENING_DEFAULT_MIN = 18 * 60;
 const isDate = s => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 const isTime = s => typeof s === "string" && /^\d{1,2}:\d{2}$/.test(s);
 const num = (v, lo, hi) => (typeof v === "number" && isFinite(v)) ? clamp(Math.round(v), lo, hi) : null;
@@ -3319,7 +3324,7 @@ function ruleOps(note) {
   const scope = oneDay ? dayKey(new Date(note.capturedAt), state.settings.timezone) : null;
   if (RE_NEXTONLY.test(text)) ops.push({ op: "prefer", key: "nextOnly", value: true, scopeDay: scope, text: "次にやることを一つだけ見せてほしい", quote: q });
   if (RE_BUFFER.test(text)) ops.push({ op: "prefer", key: "buffer", value: true, scopeDay: scope, text: "予定を詰めすぎず、余裕を持たせてほしい", quote: q });
-  if (RE_NOEVENING.test(text)) ops.push({ op: "prefer", key: "noEveningWork", value: 18 * 60, scopeDay: scope, text: "夜は作業を入れないでほしい", quote: q });
+  if (RE_NOEVENING.test(text)) ops.push({ op: "prefer", key: "noEveningWork", value: EVENING_DEFAULT_MIN, scopeDay: scope, text: "夜は作業を入れないでほしい", quote: q });
   if (RE_KEEP.test(text)) ops.push({ op: "memo", text: raw.slice(0, 200), quote: q });
   // 言い直し・見積もり直しは、ルールだけでは「どれのことか」を決められない。黙って無視せず伝える。
   // ただし、その発話から実際に何か作れているなら言い直しではないので黙っている。
@@ -3453,7 +3458,7 @@ async function applyOps(rawOps, note) {
          `noEveningWork` は「分」として `planFor` に効くので、`0` が入ると
          **その日が丸ごと使えなくなる**（実測でそうなった）。決まり9そのもの。 */
       const value = key === "noEveningWork"
-        ? (num(o.value, 12 * 60, 23 * 60) || 18 * 60)   // 12:00〜23:00 に収める
+        ? (num(o.value, 12 * 60, 23 * 60) || EVENING_DEFAULT_MIN)   // 12:00〜23:00 に収める
         : (o.value !== false);
       const existing = liveItems().find(i => i.kind === "preference" && i.preferKey === key && key !== "free"
         && (i.scopeDay || null) === scopeDay);
@@ -4439,7 +4444,7 @@ $("#dNext").addEventListener("click", () => { view.day = dayKey(new Date(keyToDa
 $("#dToday").addEventListener("click", () => { view.day = dayKey(new Date(), state.settings.timezone); renderDay(); });
 $("#dPick").addEventListener("change", () => {
   const v = $("#dPick").value;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { view.day = v; renderDay(); }
+  if (isDate(v)) { view.day = v; renderDay(); }
 });
 /* 設定は触ったその場で保存する（v3.9）。保存ボタンは置かない。
    押し忘れると、直したつもりの設定が効いていない状態になる。
@@ -4510,7 +4515,7 @@ async function importJSON(text, name) {
   const items = arr("items").filter(i => i && i.id && i.kind && !haveItem.has(i.id) && !(i.dedupeKey && haveKey.has(i.dedupeKey)));
   const docs = arr("docs").filter(x => x && x.id && x.text && !haveDoc.has(x.id) && !haveDocH.has(x.hash));
   const turns = (d.turns && typeof d.turns === "object" && !Array.isArray(d.turns)) ? d.turns : {};
-  const days = Object.keys(turns).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k) && Array.isArray(turns[k]));
+  const days = Object.keys(turns).filter(k => isDate(k) && Array.isArray(turns[k]));
   const hasSettings = d.settings && typeof d.settings === "object";
   if (!notes.length && !items.length && !docs.length && !days.length) {
     out.innerHTML = '<p class="hint">足せるものがありませんでした（すでに全部入っています）。</p>'; return;
