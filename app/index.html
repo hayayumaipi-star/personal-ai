@@ -1,5 +1,5 @@
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>AI秘書</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -560,7 +560,7 @@ details.unconf>summary{color:var(--warn)}
 
     <div class="card stack">
       <h3 style="font-size:14px">このページについて</h3>
-      <p class="hint">AI秘書 v4.3。<strong>確定した事実／読み取り（ルール）／読み取り（AI）／本人の訂正</strong>を区別して保存します。体調は本人が言ったことをそのまま引用するだけで、点数や診断は作りません。<br>
+      <p class="hint">AI秘書 v5.2。<strong>確定した事実／読み取り（ルール）／読み取り（AI）／本人の訂正</strong>を区別して保存します。体調は本人が言ったことをそのまま引用するだけで、点数や診断は作りません。<br>
       カレンダーは <code>.ics</code> ファイル経由で読み書きできます（外部への送信はありません）。<br>
       <strong>アプリ内の音声入力と、端末の通知は入っていません。</strong>音声は端末のキーボードのマイクを使ってください。予定の知らせは<strong>このページを開いている間だけ</strong>出ます。</p>
     </div>
@@ -2754,7 +2754,7 @@ function renderSettings() {
       <strong>「書き出す（JSON）」で控えを取ってから</strong>、古い記録の整理を考えてください。`;
   }
   $("#useAI").checked = s.useAI !== false;
-  $("#useAI").disabled = !SAMPLEFN;
+  $("#useAI").disabled = !hasAI();
   const ec = $("#errCard");
   if (ec) {
     ec.hidden = !lastError;
@@ -3701,7 +3701,7 @@ async function aiReadDoc(doc, onProgress) {
   const found = [];
   for (let i = 0; i < chunks.length; i++) {
     onProgress && onProgress(i, chunks.length);
-    const arr = await SAMPLEFN.json(PROFILE_PROMPT_HEAD + chunks[i] + '\n"""', { modelTier: "default", cache: false });
+    const arr = await callAI(PROFILE_PROMPT_HEAD + chunks[i] + '\n"""', true);
     if (!Array.isArray(arr)) continue;
     for (const o of arr.slice(0, 20)) {
       if (!o || typeof o !== "object") continue;
@@ -3903,10 +3903,10 @@ async function callAI(prompt, isJson, options) {
   const p = state.settings?.aiProvider || "gemini";
   if (key) {
     if (p === "gemini") {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
       const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2 } };
       if (isJson) payload.generationConfig.responseMimeType = "application/json";
-      const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
+      const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key }, body: JSON.stringify(payload) };
       if (options && options.signal) fetchOpts.signal = options.signal;
       let res;
       try { res = await fetch(url, fetchOpts); }
@@ -3916,14 +3916,15 @@ async function callAI(prompt, isJson, options) {
         throw { code: "api_error", message: "Gemini API エラー: " + emsg };
       }
       const data = await res.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const parts = data.candidates?.[0]?.content?.parts || [];
+      const text = parts.map(p => p.text || "").join("\n").trim();
       if (isJson) { try { return JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/gi, "").trim()); } catch(e) { throw { code: "invalid_json" }; } }
       return { text };
     }
     if (p === "openai") {
       const url = "https://api.openai.com/v1/chat/completions";
       const payload = { model: "gpt-4o-mini", messages: [{role: "user", content: prompt}], temperature: 0.2 };
-      if (isJson) payload.response_format = { type: "json_object" };
+      /* json_object removes to support array returns */
       const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` }, body: JSON.stringify(payload) };
       if (options && options.signal) fetchOpts.signal = options.signal;
       let res;
@@ -3940,7 +3941,7 @@ async function callAI(prompt, isJson, options) {
     }
     if (p === "anthropic") {
       const url = "https://api.anthropic.com/v1/messages";
-      const payload = { model: "claude-3-5-haiku-latest", max_tokens: 1024, messages: [{role: "user", content: prompt}], temperature: 0.2 };
+      const payload = { model: "claude-3-5-haiku-latest", max_tokens: 4096, messages: [{role: "user", content: prompt}], temperature: 0.2 };
       const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify(payload) };
       if (options && options.signal) fetchOpts.signal = options.signal;
       let res;
@@ -4494,11 +4495,20 @@ for (const id of ["#tz", "#defEst", "#breakEvery", "#breakLen", "#theme", "#useA
   $(id).addEventListener("change", saveSettingsNow);
 }
 
+if ($("#aiProvider")) {
+  $("#aiProvider").addEventListener("change", () => {
+    state.settings.aiProvider = $("#aiProvider").value;
+    renderSettings();
+  });
+}
 if ($("#btnSaveKey")) {
   $("#btnSaveKey").addEventListener("click", async () => {
+    const p = $("#aiProvider") ? $("#aiProvider").value : "gemini";
     const key = $("#geminiKey").value.trim();
     if (!key) {
-      state.settings.geminiKey = "";
+      if (p === "gemini") state.settings.geminiKey = "";
+      if (p === "openai") state.settings.openaiKey = "";
+      if (p === "anthropic") state.settings.anthropicKey = "";
       saveSettingsNow(); renderSettings();
       toast("APIキーをクリアしました");
       return;
@@ -4508,20 +4518,30 @@ if ($("#btnSaveKey")) {
     btn.textContent = "確認中...";
     btn.disabled = true;
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
-      const payload = { contents: [{ parts: [{ text: "Hello" }] }], generationConfig: { maxOutputTokens: 5 } };
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (!res.ok) {
-        let msg = "APIキーが無効です";
-        if (res.status === 400) msg = "APIキーが間違っているか無効です";
-        if (res.status === 429) msg = "利用枠の上限に達している可能性があります";
-        throw new Error(msg);
+      let url, payload, headers;
+      if (p === "gemini") {
+        url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
+        payload = { contents: [{ parts: [{ text: "Hello" }] }], generationConfig: { maxOutputTokens: 5 } };
+        headers = { "Content-Type": "application/json", "x-goog-api-key": key };
+      } else if (p === "openai") {
+        url = "https://api.openai.com/v1/chat/completions";
+        payload = { model: "gpt-4o-mini", messages: [{role: "user", content: "Hello"}], max_tokens: 5 };
+        headers = { "Content-Type": "application/json", "Authorization": `Bearer ${key}` };
+      } else if (p === "anthropic") {
+        url = "https://api.anthropic.com/v1/messages";
+        payload = { model: "claude-3-5-haiku-latest", max_tokens: 5, messages: [{role: "user", content: "Hello"}] };
+        headers = { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" };
       }
-      state.settings.geminiKey = key;
+      const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) });
+      if (!res.ok) throw new Error(`APIエラー (${res.status})`);
+      
+      if (p === "gemini") state.settings.geminiKey = key;
+      if (p === "openai") state.settings.openaiKey = key;
+      if (p === "anthropic") state.settings.anthropicKey = key;
       saveSettingsNow(); renderSettings();
       toast("有効なAPIキーを保存しました");
     } catch (e) {
-      alert("通信確認エラー: " + e.message);
+      toast("通信確認エラー: " + e.message, true);
     } finally {
       btn.textContent = orig;
       btn.disabled = false;
@@ -4530,7 +4550,9 @@ if ($("#btnSaveKey")) {
 }
 
 $("#btnExport").addEventListener("click", async () => {
-  const data = JSON.stringify({ exportedAt: new Date().toISOString(), settings: state.settings, notes: state.notes, items: state.items, turns: state.turns, docs: state.docs }, null, 2);
+  const safeSettings = { ...state.settings };
+  delete safeSettings.geminiKey; delete safeSettings.openaiKey; delete safeSettings.anthropicKey;
+  const data = JSON.stringify({ exportedAt: new Date().toISOString(), settings: safeSettings, notes: state.notes, items: state.items, turns: state.turns, docs: state.docs }, null, 2);
   if (DL) {
     try { await DL.save({ filename: `hitohi-${dayKey(new Date(), state.settings.timezone)}.json`, data }); $("#expOut").innerHTML = '<p class="hint">書き出しました。</p>'; return; }
     catch (e) { /* fall through to copy box */ }
