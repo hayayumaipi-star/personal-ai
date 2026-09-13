@@ -2568,7 +2568,11 @@ function renderMe() {
                       L: "価値観 Leanings", O: "目標 Objectives", S: "理想像 Strivings" };
     h += `<div class="sect"><span class="eyebrow">TELOS</span>
       <h2>あなたの定義</h2>
-      <p class="hint">LifeOS フレームワーク。会話や資料から集まった「変わらないこと」を5軸で整理します。AIはこれを読んで返事を返します。</p></div>
+      <p class="hint">会話や資料から集まった「変わらないこと」を5軸で整理し、AIがこれを読んで返事を返します。</p>
+      <p class="hint" style="font-size:11px; margin-top:2px;">
+        <em>※ Inspired by Daniel Miessler's <a href="https://github.com/danielmiessler/LifeOS" target="_blank" style="color:var(--c3);text-decoration:underline;">LifeOS</a> (MIT License)</em>
+      </p>
+    </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:16px">`;
     for (const [ax, label] of Object.entries(axDesc)) {
       const items = profs.filter(p => (p.telosAxis || telosAxisFromCategory(p.category, p.title)) === ax);
