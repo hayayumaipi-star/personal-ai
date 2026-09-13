@@ -3903,6 +3903,7 @@ async function callAI(prompt, isJson, options) {
     if (!res.ok) {
       let emsg = res.status;
       try { const errObj = await res.json(); emsg = errObj.error?.message || emsg; } catch(e){}
+      if (res.status === 404) throw { code: "not_found", message: "AIモデルが見つかりません。バージョンを確認してください" };
       if (res.status === 429) throw { code: "rate_limited", message: "APIの無料枠の上限です" };
       if (res.status === 400 && String(emsg).includes("API key")) throw { code: "unauthorized", message: "APIキーが間違っています" };
       throw { code: "api_error", message: "API エラー: " + emsg };
