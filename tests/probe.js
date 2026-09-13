@@ -1530,6 +1530,48 @@
           }
         }
 
+        /* AS. 外部ファイル（.ics）は、壊れていると思って読む（v5.6・調査で発見）。
+           他所から来るファイルなのに、テストが1件も無かった。
+           とくに `TZID` は検算せず `zoned()` に渡していたので、
+           **壊れた1件でファイルまるごと読めなくなる**（例外が for を抜ける）。 */
+        {
+          const ics = body => "BEGIN:VCALENDAR" + String.fromCharCode(13,10) + body
+            + String.fromCharCode(13,10) + "END:VCALENDAR";
+          const ev = lines => "BEGIN:VEVENT" + String.fromCharCode(13,10)
+            + lines.join(String.fromCharCode(13,10)) + String.fromCharCode(13,10) + "END:VEVENT";
+          const nl = String.fromCharCode(13,10);
+
+          let got = null, threw = null;
+          try {
+            got = parseICS(ics(ev(["SUMMARY:壊れたほう", "DTSTART;TZID=Invalid/Zone:20260915T093000"]) + nl
+                             + ev(["SUMMARY:ちゃんとしたほう", "DTSTART:20260915T100000Z"])), TZ);
+          } catch (e) { threw = e.name + ": " + String(e.message).slice(0, 40); }
+          ok("AS. 壊れた TZID があっても、例外で止まらない", threw === null, String(threw));
+          ok("AS. 壊れた TZID は、こちらの設定で読む（捨てない）",
+             !!got && got.length === 2
+             && got[0].title === "壊れたほう"
+             && fmtDT(got[0].start, TZ) === fmtDT(zoned(2026, 9, 15, 9, 30, TZ).toISOString(), TZ),
+             got ? JSON.stringify(got.map(x => x.title + "@" + fmtDT(x.start, TZ))) : "（読めない）");
+
+          const safe = t => { try { return parseICS(t, TZ); } catch { return "★例外"; } };
+          ok("AS. 題名の無い予定は捨てる",
+             JSON.stringify(safe(ics(ev(["DTSTART:20260915T100000Z"])))) === "[]");
+          ok("AS. 日時の無い予定は捨てる",
+             JSON.stringify(safe(ics(ev(["SUMMARY:題名だけ"])))) === "[]");
+          ok("AS. 日付の形が違うものは捨てる",
+             JSON.stringify(safe(ics(ev(["SUMMARY:x", "DTSTART:きょう"])))) === "[]");
+          ok("AS. 空・null・数値でも落ちない",
+             JSON.stringify(safe("")) === "[]" && JSON.stringify(safe(null)) === "[]"
+             && JSON.stringify(safe(12345)) === "[]");
+          ok("AS. END:VEVENT が無くても落ちない",
+             JSON.stringify(safe("BEGIN:VEVENT" + nl + "SUMMARY:途中で終わる")) === "[]");
+          // 折り返し（行頭の空白で続く）を戻せること
+          const folded = safe(ics(ev(["SUMMARY:とても長い題" + nl + " 名のつづき", "DTSTART:20260915T100000Z"])));
+          ok("AS. 折り返した行をつなげて読む",
+             Array.isArray(folded) && folded.length === 1 && /つづき/.test(folded[0].title),
+             JSON.stringify(folded));
+        }
+
         // AIに日付の言葉を書かせない（決まり8の日付版）
         {
           const nq = mkNote("30分勉強する");

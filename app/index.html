@@ -4539,10 +4539,16 @@ function parseICS(text, tz) {
     const [, y, mo, d, h, mi, , z] = m;
     if (h == null) return { iso: zoned(+y, +mo, +d, 0, 0, tz).toISOString(), allDay: true };
     if (z) return { iso: new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi)).toISOString(), allDay: false };
+    /* `TZID` は**外から来た文字列**。使えないものを `zoned` に渡すと `Intl` が
+       RangeError を投げ、**その1件どころかファイルまるごと読めなくなる**（v5.6・調査で発見）。
+       使えなければ、こちらの設定のタイムゾーンで読む（捨てるより残すほうが良い）。 */
     const zid = (String(param || "").match(/TZID=([^;:]+)/) || [])[1];
-    return { iso: zoned(+y, +mo, +d, +h, +mi, zid || tz).toISOString(), allDay: false };
+    const zone = usableTz(zid) ? zid : tz;
+    return { iso: zoned(+y, +mo, +d, +h, +mi, zone).toISOString(), allDay: false };
   };
+  /* **壊れた1件で全部を落とさない。** 1行ずつ守り、読めない行は飛ばす。 */
   for (const raw of lines) {
+   try {
     const line = raw.trim();
     if (line === "BEGIN:VEVENT") { cur = {}; continue; }
     if (line === "END:VEVENT") { if (cur && cur.start && cur.title) out.push(cur); cur = null; continue; }
@@ -4555,6 +4561,7 @@ function parseICS(text, tz) {
     else if (name === "DTSTART") { const w = when(val, key); if (w) { cur.start = w.iso; cur.allDay = w.allDay; } }
     else if (name === "DTEND") { const w = when(val, key); if (w) cur.end = w.iso; }
     else if (name === "RRULE") cur.rrule = val;
+   } catch { /* この行は読めない。次へ進む（ファイル全体は捨てない） */ }
   }
   return out;
 }
