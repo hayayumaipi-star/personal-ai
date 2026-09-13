@@ -1,0 +1,22 @@
+# テストを走らせるために組み立てた一時ファイル（本体とテストから毎回作り直せる）
+tests/run-*.html
+tests/runner.html
+tests/preview.html
+tests/diag.html
+
+# 本人の生活データは、このリポジトリに入れない（CLAUDE.md の決まり）。
+# 書き出し（設定 → 書き出す）は手元に置くこと。念のため、それらしい名前を弾いておく。
+hitohi-*.json
+export-*.json
+*.local.json
+
+# 観測の試作の出力。%LOCALAPPDATA% 側に書く決まりだが、取り違えを防ぐために弾く
+observe-*.csv
+observe-*.log
+
+# OS・エディタが勝手に作るもの
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/

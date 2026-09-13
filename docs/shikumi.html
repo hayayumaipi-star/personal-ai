@@ -1,0 +1,419 @@
+<title>一日の下書きの仕組み</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700&family=Noto+Sans+JP:wght@400;500&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+:root{
+  --paper:#F2F4F3; --surface:#FFFFFF; --surface-2:#E8ECEB;
+  --ink:#14201F; --ink-2:#55635F; --ink-3:#7D8B87;
+  --line:#D3DAD8; --line-strong:#B7C1BE;
+  --accent:#0D6E6B; --accent-soft:#D9EDEB; --accent-ink:#0A4E4C;
+  --warn:#A65A0B; --warn-soft:#F7E7D2;
+  --done:#3D6B4A; --done-soft:#DEEBE1;
+  --alert:#A33A32;
+  --f-disp:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+  --f-body:"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+  --f-mono:"JetBrains Mono","SFMono-Regular",Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#101615; --surface:#182120; --surface-2:#212C2A;
+  --ink:#E4EBE9; --ink-2:#94A5A1; --ink-3:#74857F;
+  --line:#2E3B39; --line-strong:#3F504D;
+  --accent:#4FC3BC; --accent-soft:#14332F; --accent-ink:#8BDBD5;
+  --warn:#E0A458; --warn-soft:#33291A;
+  --done:#6FB587; --done-soft:#1B2E22;
+  --alert:#E0796F;
+}}
+:root[data-theme="dark"]{
+  --paper:#101615; --surface:#182120; --surface-2:#212C2A;
+  --ink:#E4EBE9; --ink-2:#94A5A1; --ink-3:#74857F;
+  --line:#2E3B39; --line-strong:#3F504D;
+  --accent:#4FC3BC; --accent-soft:#14332F; --accent-ink:#8BDBD5;
+  --warn:#E0A458; --warn-soft:#33291A;
+  --done:#6FB587; --done-soft:#1B2E22;
+  --alert:#E0796F;
+}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:15.5px;line-height:1.9;
+  -webkit-text-size-adjust:100%}
+.wrap{max-width:740px;margin:0 auto;padding:34px 18px 80px}
+h1,h2,h3{font-family:var(--f-disp);font-weight:700;line-height:1.45;margin:0;text-wrap:balance}
+p{margin:0}
+.eyebrow{font-family:var(--f-disp);font-size:10.5px;font-weight:700;letter-spacing:.18em;
+  color:var(--ink-3);text-transform:uppercase;display:block}
+
+header.hero{border-bottom:2px solid var(--ink);padding-bottom:22px;margin-bottom:8px}
+header.hero h1{font-size:27px;letter-spacing:.01em;margin:7px 0 12px}
+header.hero .lead{font-size:17px;line-height:1.85;color:var(--ink)}
+header.hero .lead b{color:var(--accent-ink);font-weight:700}
+:root[data-theme="dark"] header.hero .lead b{color:var(--accent)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) header.hero .lead b{color:var(--accent)}}
+header.hero .sub{margin-top:12px;font-size:13px;color:var(--ink-2)}
+
+section{margin-top:44px}
+section>h2{font-size:20px;margin:6px 0 10px}
+section>.intro{color:var(--ink-2);font-size:14.5px;margin-bottom:16px}
+
+figure{margin:22px 0;padding:0}
+figure svg{display:block;width:100%;max-width:100%;height:auto;color:var(--ink)}
+figcaption{margin-top:10px;font-size:12.5px;color:var(--ink-2);line-height:1.75;
+  border-left:3px solid var(--line-strong);padding-left:10px}
+
+ol.steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:2px;counter-reset:s}
+ol.steps>li{counter-increment:s;display:grid;grid-template-columns:30px 1fr;gap:12px;
+  padding:13px 0;border-top:1px solid var(--line)}
+ol.steps>li:last-child{border-bottom:1px solid var(--line)}
+ol.steps>li::before{content:counter(s);font-family:var(--f-mono);font-size:12px;color:var(--accent);
+  padding-top:3px}
+ol.steps>li>b{grid-column:2;font-family:var(--f-disp);font-weight:700;font-size:15.5px}
+ol.steps>li>span{grid-column:2;font-size:14px;color:var(--ink-2);margin-top:2px}
+
+.kinds{display:grid;grid-template-columns:repeat(auto-fill,minmax(164px,1fr));gap:9px;margin-top:6px}
+.kind{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:10px 11px}
+.kind b{font-family:var(--f-disp);font-size:13.5px;display:block}
+.kind span{font-size:12px;color:var(--ink-2);display:block;margin-top:2px;line-height:1.7}
+.kind.hi{border-color:var(--accent);background:var(--accent-soft)}
+.kind.hi b{color:var(--accent-ink)}
+:root[data-theme="dark"] .kind.hi b{color:var(--accent)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .kind.hi b{color:var(--accent)}}
+
+.note{border-radius:9px;padding:12px 14px;font-size:14px;line-height:1.85;margin-top:16px}
+.note.a{background:var(--accent-soft);border:1px solid var(--accent);color:var(--accent-ink)}
+:root[data-theme="dark"] .note.a{color:var(--ink)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .note.a{color:var(--ink)}}
+.note.w{background:var(--warn-soft);border:1px solid var(--warn);color:var(--warn)}
+.note.g{background:var(--surface-2);border:1px solid var(--line);color:var(--ink-2)}
+
+ul.rules{list-style:none;padding:0;margin:12px 0 0;display:flex;flex-direction:column;gap:9px}
+ul.rules>li{padding-left:19px;position:relative;font-size:14.5px;line-height:1.8}
+ul.rules>li::before{content:"";position:absolute;left:0;top:11px;width:9px;height:9px;
+  border-radius:2px;background:var(--accent)}
+ul.rules>li b{font-weight:700}
+
+table.layers{width:100%;border-collapse:collapse;margin-top:6px;font-size:14px}
+table.layers th,table.layers td{text-align:left;padding:11px 10px;border-bottom:1px solid var(--line);
+  vertical-align:top}
+table.layers th{font-family:var(--f-disp);font-size:12px;color:var(--ink-3);font-weight:700;
+  letter-spacing:.04em;white-space:nowrap}
+table.layers td b{font-family:var(--f-disp)}
+table.layers td span{color:var(--ink-2);font-size:13px;display:block;margin-top:2px}
+.tablewrap{overflow-x:auto}
+
+.grid2{display:grid;grid-template-columns:1fr;gap:11px;margin-top:6px}
+@media (min-width:620px){.grid2{grid-template-columns:1fr 1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px}
+.card h3{font-size:14.5px;margin-bottom:5px}
+.card p{font-size:13.5px;color:var(--ink-2);line-height:1.8}
+.card.ok{border-left:4px solid var(--done)}
+.card.no{border-left:4px solid var(--warn)}
+
+.mono{font-family:var(--f-mono);font-size:12.5px}
+footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);
+  font-size:12.5px;color:var(--ink-3);line-height:1.8}
+</style>
+
+<div class="wrap">
+
+<header class="hero">
+  <span class="eyebrow">How it works</span>
+  <h1>一日の下書きの仕組み</h1>
+  <p class="lead">
+    あなたが<b>整理せずに話す</b>。アプリは言葉を<b>そのまま保存</b>してから意味を読み取り、
+    記録を更新し、<b>予定を計算し直して</b>、短く返す。<br>
+    ——この一往復が、全部です。
+  </p>
+  <p class="sub">画面は3つ（話す・今日・わたしのこと）＋設定。覚えることはありません。</p>
+</header>
+
+<!-- ============ 1. 流れ ============ -->
+<section>
+  <span class="eyebrow">Pipeline</span>
+  <h2>話しかけてから、返事が出るまで</h2>
+  <p class="intro">6つの段を順に通ります。大事なのは <b>2段目</b>——意味を読み取る前に、言葉をそのまま保存しているところです。</p>
+
+  <figure>
+    <svg viewBox="0 0 420 556" role="img" aria-label="発言は、意味を読み取る前にまず原文として保存され、そのあとルールかAIで操作に変換され、検証されてから記録に適用され、予定が計算されて短い返事になる。">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <!-- 1 -->
+      <rect x="90" y="6" width="240" height="44" rx="9" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <text x="210" y="27" text-anchor="middle" font-size="13" font-weight="700" fill="currentColor">あなたが話す</text>
+      <text x="210" y="42" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".65">整理しなくていい</text>
+      <line x1="210" y1="50" x2="210" y2="72" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <!-- 2 原文 -->
+      <rect x="90" y="76" width="240" height="50" rx="9" fill="#0D6E6B" fill-opacity=".12" stroke="#0D6E6B" stroke-width="2"/>
+      <text x="210" y="98" text-anchor="middle" font-size="13" font-weight="700" fill="currentColor">原文をそのまま保存</text>
+      <text x="210" y="114" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".8">全角も言い間違いも、いじらない</text>
+      <text x="342" y="96" font-size="10" fill="#0D6E6B" font-weight="700">ここが</text>
+      <text x="342" y="109" font-size="10" fill="#0D6E6B" font-weight="700">安全網</text>
+      <line x1="210" y1="126" x2="210" y2="150" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+      <text x="218" y="142" font-size="10" fill="currentColor" opacity=".7">保存してから、はじめてAIを呼ぶ</text>
+
+      <!-- 3 読み取り -->
+      <rect x="40" y="154" width="340" height="74" rx="9" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <text x="210" y="174" text-anchor="middle" font-size="13" font-weight="700" fill="currentColor">意味を読み取る</text>
+      <rect x="54" y="184" width="150" height="34" rx="7" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-width="1"/>
+      <text x="129" y="199" text-anchor="middle" font-size="11" fill="currentColor">ルール</text>
+      <text x="129" y="212" text-anchor="middle" font-size="9.5" fill="currentColor" opacity=".65">無料・即時・オフライン可</text>
+      <rect x="216" y="184" width="150" height="34" rx="7" fill="currentColor" fill-opacity=".06" stroke="currentColor" stroke-width="1" stroke-dasharray="4 3"/>
+      <text x="291" y="199" text-anchor="middle" font-size="11" fill="currentColor">AI（任意）</text>
+      <text x="291" y="212" text-anchor="middle" font-size="9.5" fill="currentColor" opacity=".65">失敗したらルールに戻る</text>
+      <line x1="210" y1="228" x2="210" y2="250" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+      <text x="218" y="243" font-size="10" fill="currentColor" opacity=".7">「操作」の一覧にする</text>
+
+      <!-- 4 検証 -->
+      <rect x="90" y="254" width="240" height="50" rx="9" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <text x="210" y="276" text-anchor="middle" font-size="13" font-weight="700" fill="currentColor">確かめてから適用</text>
+      <text x="210" y="292" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".65">おかしい操作・重複は捨てる</text>
+      <line x1="210" y1="304" x2="210" y2="326" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+      <text x="218" y="319" font-size="10" fill="currentColor" opacity=".7">記録が変わる</text>
+
+      <!-- 5 計算 -->
+      <rect x="90" y="330" width="240" height="50" rx="9" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <text x="210" y="352" text-anchor="middle" font-size="13" font-weight="700" fill="currentColor">予定を計算し直す</text>
+      <text x="210" y="368" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".65">コードだけで計算。AIは触らない</text>
+      <line x1="210" y1="380" x2="210" y2="402" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <!-- 6 返す -->
+      <rect x="90" y="406" width="240" height="50" rx="9" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <text x="210" y="428" text-anchor="middle" font-size="13" font-weight="700" fill="currentColor">短く返す</text>
+      <text x="210" y="444" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".65">変えたこと＋次の一つだけ</text>
+
+      <!-- 落ちたときの矢印 -->
+      <path d="M40 191 L20 191 L20 470 L188 470" fill="none" stroke="#A65A0B" stroke-width="1.5"
+            stroke-dasharray="5 4" marker-end="url(#ar)"/>
+      <text x="24" y="492" font-size="10.5" fill="#A65A0B" font-weight="700">AIが落ちても、</text>
+      <text x="24" y="506" font-size="10.5" fill="#A65A0B" font-weight="700">原文とルールの結果は残る</text>
+      <text x="24" y="524" font-size="10" fill="currentColor" opacity=".6">＝話した言葉は絶対に消えない</text>
+    </svg>
+    <figcaption>言葉を保存してからAIを呼ぶ順番が、この設計の要。AIが使えなくても、落ちても、話した内容と読み取り結果は手元に残ります。</figcaption>
+  </figure>
+
+  <ol class="steps">
+    <li><b>あなたが話す</b><span>予定も気分も思いつきも、混ぜたままで大丈夫です。</span></li>
+    <li><b>原文をそのまま保存</b><span>「午後５時」の全角も、言い間違いも、いじりません。あとで「根拠」として戻れる場所になります。</span></li>
+    <li><b>意味を読み取る</b><span>文を1つずつ見て、種類を決めます。ふだんはルール。設定でAIをオンにすると、言い直しや完了の判断もできるようになります。</span></li>
+    <li><b>確かめてから適用</b><span>存在しない用事、範囲外の数字、おかしい日付は捨てます。すでにあるものと同じなら作りません。</span></li>
+    <li><b>予定を計算し直す</b><span>記録が変わったので、その日の案を作り直します。ここは全部コードの計算です。</span></li>
+    <li><b>短く返す</b><span>変えたことを一言、必要なら次の一つ。予定表は大きく変わったときだけ出します。</span></li>
+  </ol>
+</section>
+
+<!-- ============ 2. 覚えているもの ============ -->
+<section>
+  <span class="eyebrow">Memory</span>
+  <h2>何を覚えているか</h2>
+  <p class="intro">発言から作られるものは、10種類に分かれています。<b>全部をタスクにはしません。</b></p>
+
+  <div class="kinds">
+    <div class="kind hi"><b>原文</b><span>話した言葉そのもの。すべての根拠</span></div>
+    <div class="kind"><b>タスク</b><span>やると決めたこと</span></div>
+    <div class="kind"><b>予定</b><span>時刻の決まった、動かさないもの</span></div>
+    <div class="kind"><b>目標</b><span>日付のない、続けたいこと</span></div>
+    <div class="kind"><b>体調</b><span>本人の言葉のまま。点数は作らない</span></div>
+    <div class="kind"><b>気になっていること</b><span>迷い・いつか。予定に入れない</span></div>
+    <div class="kind"><b>メモ</b><span>あとで見返したいこと</span></div>
+    <div class="kind"><b>こうしてほしい</b><span>出し方の希望。この日だけ／ずっと</span></div>
+    <div class="kind"><b>わたしのこと</b><span>変わらない性質・好み・制約</span></div>
+    <div class="kind"><b>資料</b><span>自分で渡した文章そのもの</span></div>
+  </div>
+
+  <div class="note a">
+    <b>「いまの状態」は保存していません。</b>
+    エネルギー62点、といった数字は作りません。その日の案は、見るたびに記録から計算し直します。
+    保存すると、古い状態が「現在の事実」として残り続けてしまうからです。
+  </div>
+</section>
+
+<!-- ============ 3. 予定 ============ -->
+<section>
+  <span class="eyebrow">Planning</span>
+  <h2>予定はこう組まれる</h2>
+  <p class="intro">動かせないものを先に確保し、残った隙間にだけ作業を置きます。空いた時間を全部は埋めません。</p>
+
+  <figure>
+    <svg viewBox="0 0 700 216" role="img" aria-label="固定予定と移動・準備を先に確保し、現在時刻より後の空き時間にだけ作業枠を置く。入らなかったものは理由つきで未配置にする。">
+      <defs>
+        <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+        <pattern id="past" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <line x1="0" y1="0" x2="0" y2="7" stroke="currentColor" stroke-width="1" opacity=".22"/>
+        </pattern>
+      </defs>
+
+      <!-- 目盛り -->
+      <line x1="50" y1="150" x2="650" y2="150" stroke="currentColor" stroke-width="1" opacity=".4"/>
+      <g font-size="10" fill="currentColor" opacity=".6" text-anchor="middle" font-family="monospace">
+        <text x="50" y="166">8:00</text><text x="170" y="166">10:00</text><text x="290" y="166">12:00</text>
+        <text x="410" y="166">14:00</text><text x="530" y="166">16:00</text><text x="650" y="166">18:00</text>
+      </g>
+
+      <!-- 過去 -->
+      <rect x="50" y="60" width="180" height="86" fill="url(#past)"/>
+      <line x1="230" y1="42" x2="230" y2="152" stroke="#A65A0B" stroke-width="2"/>
+      <text x="230" y="36" text-anchor="middle" font-size="11" font-weight="700" fill="#A65A0B">いま 11:00</text>
+      <text x="140" y="106" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">過ぎた時間には</text>
+      <text x="140" y="120" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".7">新しい作業を置かない</text>
+
+      <!-- 固定：準備・移動・予定 -->
+      <rect x="350" y="60" width="40" height="30" rx="4" fill="currentColor" fill-opacity=".12" stroke="currentColor" stroke-width="1"/>
+      <text x="370" y="79" text-anchor="middle" font-size="9" fill="currentColor">準備</text>
+      <rect x="390" y="60" width="40" height="30" rx="4" fill="currentColor" fill-opacity=".12" stroke="currentColor" stroke-width="1"/>
+      <text x="410" y="79" text-anchor="middle" font-size="9" fill="currentColor">移動</text>
+      <rect x="430" y="60" width="60" height="30" rx="4" fill="#0D6E6B" fill-opacity=".22" stroke="#0D6E6B" stroke-width="2"/>
+      <text x="460" y="79" text-anchor="middle" font-size="9.5" fill="currentColor" font-weight="700">打合せ</text>
+      <text x="420" y="52" text-anchor="middle" font-size="10" fill="#0D6E6B" font-weight="700">① 動かさないものを先に確保</text>
+
+      <!-- 作業枠 -->
+      <rect x="230" y="100" width="60" height="30" rx="4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 3"/>
+      <text x="260" y="119" text-anchor="middle" font-size="9.5" fill="currentColor">資料</text>
+      <rect x="290" y="100" width="24" height="30" rx="4" fill="none" stroke="#A65A0B" stroke-width="1" stroke-dasharray="3 3"/>
+      <text x="302" y="119" text-anchor="middle" font-size="8" fill="#A65A0B">予備</text>
+      <rect x="490" y="100" width="50" height="30" rx="4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 3"/>
+      <text x="515" y="119" text-anchor="middle" font-size="9.5" fill="currentColor">返信</text>
+      <text x="262" y="93" text-anchor="middle" font-size="10" fill="currentColor" opacity=".75">② 隙間にだけ作業</text>
+
+      <!-- 空き -->
+      <text x="392" y="119" text-anchor="middle" font-size="9.5" fill="currentColor" opacity=".45">空き</text>
+      <text x="600" y="119" text-anchor="middle" font-size="9.5" fill="currentColor" opacity=".45">空けておく</text>
+
+      <!-- 未配置 -->
+      <line x1="560" y1="186" x2="612" y2="186" stroke="currentColor" stroke-width="1.2" opacity=".5" marker-end="url(#ar2)"/>
+      <text x="556" y="190" text-anchor="end" font-size="10.5" fill="currentColor" opacity=".8">入らなかったもの</text>
+      <text x="618" y="190" font-size="10.5" fill="#A65A0B" font-weight="700">理由つきで未配置</text>
+    </svg>
+    <figcaption>「必要な60分に対して、空いているのは最大20分です」——入らなかったものは、無理に詰めずに理由を添えて外に出します。</figcaption>
+  </figure>
+
+  <ul class="rules">
+    <li><b>締切と、いつ手を付けたいかは別物。</b>「明日までの資料を、できれば今日の午前に」なら、締切は明日のまま、作業は今日の午前に置きます。</li>
+    <li><b>移動と準備も動かさない枠。</b>「14時開始、移動40分」と言えば、13:20〜14:00 を移動として確保します。</li>
+    <li><b>仮置きは仮置きと書く。</b>時間を言っていなければ30分と仮に置き、「所要時間が書かれていないので30分と仮置きしました」と理由に出します。</li>
+    <li><b>続けて90分たったら休憩を挟みます。</b>これはアプリが入れたものだと明記します。</li>
+    <li><b>「今日は詰めないで」はその日だけ。</b>「しばらくそうして」ならずっと。一日の気分が永久のルールにならないようにしています。</li>
+  </ul>
+</section>
+
+<!-- ============ 4. AIの担当 ============ -->
+<section>
+  <span class="eyebrow">Division of labour</span>
+  <h2>AIはどこまでやるか</h2>
+  <p class="intro">はっきり線を引いてあります。<b>時刻と予定表はコードが作り、AIは文章だけ書きます。</b></p>
+
+  <figure>
+    <svg viewBox="0 0 700 268" role="img" aria-label="AIが返すのは操作と文章だけ。時刻と予定表はコードが計算する。AIから予定表への経路は存在しない。">
+      <defs>
+        <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <rect x="14" y="102" width="112" height="48" rx="9" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <text x="70" y="124" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">あなたの発言</text>
+      <text x="70" y="139" text-anchor="middle" font-size="10" fill="currentColor" opacity=".6">＋いまの記録</text>
+
+      <!-- AI -->
+      <line x1="126" y1="118" x2="196" y2="66" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar3)"/>
+      <rect x="200" y="26" width="188" height="76" rx="9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 3"/>
+      <text x="294" y="48" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">AI（任意）</text>
+      <rect x="214" y="58" width="76" height="28" rx="6" fill="currentColor" fill-opacity=".08"/>
+      <text x="252" y="76" text-anchor="middle" font-size="10.5" fill="currentColor">操作</text>
+      <rect x="298" y="58" width="76" height="28" rx="6" fill="currentColor" fill-opacity=".08"/>
+      <text x="336" y="76" text-anchor="middle" font-size="10.5" fill="currentColor">文章</text>
+
+      <!-- コード -->
+      <line x1="126" y1="134" x2="196" y2="186" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar3)"/>
+      <rect x="200" y="150" width="188" height="92" rx="9" fill="#0D6E6B" fill-opacity=".1" stroke="#0D6E6B" stroke-width="2"/>
+      <text x="294" y="172" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">コード</text>
+      <text x="294" y="191" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".85">操作を確かめる</text>
+      <text x="294" y="207" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".85">記録を更新する</text>
+      <text x="294" y="223" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".85">時刻を計算する</text>
+
+      <!-- AI → コード -->
+      <line x1="294" y1="102" x2="294" y2="146" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar3)"/>
+      <text x="302" y="129" font-size="10" fill="currentColor" opacity=".7">操作だけ渡す</text>
+
+      <!-- 出力 -->
+      <line x1="388" y1="196" x2="452" y2="196" stroke="currentColor" stroke-width="1.5" marker-end="url(#ar3)"/>
+      <rect x="456" y="150" width="230" height="92" rx="9" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <text x="571" y="174" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">画面に出るもの</text>
+      <text x="571" y="194" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".85">予定表・時刻・所要時間</text>
+      <text x="571" y="212" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".85">変えたことの一覧</text>
+      <text x="571" y="230" text-anchor="middle" font-size="10.5" fill="currentColor" opacity=".85">＋ AIが書いた文章</text>
+
+      <!-- 存在しない経路 -->
+      <path d="M388 64 L520 64 L520 146" fill="none" stroke="#A33A32" stroke-width="1.5" stroke-dasharray="6 4"/>
+      <g stroke="#A33A32" stroke-width="2.5">
+        <line x1="446" y1="52" x2="470" y2="76"/><line x1="470" y1="52" x2="446" y2="76"/>
+      </g>
+      <text x="484" y="60" font-size="10.5" fill="#A33A32" font-weight="700">AIに時刻や表は書かせない</text>
+      <text x="484" y="75" font-size="9.5" fill="currentColor" opacity=".6">画面の予定と食い違わないように</text>
+    </svg>
+    <figcaption>AIに表を書かせると、画面の予定と平気でずれた時刻を書きます。だから経路そのものを作っていません。</figcaption>
+  </figure>
+
+  <div class="grid2">
+    <div class="card ok"><h3>AIをオンにすると</h3><p>「15時じゃなくて14時」の言い直し、「できた」の完了判定ができるようになります。<b>費用はかかりません</b>（あなたのClaudeの枠を使います）。返事まで数十秒かかります。</p></div>
+    <div class="card no"><h3>AIをオフにすると</h3><p>何も送信しません。追加・計画・訂正・再計画は全部できます。ただし<b>言い直しと完了の自動判定はできません</b>。そのときは黙って無視せず、「ボタンから直して」と返します。</p></div>
+  </div>
+</section>
+
+<!-- ============ 5. 4つの層 ============ -->
+<section>
+  <span class="eyebrow">Foundation</span>
+  <h2>混ぜないと決めた4つの層</h2>
+  <p class="intro">この区別が崩れると、AIの推測があなたの決定として残り、古い状態が現在の事実になります。設計の芯です。</p>
+
+  <div class="tablewrap"><table class="layers">
+    <tr><th>層</th><th>中身</th></tr>
+    <tr><td><b>原文</b></td><td>あなたが言った言葉そのもの<span>編集しない。すべての項目がここを指している</span></td></tr>
+    <tr><td><b>読み取ったもの</b></td><td>原文から作られた項目<span>必ず「どの発言から」「どの部分から」を持つ</span></td></tr>
+    <tr><td><b>確からしさ</b></td><td>読み取ったまま／AIが読み取ったまま／本人が訂正<span>各項目に印が出る。これが消えると推測と決定の区別がつかない</span></td></tr>
+    <tr><td><b>いまの状態</b></td><td>保存しない<span>見るたびに計算し直す</span></td></tr>
+  </table></div>
+</section>
+
+<!-- ============ 6. 保証 ============ -->
+<section>
+  <span class="eyebrow">Guarantees</span>
+  <h2>壊れないようにしてあること</h2>
+  <div class="grid2">
+    <div class="card ok"><h3>話した言葉は消えない</h3><p>AIを呼ぶ前に原文を保存します。AIが落ちても、混んでいても、拒否されても残ります。送信欄は送った瞬間に空になり、処理に失敗したときだけ書き戻します。</p></div>
+    <div class="card ok"><h3>同じことを二重に作らない</h3><p>同じ用事は、完了済み・取り消し済みも含めて突き合わせます。だから終わったタスクが再び提案されることはありません。</p></div>
+    <div class="card ok"><h3>訂正が最新</h3><p>直した内容が以後の提案に反映されます。元の読み取り結果は履歴に残り、いつ何を直したか追えます。</p></div>
+    <div class="card ok"><h3>黙って失敗しない</h3><p>ボタンが効かなかったときは必ず画面に理由を出します。「記録した」「完了にした」は、実際に保存が成功したときだけ言います。</p></div>
+    <div class="card ok"><h3>根拠にいつでも戻れる</h3><p>どの項目からも「根拠」を開けば、元の発言のどこから来たかが光ります。日時とタイムゾーンも一緒に出ます。</p></div>
+    <div class="card ok"><h3>勝手に確定しない</h3><p>曜日まで言っていない「来週」は期限にしません。「期限があいまい」と表示して、あなたが決めるまで待ちます。</p></div>
+  </div>
+  <div class="note g">
+    これらは文章の約束ではなく、<span class="mono">203件</span>の自動テストで毎回確かめています。
+    うち50件は、朝から夜までの会話を<b>1発言ずつ</b>流して、返答・保存内容・予定案・次の一手を検証するものです。
+  </div>
+</section>
+
+<!-- ============ 7. まだできないこと ============ -->
+<section>
+  <span class="eyebrow">Not yet</span>
+  <h2>まだできないこと</h2>
+  <p class="intro">正直に書いておきます。</p>
+  <ul class="rules">
+    <li><b>閉じている間は何も動きません。</b>開いたときだけ動くページです。通知も、朝の自動連絡もありません。</li>
+    <li><b>カレンダー連携はありません。</b>アプリの中の予定案と、実際のカレンダーは別物です。手入力で試せます。</li>
+    <li><b>音声認識は入っていません。</b>スマホのキーボードのマイクボタンを使ってください。</li>
+    <li><b>健康データ・栄養・買い物リストは未実装です。</b>体調は、あなたが言ったことを引用して残すだけです。</li>
+    <li><b>行動の自動取得はしていません。</b>パソコンやスマホの操作は一切見ていません。</li>
+  </ul>
+</section>
+
+<footer>
+  一日の下書き v1.1 ／ データはあなたのclaude.aiのページと、この端末の中にあります。<br>
+  設定の「書き出す（JSON）」で、いつでも手元に取り出せます。
+</footer>
+
+</div>
