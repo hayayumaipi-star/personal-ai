@@ -496,12 +496,13 @@ details.unconf>summary{color:var(--warn)}
     <div class="card stack">
       <h3 style="font-size:14px">データ</h3>
       <p class="hint" id="dataState"></p>
-      <p class="hint"><strong>このページのリンクを、人に渡さないでください。</strong>
-        記録は <code>notes</code> や <code>items</code> という<strong>共有の場所</strong>に入っています。
-        2026-09-13 に検査用のページを別の人に開いてもらい、
-        <strong>こちらが入れた記録がそのまま見えることを確かめました</strong>。<br>
-        リンクを渡すと、<strong>あなたの予定・会話・体調が相手に見えます。</strong><br>
-        人にも使ってもらうなら、<code>app/index.html</code> を渡して
+      <p class="hint"><strong>このページを共有している間は、記録も共有されます。</strong>
+        記録は <code>notes</code> や <code>items</code> という<strong>共有の場所</strong>に入っているので、
+        リンクを開いた人には<strong>ここにある予定・会話・体調がそのまま見えます</strong>
+        （2026-09-13 に別の人に開いてもらって確かめました）。<br>
+        <strong>共有している間は、見られて困ることを入れないでください。</strong>
+        本当の予定として使い始めるときは、先に共有を切ること。<br>
+        人にも「自分の秘書」として使ってもらうなら、<code>app/index.html</code> を渡して
         <strong>その人自身のページとして公開</strong>してもらってください。データもAIの枠も完全に分かれます。<br>
         端末の中の控え（localStorage）は、その端末の中だけに残ります。</p>
       <div class="note warn" id="dataWarn" hidden></div>
