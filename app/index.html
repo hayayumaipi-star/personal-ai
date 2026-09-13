@@ -1602,17 +1602,36 @@ async function putSettings(s) {
    1回に読めるのは1000件までなので、`state` にあるものだけ消すと、
    画面に出ていない古い記録が**消えずに残り、件数の上限を食い続ける**。
    「すべて消しました」と言う以上、本当に空にしてから言うこと。 */
+/* **消えた証拠は「呼んだ回数」ではなく「残っている件数」で確かめる**（v4.8・実機で報告）。
+   `delete()` は idempotent で、**存在しない文書を消しても成功する**。
+   だから「delete を何回呼べたか」は、消えた証拠に一切ならない。
+   さらに失敗を `catch {}` で握りつぶしていたので、
+   **1件も消えていないのに「すべて消しました」と出ていた**（実機でそうなった）。
+   数えるのをやめて、**最後にもう一度読み直し、本当に空かどうかを返す**。 */
 async function wipeCollection(name) {
-  if (!DB) return 0;
-  let total = 0;
+  if (!DB) return { remaining: 0, failed: 0, error: null, skipped: true };
+  let failed = 0, error = null;
   for (let round = 0; round < 40; round++) {
     let snap;
-    try { snap = await DB.collection(name).limit(500).get(); } catch (e) { dbTrouble(e); break; }
+    try { snap = await DB.collection(name).limit(500).get(); } catch (e) { error = error || e; dbTrouble(e); break; }
     if (!snap.docs.length) break;
-    for (const d of snap.docs) { try { await DB.doc(name + "/" + d.id).delete(); total++; } catch {} }
+    let failedHere = 0;
+    for (const d of snap.docs) {
+      const ref = () => DB.doc(name + "/" + d.id);
+      try { await ref().delete(); continue; } catch (e) { error = error || e; if (!(e && e.code === "unavailable")) { failed++; failedHere++; continue; } }
+      // 一時的な失敗だけ、少し待って1度だけ試し直す（保存先の仕様どおり）
+      await new Promise(r => setTimeout(r, 300 + Math.random() * 300));
+      try { await ref().delete(); } catch (e2) { error = e2; failed++; failedHere++; }
+    }
+    // 1件も消せなかったなら、同じものを読み直すだけになる。空回りさせない
+    if (failedHere >= snap.docs.length) break;
     if (snap.docs.length < 500) break;
   }
-  return total;
+  // **状態で確かめる。** 呼び出し回数ではなく、本当に残っていないかを読み直す
+  let remaining = 0;
+  try { remaining = (await DB.collection(name).limit(500).get()).docs.length; }
+  catch (e) { error = error || e; remaining = -1; }
+  return { remaining, failed, error, skipped: false };
 }
 function dbTrouble(e) {
   const c = e && e.code;
@@ -4411,16 +4430,38 @@ $("#btnWipe").addEventListener("click", async () => {
   });
   if (!yes) return;
   $("#expOut").innerHTML = '<p class="hint">消しています…</p>';
-  // 画面に読み込めていない古い記録まで消し切る。数えた数をそのまま出す（盛らない）
-  let gone = 0;
-  for (const c of ["notes", "items", "turns", "docs"]) gone += await wipeCollection(c);
+  // 画面に読み込めていない古い記録まで消し切る。消えたかどうかは読み直して確かめる
+  let remaining = 0, failed = 0, firstErr = null, usedDb = false;
+  for (const c of ["notes", "items", "turns", "docs"]) {
+    const r = await wipeCollection(c);
+    if (!r.skipped) usedDb = true;
+    if (r.remaining > 0) remaining += r.remaining;
+    failed += r.failed;
+    firstErr = firstErr || r.error;
+  }
+  /* **消せていないのに、消えたように見せない**（v4.8）。
+     保存先に残っているのに手元だけ空にすると、開き直したときに全部戻ってきて
+     「押しても消えない」に見える（実機でそう報告された）。
+     消し切れなかったときは**何も消さず**、理由を出して止まる。 */
+  if (usedDb && (remaining !== 0 || failed)) {
+    lastError = `全部消す：保存先に${remaining < 0 ? "不明な数の" : remaining + "件"}残りました`
+      + (firstErr ? `（${describeError(firstErr)}）` : "（理由は返ってきていません）");
+    renderSettings();
+    $("#expOut").innerHTML = `<div class="note bad"><strong>保存先の記録を消せませんでした。</strong>
+      ${remaining > 0 ? `まだ ${remaining.toLocaleString()}件 残っています。` : ""}
+      消えたように見せないため、<strong>この端末の記録もそのままにしました。</strong><br>
+      ${firstErr ? "理由：" + esc(describeError(firstErr)) : ""}<br>
+      設定の「最後に起きた不具合」の文をそのまま伝えてください。</div>`;
+    toast("保存先の記録は消せませんでした");
+    return;
+  }
   state.notes = []; state.items = []; state.turns = {}; state.docs = [];
   // 入力中の下書きも残さない（「全部消す」と言った以上、書きかけも消す）
   try { localStorage.removeItem(DRAFT); } catch {}
   $("#say").value = ""; saveDraft();
   lsWrite(); renderAll();
-  $("#expOut").innerHTML = `<p class="hint">${DB ? `保存先から${gone.toLocaleString()}件を消しました。` : "この端末の記録を消しました。"}設定は残してあります。</p>`;
-  toast("すべて消しました");
+  $("#expOut").innerHTML = `<p class="hint">${usedDb ? "保存先の記録も、読み直して空になったことを確かめました。" : "この端末の記録を消しました。"}設定は残してあります。</p>`;
+  toast(usedDb ? "すべて消しました" : "この端末の記録を消しました");
 });
 
 /* 古い記録だけを整理する（v4.3）。

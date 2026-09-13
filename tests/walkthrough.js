@@ -335,13 +335,43 @@
       if (t) { await act("done", t.id); if (findItem(t.id).status !== "done") throw new Error("読み直したあと完了にできない"); }
     });
 
-    /* ===== 最後に全消し ===== */
+    /* ===== 最後に全消し =====
+       **消えたかどうかは、保存先を読み直して確かめること**（v4.8・実機で報告）。
+       ここは state だけを見ていたので、保存先に1件も届いていなくても通っていた。
+       `delete()` は存在しない文書でも成功するので、呼べた回数は証拠にならない。 */
+    await step("保存先を消せないときは「消しました」と言わない", async () => {
+      const db = await window.claude.use("db");
+      const origDoc = db.doc;
+      db.doc = function (p) {
+        const r = origDoc.call(db, p);
+        r.delete = () => Promise.reject({ code: "invalid_argument", message: "テスト用に失敗させた" });
+        return r;
+      };
+      const before = state.items.length;
+      try {
+        await click('nav.tabs [data-tab="p-set"]');
+        await click("#btnWipe");
+        if (!has("#cfYes")) throw new Error("確認シートが出ない");
+        await click("#cfYes");
+        if (!await waitFor(() => /消せませんでした/.test($$("#expOut").textContent), 6000))
+          throw new Error("消せていないのに、そう言わない");
+        if (state.items.length !== before) throw new Error("保存先が消せていないのに、手元だけ空にした");
+      } finally { db.doc = origDoc; }
+      if (!lastError) throw new Error("不具合として記録されない");
+      lastError = null;              // わざと起こした失敗なので、ここで消す
+    });
     await step("「全部消す」（確認 → 消す）", async () => {
       await click('nav.tabs [data-tab="p-set"]');
       await click("#btnWipe");
       if (!has("#cfYes")) throw new Error("確認シートが出ない");
       await click("#cfYes"); await wait(400);
       if (state.items.length || state.notes.length || state.docs.length) throw new Error("消えていない");
+      // **保存先も読み直す。**ここを見ていなかったので v4.8 の穴を見逃していた
+      const db = await window.claude.use("db");
+      for (const c of ["notes", "items", "turns", "docs"]) {
+        const n = (await db.collection(c).get()).docs.length;
+        if (n) throw new Error(`保存先の ${c} が ${n}件 残っている`);
+      }
     });
     await step("空になったあとも画面が出る", async () => {
       await click('nav.tabs [data-tab="p-day"]');
