@@ -3953,9 +3953,9 @@ async function callAI(prompt, isJson, options) {
 
   if (key) {
     if (p === "gemini") {
-      const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${key}";
+      const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}";
       const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 8192 } };
-      if (isJson) payload.generationConfig.responseMimeType = "application/json";
+      /* if (isJson) payload.generationConfig.responseMimeType = "application/json"; // Remove this to prevent 400 Bad Request on some models */
       const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
       if (options && options.signal) fetchOpts.signal = options.signal;
       let res;
@@ -4581,7 +4581,7 @@ if ($("#btnSaveKey")) {
     try {
       let url, payload, headers;
       if (p === "gemini") {
-        url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${key}`;
+        url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`;
         payload = { contents: [{ parts: [{ text: "Hello" }] }], generationConfig: { maxOutputTokens: 5 } };
         headers = { "Content-Type": "application/json" };
       } else if (p === "openai") {
