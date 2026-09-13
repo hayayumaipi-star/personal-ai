@@ -10,8 +10,10 @@
 パネルの id は `p-day` のまま（表示名だけ「スケジュール」に変えた）。
 
 - 本体: `app/index.html`（1ファイル・依存ライブラリなし）
-- 公開先: claude.ai の Artifact（非公開・本人のみ）
+- 公開先: claude.ai の Artifact（**いまは共有中**。開発を見てもらうため・2026-09-13）
   `https://claude.ai/code/artifact/8a5f7690-306a-4941-8b7d-bb595c2fab88`
+  リンクを開いた人には記録も見える。**見られて困るものを入れない**のが、この運用の条件
+  （下の「共有するかどうかは本人が決める」を読むこと）
 - テスト: `tests/harness.js`（`docs/開発メモ.md` の手順で headless Edge により実行）
 - 置き場所: `https://github.com/hayayumaipi-star/personal-ai`（**非公開**）
 
