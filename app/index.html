@@ -3269,6 +3269,8 @@ function ruleOps(note) {
 
 async function applyOps(rawOps, note) {
   const tz = state.settings.timezone, changes = [], asks = [], days = [], kinds = [];
+  // 用事が1件だけのときに限り、ルールが読んだ日時をAIの項目へ足してよい（v5.5）
+  const soleAdd = (Array.isArray(rawOps) ? rawOps : []).filter(o => o && o.op === "add").length === 1;
   const touch = k => { if (k && days.indexOf(k) < 0) days.push(k); };
   for (const o of (Array.isArray(rawOps) ? rawOps : [])) {
     if (!o || typeof o !== "object") continue;
@@ -3304,7 +3306,7 @@ async function applyOps(rawOps, note) {
           origin: "ai", corrected: false, confirmed: false, status: "open",
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: []
         };
-        pulledBack = applyFields(it, o, tz, note);
+        pulledBack = applyFields(it, o, tz, note, { soleAdd });
       }
       // AIが「ご飯食べに行こうかな」のような言い方で返してきても、食事は名前を揃える
       const mt = mealTitle(it.title, note.capturedAt, tz) || mealTitle(o.quote || "", note.capturedAt, tz);
@@ -3476,11 +3478,33 @@ function dateWasSpoken(note, tz) {
    引き戻したことを黙っていると、**予定表は今日なのに返事だけ「明日」**になる。
    v4.7 で日付を直したぶん、文章とのズレはむしろ起きやすくなった（実機で報告）。
    呼んだ側は、これが true なら `asks` に一言添えること。 */
-function applyFields(it, o, tz, note) {
+function applyFields(it, o, tz, note, opts) {
   let pulledBack = false;
   /* 同じ発言を、ルールでも読んでおく。AIの読み違いを見つけるための「もう一つの目」。 */
   const rw = (note && note.text)
     ? parseWhen(note.text, note.capturedAt || new Date().toISOString(), tz) : null;
+
+  /* **時刻を言っているのにAIが落としたら、ルールの読み取りで埋める**（v5.5・実機で報告）。
+     「11時から12時まで勉強する」が **時刻の無いタスク**になった。
+     時刻の範囲を言われたら予定（event）にする、が決まり4e。タスクにすると
+     所要時間だけが残り、`planFor` が空いている場所へ勝手に置く（言った時刻に置かれない）。
+     **足すのは、そのAIが `add` を1件しか返していないときだけ。**
+     1回の発言に用事が複数あるとき（「11時から勉強。あと牛乳を買う」）、
+     関係ない方にまで同じ時刻を付けてしまうため（決まり「1行に複数の話題があるとき、
+     日時と所要時間を他の話題に持ち込まない」と同じ理屈）。 */
+  /* **「6時から9時の間に30分」は除く**（決まり6k）。あれは予定ではなく「置いてよい時間帯」で、
+     固定の予定にすると3時間まるごとふさぐ。時間帯は AI の `window` が受け取る。 */
+  if (opts && opts.soleAdd && rw && rw.hasTime && rw.start && !rw.between && !isTime(o.dueTime)) {
+    o = Object.assign({}, o, {
+      dueDate: dayKey(new Date(rw.start), tz),
+      dueTime: hhmm(minOfDay(rw.start, tz)),
+      duePrecision: "exact"
+    });
+    if (rw.end) {                                  // 範囲を言っている＝固定の予定
+      it.kind = "event";
+      o.estimateMin = clamp(Math.round((new Date(rw.end) - new Date(rw.start)) / 60000), 5, 600);
+    }
+  }
   if (isDate(o.dueDate) && note && !(rw && !rw.timeOnly)) {
     pulledBack = true;
     /* 本人は日付を言っていない。**AIが足した日付は採らない**（v4.7）。

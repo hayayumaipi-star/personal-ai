@@ -1433,6 +1433,51 @@
              JSON.stringify(ruleOps(nf).map(o => o.op)));
         }
 
+        /* AQ. AIが時刻を落としたら、ルールの読み取りで埋める（v5.5・実機で報告）。
+           「11時から12時まで勉強する」が **時刻の無いタスク**として追加された。
+           時刻の範囲を言われたら予定にする、が決まり4e。 */
+        {
+          const L3 = zoned(2026, 9, 13, 22, 9, TZ).toISOString();
+          const mk3 = text => ({ id: uid(), text, hash: "aq" + Math.random(),
+            capturedAt: L3, source: "talk", createdAt: L3 });
+
+          reset();
+          const q1 = mk3("11時から12時まで勉強する"); await putNote(q1);
+          await applyOps([{ op: "add", kind: "task", title: "勉強する", quote: "勉強する" }], q1);
+          const e1 = state.items[0];
+          ok("AQ. 時刻の範囲を言っていれば、タスクではなく予定にする",
+             !!e1 && e1.kind === "event", e1 && e1.kind);
+          ok("AQ. その時刻はルールの読み取り（23:00）",
+             !!e1 && fmtDT(e1.start, TZ) === "9/13 23:00", e1 && fmtDT(e1.start, TZ));
+          ok("AQ. 長さも範囲のとおり（1時間）",
+             !!e1 && (new Date(e1.end) - new Date(e1.start)) === 3600000,
+             e1 && fmtDT(e1.end, TZ));
+
+          // 1回の発言に用事が2つあるときは、日時を持ち込まない
+          reset();
+          const q2 = mk3("11時から12時まで勉強する。あと牛乳を買う"); await putNote(q2);
+          await applyOps([{ op: "add", kind: "task", title: "勉強する", quote: "勉強する" },
+                          { op: "add", kind: "task", title: "牛乳を買う", quote: "牛乳" }], q2);
+          ok("AQ. 用事が2件あるときは、日時を他の話題へ持ち込まない",
+             state.items.every(i => !i.start), state.items.map(i => i.title + ":" + (i.start || "-")).join(","));
+
+          // AIがちゃんと時刻を返していれば触らない
+          reset();
+          const q3 = mk3("明日10時に歯医者"); await putNote(q3);
+          await applyOps([{ op: "add", kind: "event", title: "歯医者", dueDate: "2026-09-14",
+            dueTime: "10:00", duePrecision: "exact", quote: "歯医者" }], q3);
+          const e3 = state.items[0];
+          ok("AQ. AIが時刻を返しているときは触らない",
+             !!e3 && fmtDT(e3.start, TZ) === "9/14 10:00", e3 && fmtDT(e3.start, TZ));
+
+          // 時刻を言っていない発言には、時刻を作らない
+          reset();
+          const q4 = mk3("そのうち本棚を片付けたい"); await putNote(q4);
+          await applyOps([{ op: "add", kind: "task", title: "本棚を片付ける", quote: "本棚" }], q4);
+          ok("AQ. 言っていない時刻は作らない", !state.items[0].start && !state.items[0].dayKey,
+             JSON.stringify([state.items[0].start, state.items[0].dayKey]));
+        }
+
         // AIに日付の言葉を書かせない（決まり8の日付版）
         {
           const nq = mkNote("30分勉強する");
