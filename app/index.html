@@ -1604,7 +1604,9 @@ async function putItem(it) {
   if (DB) { try { await DB.doc("items/" + it.id).set(it); } catch (e) { dbTrouble(e); } }
 }
 async function putItems(list) { for (const it of list) await putItem(it); }
-async function putSettings(s) {
+async function putSettings(raw) {
+  // 書く前にも検算する。壊れた値を**保存先に入れない**のが、いちばん確実な防ぎ方
+  const s = safeSettings(raw);
   s.updatedAt = new Date().toISOString(); state.settings = s; lsWrite();
   if (DB) { try { await DB.doc("meta/settings").set(s); } catch (e) { dbTrouble(e); } }
 }
@@ -1682,6 +1684,38 @@ if (typeof window !== "undefined") {
 
 /* 設定欄を外したので、前の既定（09:00–18:00）のまま保存されている人を一日じゅうに移す。
    自分で別の値を入れていた人（その欄があった頃）は、そのまま尊重する。 */
+/* **保存された設定は、必ず壊れると思って読む**（v5.6・調査で発見）。
+   タイムゾーンが不正だと `Intl` が RangeError を投げ、`parts` / `dayKey` / `zoned` が
+   **全部落ちる**。そして `importJSON` は控えの settings を素通しで保存していたので、
+   一度入ると**開くたびに落ちる状態が残る**（画面が白いので、消す操作にもたどり着けない）。
+   「壊れた1件で画面全体を落とさない」を、項目だけでなく**設定にも**通す。
+   直すのは黙ってでよい——ここは本人の入力ではなく、ファイルや保存先から来た値。 */
+function usableTz(t) {
+  if (typeof t !== "string" || !t) return false;
+  try { new Intl.DateTimeFormat("en-US", { timeZone: t }); return true; } catch { return false; }
+}
+function safeSettings(s) {
+  const o = Object.assign({}, DEFAULTS, s && typeof s === "object" ? s : {});
+  const num = (v, lo, hi, def) => {
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? clamp(Math.round(n), lo, hi) : def;
+  };
+  if (!usableTz(o.timezone)) o.timezone = DEFAULTS.timezone;
+  o.defaultEstimate = num(o.defaultEstimate, 5, 240, DEFAULTS.defaultEstimate);
+  o.breakEveryMin = num(o.breakEveryMin, 30, 240, DEFAULTS.breakEveryMin);
+  o.breakMin = num(o.breakMin, 5, 30, DEFAULTS.breakMin);
+  if (!["auto", "light", "dark"].includes(o.theme)) o.theme = DEFAULTS.theme;
+  /* `isTime` は形しか見ない（"25:99" も通る）ので、ここでは中身まで確かめる。 */
+  const okClock = t => {
+    if (typeof t !== "string" || !/^\d{1,2}:\d{2}$/.test(t)) return false;
+    const [h, m] = t.split(":").map(Number);
+    return h >= 0 && h <= 23 && m >= 0 && m <= 59;
+  };
+  if (!okClock(o.workStart)) o.workStart = DEFAULTS.workStart;
+  if (!okClock(o.workEnd)) o.workEnd = DEFAULTS.workEnd;
+  if (typeof o.useAI !== "boolean") delete o.useAI;        // 未設定はオン（既定）のまま
+  return o;
+}
 function migrateWindow(s) {
   if (s.workStart === OLD_WINDOW.workStart && s.workEnd === OLD_WINDOW.workEnd) {
     s.workStart = DEFAULTS.workStart; s.workEnd = DEFAULTS.workEnd;
@@ -1691,7 +1725,7 @@ function migrateWindow(s) {
 
 async function boot() {
   const cached = lsRead();
-  state.settings = migrateWindow(Object.assign({}, DEFAULTS, (cached && cached.settings) || {}));
+  state.settings = migrateWindow(safeSettings((cached && cached.settings) || {}));
   applyTheme(state.settings.theme);      // 端末の控えから、まず即座に当てる（ちらつかせない）
   state.notes = (cached && cached.notes) || [];
   state.items = (cached && cached.items) || [];
@@ -1710,7 +1744,7 @@ async function boot() {
   DB = db; state.backend = "db"; setSync("ok");
   try {
     const s = await DB.doc("meta/settings").get();
-    if (s.exists) { state.settings = migrateWindow(Object.assign({}, DEFAULTS, thaw(s.data()))); applyTheme(state.settings.theme); }
+    if (s.exists) { state.settings = migrateWindow(safeSettings(thaw(s.data()))); applyTheme(state.settings.theme); }
     /* **必ず新しい順に取ること**（v4.0）。`limit` の上限は1000で、
        並び順を指定しないと **ドキュメントidの昇順**になる。id は `Date.now()` から作るので、
        それは「いちばん古い1000件」を意味する。1000件を超えた日から、
@@ -4450,7 +4484,7 @@ async function importJSON(text, name) {
     state.turns[k] = list; lsWrite();
     if (DB) { try { await DB.doc("turns/" + k).set({ day: k, list }); } catch (e) { dbTrouble(e); } }
   }
-  if (hasSettings) { await putSettings(migrateWindow(Object.assign({}, DEFAULTS, thaw(d.settings)))); applyTheme(state.settings.theme); }
+  if (hasSettings) { await putSettings(migrateWindow(safeSettings(thaw(d.settings)))); applyTheme(state.settings.theme); }
   renderAll();
   out.innerHTML = `<p class="hint">読み込みました：原文 ${notes.length}件 ／ 項目 ${items.length}件 ／ 資料 ${docs.length}件 ／ 会話 ${days.length}日分。</p>`;
   toast("控えを読み込みました");

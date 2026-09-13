@@ -1478,6 +1478,58 @@
              JSON.stringify([state.items[0].start, state.items[0].dayKey]));
         }
 
+        /* AR. 壊れた設定で、画面ごと落ちないこと（v5.6・調査で発見）。
+           タイムゾーンが不正だと `Intl` が RangeError を投げ、
+           `parts` / `dayKey` / `zoned` が**全部落ちる**。
+           `importJSON` は控えの settings を素通しで保存していたので、
+           一度入ると**開くたびに落ちる状態が残る**。
+           「壊れた1件で画面全体を落とさない」を、項目だけでなく設定にも通す。 */
+        {
+          ok("AR. 設定を検算する関数がある", typeof safeSettings === "function");
+          if (typeof safeSettings === "function") {
+            const bad = t => safeSettings(Object.assign({}, DEFAULTS, t));
+            ok("AR. 使えないタイムゾーンは既定に戻す",
+               bad({ timezone: "Invalid/Zone" }).timezone === DEFAULTS.timezone,
+               bad({ timezone: "Invalid/Zone" }).timezone);
+            ok("AR. 空・数値・null のタイムゾーンも既定に戻す",
+               bad({ timezone: "" }).timezone === DEFAULTS.timezone
+               && bad({ timezone: 123 }).timezone === DEFAULTS.timezone
+               && bad({ timezone: null }).timezone === DEFAULTS.timezone);
+            ok("AR. 使えるタイムゾーンは、そのまま通す",
+               bad({ timezone: "Europe/Paris" }).timezone === "Europe/Paris");
+            ok("AR. 数値でない所要時間は既定に戻す",
+               bad({ defaultEstimate: "abc" }).defaultEstimate === DEFAULTS.defaultEstimate,
+               String(bad({ defaultEstimate: "abc" }).defaultEstimate));
+            ok("AR. 極端な数値は範囲に収める",
+               bad({ defaultEstimate: 99999 }).defaultEstimate <= 240
+               && bad({ breakEveryMin: 0 }).breakEveryMin >= 30
+               && bad({ breakMin: -5 }).breakMin >= 5,
+               JSON.stringify([bad({ defaultEstimate: 99999 }).defaultEstimate,
+                               bad({ breakEveryMin: 0 }).breakEveryMin, bad({ breakMin: -5 }).breakMin]));
+            ok("AR. 知らない見た目は auto に戻す", bad({ theme: "<script>" }).theme === "auto");
+            ok("AR. 壊れた作業時間帯も直す（形だけでなく中身も）",
+               bad({ workStart: "25:99" }).workStart === DEFAULTS.workStart
+               && bad({ workEnd: null }).workEnd === DEFAULTS.workEnd
+               && bad({ workStart: "07:30" }).workStart === "07:30",
+               JSON.stringify([bad({ workStart: "25:99" }).workStart, bad({ workEnd: null }).workEnd]));
+            // 検算を通したあとは、日付の計算が落ちないこと
+            let threw = null;
+            try { dayKey(new Date(), bad({ timezone: "Invalid/Zone" }).timezone); }
+            catch (e) { threw = e.name; }
+            ok("AR. 直したあとは、日付の計算が落ちない", threw === null, String(threw));
+          }
+          // 壊れた設定を保存しようとしても、保存先には入らない
+          if (typeof safeSettings === "function") {
+            const keep = state.settings;
+            await putSettings(Object.assign({}, DEFAULTS, { timezone: "Invalid/Zone" }));
+            let threw2 = null;
+            try { dayKey(new Date(), state.settings.timezone); } catch (e) { threw2 = e.name; }
+            ok("AR. 壊れた設定は保存しない", threw2 === null && state.settings.timezone === DEFAULTS.timezone,
+               String(state.settings.timezone) + " / " + String(threw2));
+            state.settings = keep;
+          }
+        }
+
         // AIに日付の言葉を書かせない（決まり8の日付版）
         {
           const nq = mkNote("30分勉強する");
