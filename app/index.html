@@ -3936,10 +3936,25 @@ function hasAI() {
 async function callAI(prompt, isJson, options) {
   const key = getApiKey();
   const p = state.settings?.aiProvider || "gemini";
+  
+  const parseJsonSafe = (text) => {
+    let clean = text.replace(/^`(?:json)?\s*|\s*`$/gi, "").trim();
+    const firstBrace = clean.indexOf("{"), firstBracket = clean.indexOf("[");
+    let first = -1;
+    if (firstBrace !== -1 && firstBracket !== -1) first = Math.min(firstBrace, firstBracket);
+    else if (firstBrace !== -1) first = firstBrace;
+    else if (firstBracket !== -1) first = firstBracket;
+    
+    const lastBrace = clean.lastIndexOf("}"), lastBracket = clean.lastIndexOf("]");
+    const last = Math.max(lastBrace, lastBracket);
+    if (first >= 0 && last >= 0) clean = clean.substring(first, last + 1);
+    try { return JSON.parse(clean); } catch(e) { throw { code: "invalid_json" }; }
+  };
+
   if (key) {
     if (p === "gemini") {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
-      const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2 } };
+      const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+      const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 8192 } };
       if (isJson) payload.generationConfig.responseMimeType = "application/json";
       const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key }, body: JSON.stringify(payload) };
       if (options && options.signal) fetchOpts.signal = options.signal;
@@ -3953,23 +3968,12 @@ async function callAI(prompt, isJson, options) {
       const data = await res.json();
       const parts = data.candidates?.[0]?.content?.parts || [];
       let text = parts.filter(p => p.text && !p.thought).map(p => p.text).join("\n").trim();
-      if (isJson) {
-        try {
-          let clean = text.replace(/^```(?:json)?\s*|\s*```$/gi, "").trim();
-          const firstBrace = clean.indexOf("{"), firstBracket = clean.indexOf("[");
-          const first = (firstBrace === -1) ? firstBracket : (firstBracket === -1 ? firstBrace : Math.min(firstBrace, firstBracket));
-          const lastBrace = clean.lastIndexOf("}"), lastBracket = clean.lastIndexOf("]");
-          const last = Math.max(lastBrace, lastBracket);
-          if (first >= 0 && last >= 0) clean = clean.substring(first, last + 1);
-          return JSON.parse(clean);
-        } catch(e) { throw { code: "invalid_json" }; }
-      }
+      if (isJson) return parseJsonSafe(text);
       return { text };
     }
     if (p === "openai") {
       const url = "https://api.openai.com/v1/chat/completions";
-      const payload = { model: "gpt-4o-mini", messages: [{role: "user", content: prompt}], temperature: 0.2 };
-      /* json_object removes to support array returns */
+      const payload = { model: "gpt-4o-mini", messages: [{role: "user", content: prompt}], temperature: 0.2, max_tokens: 4096 };
       const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` }, body: JSON.stringify(payload) };
       if (options && options.signal) fetchOpts.signal = options.signal;
       let res;
@@ -3981,7 +3985,7 @@ async function callAI(prompt, isJson, options) {
       }
       const data = await res.json();
       const text = data.choices?.[0]?.message?.content || "";
-      if (isJson) { try { return JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/gi, "").trim()); } catch(e) { throw { code: "invalid_json" }; } }
+      if (isJson) return parseJsonSafe(text);
       return { text };
     }
     if (p === "anthropic") {
@@ -3998,7 +4002,7 @@ async function callAI(prompt, isJson, options) {
       }
       const data = await res.json();
       const text = data.content?.[0]?.text || "";
-      if (isJson) { try { return JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/gi, "").trim()); } catch(e) { throw { code: "invalid_json" }; } }
+      if (isJson) return parseJsonSafe(text);
       return { text };
     }
   }
@@ -4008,7 +4012,6 @@ async function callAI(prompt, isJson, options) {
   }
   throw { code: "not_declared", message: "AIが利用できません" };
 }
-
 async function aiTurn(note) {
   const cx = contextForAI(note);
   const g = aiSignal(AI_TIMEOUT_MAIN);
