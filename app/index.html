@@ -1456,6 +1456,32 @@ const state = { notes: [], items: [], turns: {}, docs: [], settings: null, ready
 /* 「わたしのこと」の分類。ここに入るのは、日をまたいでも変わらないことだけ。
    その日の体調・気分は condition として「今日」に残る。混ぜない。 */
 const PROFILE_CATS = ["性格・傾向", "好み", "苦手・制約", "仕事・勉強", "体のこと", "大事にしていること", "その他"];
+
+/* =====================================================================
+   TELOS — LifeOS の「自分の定義」フレームワーク（Phase 1）
+   T=Traits（性格・傾向）E=Experiences（経験・スキル）
+   L=Leanings（価値観）O=Objectives（目標）S=Strivings（理想像）
+   既存の profile を壊さず、telosAxis フィールドで軸を明示するだけ。
+   ===================================================================== */
+const TELOS_AXES = {
+  T: "性格・傾向",    // Traits  — 変わりにくい性格・思考パターン・癖
+  E: "経験・スキル",  // Experiences — 積み上げてきたこと・得意なこと
+  L: "価値観",        // Leanings — 信念・ポリシー・大事にしていること
+  O: "目標",          // Objectives — 達成したいこと（goal と連携）
+  S: "理想像"         // Strivings — 「こうありたい」という姿
+};
+
+/* profile の category から TELOS 軸を推定する（既存データにも後付けで効く） */
+function telosAxisFromCategory(cat, title) {
+  if (!cat && !title) return "T";
+  const c = cat || "", t = title || "";
+  if (c === "大事にしていること" || /ポリシー|主義|価値|信じ|大切/.test(t)) return "L";
+  if (c === "仕事・勉強" || /仕事|職場|研究|スキル|得意|経験|実績|資格/.test(t)) return "E";
+  if (c === "性格・傾向" || c === "好み" || c === "苦手・制約" || c === "体のこと") return "T";
+  if (/目標|目指|なりたい|したい|ようにしたい|続けたい/.test(t)) return "O";
+  if (/理想|ありたい|でいたい|でいること/.test(t)) return "S";
+  return "T";  // デフォルトは Traits
+}
 const DOC_MAX_CHARS = 60000;      // 1件の資料の上限（保存先の1ドキュメント上限に収めるため）
 const AI_CHUNK = 6000;            // AIに一度に読ませる文字数
 /* 回数の上限は、資料の上限から**計算する**（v4.3）。
@@ -2535,7 +2561,37 @@ function renderMe() {
     <div id="docProg"></div>
   </div>`;
 
-  /* ---- ① 会話から集まったこと ---- */
+  /* ---- ① TELOS サマリー（Phase 1）---- */
+  {
+    const axColors = { T: "#6366f1", E: "#0891b2", L: "#16a34a", O: "#ea580c", S: "#9333ea" };
+    const axDesc  = { T: "性格・傾向 Traits", E: "経験・スキル Experiences",
+                      L: "価値観 Leanings", O: "目標 Objectives", S: "理想像 Strivings" };
+    h += `<div class="sect"><span class="eyebrow">TELOS</span>
+      <h2>あなたの定義</h2>
+      <p class="hint">LifeOS フレームワーク。会話や資料から集まった「変わらないこと」を5軸で整理します。AIはこれを読んで返事を返します。</p></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:16px">`;
+    for (const [ax, label] of Object.entries(axDesc)) {
+      const items = profs.filter(p => (p.telosAxis || telosAxisFromCategory(p.category, p.title)) === ax);
+      const color = axColors[ax];
+      h += `<div class="card" style="border-left:3px solid ${color};padding:10px 12px">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+          <span style="background:${color};color:#fff;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700">${ax}</span>
+          <span style="font-size:12px;color:var(--c3)">${label}</span>
+        </div>`;
+      if (items.length) {
+        h += `<ul style="margin:0;padding-left:14px;font-size:13px">` +
+          items.slice(0, 4).map(p => `<li style="margin-bottom:2px">${esc(p.title)}</li>`).join("") +
+          (items.length > 4 ? `<li style="color:var(--c3)">ほか${items.length - 4}件</li>` : "") +
+          `</ul>`;
+      } else {
+        h += `<span style="font-size:12px;color:var(--c3)">（まだありません）</span>`;
+      }
+      h += `</div>`;
+    }
+    h += `</div>`;
+  }
+
+  /* ---- ② 会話から集まったこと ---- */
   h += `<div class="sect"><span class="eyebrow">FROM TALKING</span>
     <h2>会話から集まったこと（${profs.length}件）</h2>
     <p class="hint">話しているうちに出てきた、あなたについての情報です。${SAMPLEFN && state.settings.useAI !== false
@@ -3520,6 +3576,7 @@ function profileItemFrom(o, src) {
   const it = {
     id: uid(), kind: "profile", title,
     category: PROFILE_CATS.includes(o.category) ? o.category : profileCategory(title),
+    telosAxis: o.telosAxis || null,  // TELOS軸（Phase 1）。nullなら telosAxisFromCategory() で計算
     noteId: src.noteId || null, docId: src.docId || null,
     evidence: src.evidence || { text: (o.quote || title).slice(0, 200), start: null, end: null },
     origin: src.origin || "ai", corrected: false, confirmed: false, status: "open",
@@ -3638,8 +3695,19 @@ function contextForAI(note) {
   const me = liveItems().filter(i => i.kind === "profile")
     .sort((a, b) => (b.confirmed === true) - (a.confirmed === true))
     .slice(0, 40).map(i => `${i.category || "その他"}：${i.title}${i.confirmed || i.corrected ? "" : "（未確認）"}`);
+  // TELOS — 自分の定義（Phase 1）。各軸ごとに最大5件を渡す
+  const allProfs = liveItems().filter(i => i.kind === "profile" && i.status !== "dropped");
+  const telos = {};
+  for (const ax of Object.keys(TELOS_AXES)) {
+    const items = allProfs.filter(i => (i.telosAxis || telosAxisFromCategory(i.category, i.title)) === ax);
+    if (items.length) telos[ax] = items.slice(0, 5).map(i => i.title);
+  }
+  // O軸にはgoalも含める
+  const goals = liveItems().filter(i => i.kind === "goal" && i.status === "open");
+  if (goals.length) telos.O = [...(telos.O || []), ...goals.slice(0, 3).map(i => i.title)];
+
   const recent = turnsFor(key).slice(-6).map(t => `${t.role === "user" ? "本人" : "あなた"}：${String(t.text).slice(0, 160)}`).join("\n");
-  return { key, p, open, plan, pf, me, recent, winS: pl.winS, winE: pl.winE,
+  return { key, p, open, plan, pf, me, telos, recent, winS: pl.winS, winE: pl.winE,
            omitted: Math.max(0, allOpen.length - open.length) };
 }
 
@@ -3669,6 +3737,14 @@ estimateMin は 30 のように返してください（開始時刻を決めな�
 【本人が前に言った「こうしてほしい」】${cx.pf.length ? cx.pf.join(" / ") : "（まだありません）"}
 【この人について分かっていること（変わらないこと）】
 ${cx.me.length ? cx.me.map(s => "- " + s).join("\n") : "（まだありません）"}
+${Object.keys(cx.telos || {}).length ? `
+【TELOS — この人の定義（LifeOS フレームワーク）】
+返事の際、この人の性格・価値観・目標を文脈として自然に活かしてください。
+${cx.telos.T ? `T（性格・傾向）: ${cx.telos.T.join("、")}` : ""}
+${cx.telos.E ? `E（経験・スキル）: ${cx.telos.E.join("、")}` : ""}
+${cx.telos.L ? `L（価値観）: ${cx.telos.L.join("、")}` : ""}
+${cx.telos.O ? `O（目標）: ${cx.telos.O.join("、")}` : ""}
+${cx.telos.S ? `S（理想像）: ${cx.telos.S.join("、")}` : ""}`.trim() : ""}
 【いま開いている用事（言い直しはこのidを使う）】
 ${JSON.stringify(cx.open, null, 0)}
 ${cx.omitted ? `※この一覧は新しい順の40件です。ほかに${cx.omitted}件の古い用事があり、ここには載せていません。
