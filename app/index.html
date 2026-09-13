@@ -496,8 +496,14 @@ details.unconf>summary{color:var(--warn)}
     <div class="card stack">
       <h3 style="font-size:14px">データ</h3>
       <p class="hint" id="dataState"></p>
-      <p class="hint"><strong>記録は開いた人ごとに分かれます。</strong>
-        同じページを別の人が開いても、その人にはその人の記録が出ます（実機で確認済み）。<br>
+      <p class="hint"><strong>このページを共有している間は、記録も共有されます。</strong>
+        記録は <code>notes</code> や <code>items</code> という<strong>共有の場所</strong>に入っているので、
+        リンクを開いた人には<strong>ここにある予定・会話・体調がそのまま見えます</strong>
+        （2026-09-13 に別の人に開いてもらって確かめました）。<br>
+        <strong>共有している間は、見られて困ることを入れないでください。</strong>
+        本当の予定として使い始めるときは、先に共有を切ること。<br>
+        人にも「自分の秘書」として使ってもらうなら、<code>app/index.html</code> を渡して
+        <strong>その人自身のページとして公開</strong>してもらってください。データもAIの枠も完全に分かれます。<br>
         端末の中の控え（localStorage）は、その端末の中だけに残ります。</p>
       <div class="note warn" id="dataWarn" hidden></div>
       <div class="row">
@@ -1659,12 +1665,24 @@ async function wipeCollection(name) {
   catch (e) { error = error || e; remaining = -1; }
   return { remaining, failed, error, skipped: false };
 }
+/* 保存先への書き込みが落ちたとき。**黙って「この端末のみ」に変えない**（v5.0・実機で報告）。
+   リンクから開いた画面では `db` は渡るが**書き込みだけ拒まれる**（本人・仲間の両方で再現）。
+   今までは右上のバッジが変わるだけで、理由は `title`（マウスを乗せたとき）にしか出ず、
+   **スマホでは読む方法が無かった**。設定タブの「最後に起きた不具合」にも残していなかった。
+   「保存できたつもり」と同じ穴なので、`lastError` に残して、変わった瞬間に一度だけ知らせる。
+   **知らせるのは ok → local に変わった1回だけ。** `wipeCollection` のように
+   1回の操作で何十回も呼ばれる場所があるので、毎回トーストを出すと画面が埋まる。 */
 function dbTrouble(e) {
   const c = e && e.code;
   const msg = c === "quota_exceeded" ? "保存できる件数の上限です。古い記録を消してください。"
     : c === "revoked" || c === "not_granted" ? "このページの保存先に接続できません。この端末の中には残しています。"
+    : c === "permission_denied" || c === "unauthorized" || c === "forbidden"
+      ? "この開き方では保存先に書き込めません（読むだけ）。この端末の中には残しています。"
     : "保存先に書き込めませんでした。この端末の中には残しています。";
+  const wasOk = syncKind === "ok";
   setSync("local", msg);
+  lastError = msg + " / " + describeError(e);
+  if (wasOk) { try { toast(msg); renderSettings(); } catch {} }
 }
 let syncKind = null;
 function setSync(kind, msg) {
@@ -3317,7 +3335,7 @@ async function applyOps(rawOps, note) {
     }
 
     if (o.op === "add") {
-      let it = o._built;
+      let it = o._built, pulledBack = false;
       if (!it) {
         const kind = ["task", "event", "goal"].includes(o.kind) ? o.kind : "task";
         /* AIが付けた見出しにも、**こちらと同じ掃除**を通す（v4.6）。
@@ -3332,7 +3350,7 @@ async function applyOps(rawOps, note) {
           origin: "ai", corrected: false, confirmed: false, status: "open",
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: []
         };
-        applyFields(it, o, tz, note);
+        pulledBack = applyFields(it, o, tz, note);
       }
       // AIが「ご飯食べに行こうかな」のような言い方で返してきても、食事は名前を揃える
       const mt = mealTitle(it.title, note.capturedAt, tz) || mealTitle(o.quote || "", note.capturedAt, tz);
@@ -3348,6 +3366,8 @@ async function applyOps(rawOps, note) {
       touch(it.dayKey);
       touch(it.targetDay);   // 締切が明日でも、手を付けるのが今日なら今日の案を見せる
       changes.push(`${KIND_JA[it.kind]}を追加：${it.title}${describeWhen(it, tz)}`);
+      // AIが足した日付を引き戻したなら、黙っていない（v5.1）
+      if (pulledBack) asks.push(pulledBackAsk(it, tz));
       // 午前とも午後とも読める時刻だった。選んだほうを書いて、もう一方を出して聞き返す
       if (it.whenAlt) {
         asks.push(`「${it.title}」は ${fmtDT(it.start || it.due, tz)} と読みました。`
@@ -3356,7 +3376,7 @@ async function applyOps(rawOps, note) {
     }
     else if (o.op === "update") {
       const before = { title: target.title, day: target.dayKey, est: target.estimateMin, start: target.start };
-      applyFields(target, o, tz, note);
+      const pulledBack = applyFields(target, o, tz, note);
       if (typeof o.title === "string" && o.title.trim()) target.title = cleanTitle(o.title.trim(), null).slice(0, 80);
       target.corrected = true; target.confirmed = true; target.whenAlt = null;   // 本人が決めたので、もう一方は要らない
       target.dedupeKey = dedupeKey(target);
@@ -3368,6 +3388,7 @@ async function applyOps(rawOps, note) {
       if (o.travelMin != null) d.push(`移動 ${target.travelMin}分を確保`);
       if (o.prepMin != null) d.push(`準備 ${target.prepMin}分を確保`);
       if (o.targetDate) d.push(`${target.targetDay.slice(5).replace("-", "/")}までに終えたい、として扱う`);
+      if (pulledBack) asks.push(pulledBackAsk(target, tz));
       note2(target, "訂正：" + (d.join(" / ") || "変更なし"));
       await putItem(target);
       touch(target.dayKey); touch(before.day);
@@ -3491,8 +3512,14 @@ function dateWasSpoken(note, tz) {
   return !!(w && !w.timeOnly);
 }
 
+/* 戻り値は「**AIが付けた日付を引き戻したか**」（v5.1）。
+   引き戻したことを黙っていると、**予定表は今日なのに返事だけ「明日」**になる。
+   v4.7 で日付を直したぶん、文章とのズレはむしろ起きやすくなった（実機で報告）。
+   呼んだ側は、これが true なら `asks` に一言添えること。 */
 function applyFields(it, o, tz, note) {
+  let pulledBack = false;
   if (isDate(o.dueDate) && note && !dateWasSpoken(note, tz)) {
+    pulledBack = true;
     /* 本人は日付を言っていない。**AIが足した日付は採らない**（v4.7）。
        - 言い直しなら、いまの日付を保つ（「14時にして」で今日へ動かさない）
        - 時刻だけ言われたなら、**話した日**（ルールで読んだときと同じ）
@@ -3557,6 +3584,24 @@ function applyFields(it, o, tz, note) {
       }
     }
   }
+  return pulledBack;
+}
+/* 日付を引き戻したことを、**こちらの言葉で**伝える（v5.1）。
+   AIの文章は書き換えない（決まり7c と同じ理屈で、触ると別の壊れ方をする）。
+   代わりに、コードが数えた事実をあとから足す。何日になったかは `describeWhen` が出す。 */
+function pulledBackAsk(it, tz) {
+  const iso = it.start || it.due;
+  /* 時刻を出してよいのは、本当に時刻が決まっているときだけ。
+     用事の `23:59` は「その日まで」の意味なので時刻ではない（決まり6a）。
+     月は1桁にも2桁にもなるので、`fmtDT` を文字位置で切らないこと（「9/13 22:00」→「2:00」）。 */
+  const showTime = validISO(iso)
+    && (it.kind === "event" ? !it.timeUnknown : it.duePrecision === "exact");
+  const where = it.dayKey
+    ? (showTime ? fmtDT(iso, tz) : it.dayKey.slice(5).replace("-", "/"))
+    : null;
+  return where
+    ? `日付は言っていなかったので、「${it.title}」は ${where} として記録したよ。別の日なら「明日の」のように言ってね。`
+    : `日付は言っていなかったので、「${it.title}」に日付は付けていないよ。決まったら言ってね。`;
 }
 function describeWhen(it, tz) {
   if (it.kind === "event" && it.start) {
@@ -3764,6 +3809,9 @@ ${cx.recent || "（なし）"}
 - **日付を言っていないのに日付を作らない。** 「そのうち」「近いうちに」に日付を付けない。
 - 体調・気分・集中について、点数や診断や推定値を作らない。本人の言葉をそのまま text に入れる。
 - 返事に時刻・時間割・表を書かない。予定表はアプリが計算して表示する。
+- **返事に「今日」「明日」「あさって」「◯日」「◯曜」などの日付の言葉も書かない。**
+  日付もアプリが計算して出す。ここを書かれると、**予定表は今日なのに返事は明日**になる
+  （日付を言っていないとき、アプリは話した日に引き戻すため）。実機で起きた。
 - **返事は2〜4文。** 変えたことを短く伝え、必要なときだけ次の一手を一つ。
   毎回の分析・タスク一覧・予定表を書かない。確認が要らないなら質問で終わらせない。
 - **全部をタスクにしない。**
