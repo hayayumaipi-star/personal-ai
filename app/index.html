@@ -4616,11 +4616,40 @@ $("#btnTidy").addEventListener("click", async () => {
     yes: "古い記録を消す", danger: true
   });
   if (!yes) return;
-  for (const i of items) { state.items = state.items.filter(x => x.id !== i.id); if (DB) { try { await DB.doc("items/" + i.id).delete(); } catch {} } }
-  for (const n of notes) { state.notes = state.notes.filter(x => x.id !== n.id); if (DB) { try { await DB.doc("notes/" + n.id).delete(); } catch {} } }
-  for (const k of turnDays) { delete state.turns[k]; if (DB) { try { await DB.doc("turns/" + k).delete(); } catch {} } }
-  lsWrite(); renderAll();
-  toast(`${items.length + notes.length + turnDays.length}件を整理しました`);
+  /* **消せたかどうかを確かめてから言う**（v5.6）。「全部消す」で直したのと同じ穴が、
+     ここにはそのまま残っていた（v4.8 の壊れ方の型を参照）。
+     直す前はこうだった——**先に手元から消し**、失敗を `catch {}` で握りつぶし、
+     無条件に「整理しました」と言う。保存先が書き込みを拒む状態（リンクから開いた画面など）だと、
+     画面からは消えるのに保存先には残り、**開き直すと全部戻ってくる**。
+     見ているのは「delete を何回呼べたか」ではなく、**1件ずつの成否**。
+     そして **消せなかったものは、手元からも消さない**。 */
+  const del = async path => {
+    if (!DB) return true;                       // 保存先が無いときは、手元だけで完結する
+    try { await DB.doc(path).delete(); return true; }
+    catch (e) { dbTrouble(e); return false; }   // 理由は設定タブの「最後に起きた不具合」に残る
+  };
+  const goneItems = [], goneNotes = [], goneDays = [];
+  let failed = 0;
+  for (const i of items) { if (await del("items/" + i.id)) goneItems.push(i.id); else failed++; }
+  for (const n of notes) { if (await del("notes/" + n.id)) goneNotes.push(n.id); else failed++; }
+  for (const k of turnDays) { if (await del("turns/" + k)) goneDays.push(k); else failed++; }
+
+  const goneI = new Set(goneItems), goneN = new Set(goneNotes);
+  state.items = state.items.filter(x => !goneI.has(x.id));
+  state.notes = state.notes.filter(x => !goneN.has(x.id));
+  for (const k of goneDays) delete state.turns[k];
+  lsWrite(); renderAll(); renderSettings();
+
+  const done = goneItems.length + goneNotes.length + goneDays.length;
+  if (failed) {
+    $("#expOut").innerHTML = `<div class="note bad"><strong>保存先から消せなかったものがあります。</strong>
+      ${done}件は消しましたが、<strong>${failed}件は残っています</strong>。
+      その${failed}件は手元からも消していません（消したことにすると、開き直したときに戻ってきます）。<br>
+      理由は下の「最後に起きた不具合」に出ています。</div>`;
+    toast(`${failed}件を保存先から消せませんでした`);
+  } else {
+    toast(`${done}件を整理しました`);
+  }
 });
 
 /* 記録をさがす（v4.3）。タブは増やさない。原文と項目を、ここから一度に見る。 */

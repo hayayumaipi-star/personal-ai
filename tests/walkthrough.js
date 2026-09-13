@@ -348,6 +348,59 @@
       lastError = null; syncKind = "ok"; setSync("ok"); renderSettings();
     });
 
+    /* 「古い記録を整理する」も、消せたかどうかを確かめてから言うこと（v5.6）。
+       「全部消す」は v4.8 で直したのに、こちらは `catch {}` で握りつぶし、
+       **先に手元を空にしてから**保存先を触り、無条件に「整理しました」と言っていた。
+       押した人には消えたように見えて、開き直すと全部戻ってくる。
+       それまでのテストは `#btnTidy` が**在るか**しか見ていなかった。 */
+    async function seedOldDone(tag) {
+      const long = 200 * 86400000;
+      const old = new Date(Date.now() - long).toISOString();
+      const it = {
+        id: "tidy-" + tag, noteId: null, kind: "task", title: "ずっと前に終えた用事" + tag,
+        evidence: { text: "x" }, origin: "user", confirmed: true, corrected: false,
+        status: "done", completedAt: old, createdAt: old, updatedAt: old, history: []
+      };
+      it.dedupeKey = dedupeKey(it);
+      await putItem(it);
+      return it;
+    }
+
+    await step("整理で保存先から消せないときは「整理しました」と言わない", async () => {
+      const it = await seedOldDone("a");
+      const db = await window.claude.use("db");
+      const origDoc = db.doc;
+      db.doc = function (p) {
+        const r = origDoc.call(db, p);
+        r.delete = () => Promise.reject({ code: "permission_denied", message: "テスト用に失敗させた" });
+        return r;
+      };
+      lastError = null;
+      try {
+        await click('nav.tabs [data-tab="p-set"]');
+        await click("#btnTidy");
+        if (!has("#cfYes")) throw new Error("確認シートが出ない");
+        await click("#cfYes");
+        if (!await waitFor(() => !has("#cfYes"), 6000)) throw new Error("シートが閉じない");
+        await wait(300);
+        if (!findItem(it.id)) throw new Error("保存先から消せていないのに、手元だけ空にした");
+      } finally { db.doc = origDoc; }
+      if (!lastError) throw new Error("不具合として記録されない");
+      lastError = null;
+    });
+
+    await step("整理（消せるときは、保存先からも消える）", async () => {
+      const it = findItem("tidy-a") || await seedOldDone("a");
+      const db = await window.claude.use("db");
+      await click('nav.tabs [data-tab="p-set"]');
+      await click("#btnTidy");
+      if (!has("#cfYes")) throw new Error("確認シートが出ない");
+      await click("#cfYes");
+      if (!await waitFor(() => !findItem(it.id), 6000)) throw new Error("手元から消えない");
+      const left = (await db.collection("items").get()).docs.filter(d => d.id === it.id).length;
+      if (left) throw new Error("保存先に残っている");
+    });
+
     /* ===== 再読み込みしても残るか（凍結データからの復帰） ===== */
     await step("保存先から読み直しても壊れない", async () => {
       const n = state.items.length;
