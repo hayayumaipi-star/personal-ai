@@ -3953,10 +3953,10 @@ async function callAI(prompt, isJson, options) {
 
   if (key) {
     if (p === "gemini") {
-      const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+      const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}";
       const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 8192 } };
       if (isJson) payload.generationConfig.responseMimeType = "application/json";
-      const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key }, body: JSON.stringify(payload) };
+      const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
       if (options && options.signal) fetchOpts.signal = options.signal;
       let res;
       try { res = await fetch(url, fetchOpts); }
