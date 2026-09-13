@@ -1572,6 +1572,34 @@
              JSON.stringify(folded));
         }
 
+        /* AT. 「日付の言葉があったか」の判定が、2か所に分かれていないこと（v5.7）。
+           v5.3 で `applyFields` に同じ式を書いてしまい、アプリは `dateWasSpoken` を
+           呼ばなくなっていた。テストは**生きていない関数**を測っていた。
+           ここでは、両者が同じ答えを出すことを実際の動きで確かめる。 */
+        {
+          const L4 = zoned(2026, 9, 13, 11, 0, TZ).toISOString();
+          const mk4 = text => ({ id: uid(), text, hash: "at" + Math.random(),
+            capturedAt: L4, source: "talk", createdAt: L4 });
+          const cases = ["明日までに資料を出す", "6〜9時の間に30分勉強する",
+                         "そのうち本棚を片付けたい", "来週までに出す", "牛乳を買う",
+                         "今日中に返信する", "9時に歯医者"];
+          let agree = true, detail = [];
+          for (const text of cases) {
+            reset();
+            const n = mk4(text); await putNote(n);
+            const r = await applyOps([{ op: "add", kind: "task", title: "なにか",
+              dueDate: tom, duePrecision: "day", quote: "x" }], n);
+            const pulled = r.asks.some(a => /日付は言っていなかったので/.test(a));
+            const spoken = dateWasSpoken(n, TZ);
+            if (pulled === spoken) { agree = false; }       // 引き戻した＝言っていない、が正しい
+            detail.push(`${text}:${spoken ? "言った" : "言ってない"}/${pulled ? "引き戻した" : "そのまま"}`);
+          }
+          ok("AT. dateWasSpoken と、実際の引き戻しが必ず一致する", agree, detail.join(" , "));
+          ok("AT. 判定は1か所にまとまっている",
+             typeof dateSpokenIn === "function" && /dateSpokenIn/.test(String(applyFields)),
+             "applyFields が自前の式を持っている");
+        }
+
         // AIに日付の言葉を書かせない（決まり8の日付版）
         {
           const nq = mkNote("30分勉強する");

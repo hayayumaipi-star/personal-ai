@@ -3518,10 +3518,15 @@ async function applyOps(rawOps, note) {
    ここが `!!parseWhen(...)` だったため、「6〜9時の間に30分勉強する」に時刻があるだけで
    「日付を言った」と判定され、AIが足した「明日」がそのまま通っていた。
    本人は今日のつもりだったのに、明日の予定になった。 */
+/* 「日付の言葉があったか」の判定は **1か所**（決まり7e・v5.7）。
+   v5.3 で `applyFields` に同じ式を書いてしまい、アプリは `dateWasSpoken` を
+   呼ばなくなっていた。**テストだけが生きている関数を測っている**状態で、
+   片方を直してももう片方が変わらない。今日それで何度も壊した。 */
+const dateSpokenIn = w => !!(w && !w.timeOnly);
 function dateWasSpoken(note, tz) {
   if (!note || !note.text) return true;
   const w = parseWhen(note.text, note.capturedAt || new Date().toISOString(), tz);
-  return !!(w && !w.timeOnly);
+  return dateSpokenIn(w);
 }
 
 /* 戻り値は「**AIが付けた日付を引き戻したか**」（v5.1）。
@@ -3555,7 +3560,7 @@ function applyFields(it, o, tz, note, opts) {
       o.estimateMin = clamp(Math.round((new Date(rw.end) - new Date(rw.start)) / 60000), 5, 600);
     }
   }
-  if (isDate(o.dueDate) && note && !(rw && !rw.timeOnly)) {
+  if (isDate(o.dueDate) && note && !dateSpokenIn(rw)) {
     pulledBack = true;
     /* 本人は日付を言っていない。**AIが足した日付は採らない**（v4.7）。
        - 言い直しなら、いまの日付を保つ（「14時にして」で今日へ動かさない）
