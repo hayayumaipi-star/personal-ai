@@ -1874,7 +1874,7 @@
       showTab("p-set"); renderSettings();
       const warn = document.querySelector("#dataWarn");
       ok("X. 800件を超えたら、上限が近いと知らせる",
-         !!warn && !warn.hidden && /1000件まで/.test(warn.textContent), warn ? warn.textContent.slice(0, 40) : "欄が無い");
+         !!warn && !warn.hidden && /1,?000件まで/.test(warn.textContent), warn ? warn.textContent.slice(0, 40) : "欄が無い");
       ok("X. 勝手に消さず、書き出しを促す",
          !!warn && /書き出す/.test(warn.textContent) && state.items.length === 820, state.items.length + "件");
 

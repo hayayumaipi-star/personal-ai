@@ -1474,6 +1474,12 @@ const AI_CHUNK = 6000;            // AIに一度に読ませる文字数
    画面は「6回に分けて送ります」としか言わないので、本人には気づけない。
    ここを定数で別々に持つと、また離れる。片方から出すこと。 */
 const AI_MAX_CHUNKS = Math.ceil(DOC_MAX_CHARS / AI_CHUNK);
+/* 1回に読み込める件数の上限（保存先の仕様）と、知らせ始める件数。
+   **同じ数字が4か所に散っていた**（読み込みの `limit` 2か所・設定タブの知らせ・その文面）。
+   決まりの「同じ定数を2か所に置かない」そのものなので、ここから配る。
+   これは**保存**の上限ではない——超えたぶんは保存されていて、**画面に出なくなる**だけ。 */
+const READ_LIMIT = 1000;          // 1回の読み込みで取れる上限
+const READ_WARN = 800;            // ここを超えたら設定タブで知らせる
 /* 1回の発言の上限（v4.3）。ここだけ上限が無く、10万文字を貼ると画面が20秒止まり、
    保存先の1ドキュメント上限（256KiB）も超えて書き込みが落ちていた。
    長い文章は「わたしのこと」の資料として入れるのが正しい道。 */
@@ -1764,8 +1770,8 @@ async function boot() {
        それは「いちばん古い1000件」を意味する。1000件を超えた日から、
        **最近の記録がまるごと読み込まれなくなる**（保存はされているのに画面から消える）。 */
     const [ns, is, ts, ds] = await Promise.all([
-      DB.collection("notes").orderBy("createdAt", "desc").limit(1000).get(),
-      DB.collection("items").orderBy("createdAt", "desc").limit(1000).get(),
+      DB.collection("notes").orderBy("createdAt", "desc").limit(READ_LIMIT).get(),
+      DB.collection("items").orderBy("createdAt", "desc").limit(READ_LIMIT).get(),
       DB.collection("turns").orderBy("day", "desc").limit(400).get(),
       DB.collection("docs").orderBy("createdAt", "desc").limit(200).get()
     ]);
@@ -2723,13 +2729,13 @@ function renderSettings() {
   const near = $("#dataWarn");
   if (near) {
     const n = Math.max(state.notes.length, state.items.length);
-    near.hidden = n < 800 && !lsFailed;
+    near.hidden = n < READ_WARN && !lsFailed;
     if (lsFailed) near.innerHTML = `<strong>この端末に控えを保存できませんでした（${esc(lsFailed)}）。</strong>` +
       (state.backend === "db"
         ? "記録は claude.ai 側に保存されているので消えていませんが、この端末の控えは古いままです。「全部消す」の前に必ず書き出してください。"
         : "<strong>claude.ai にも繋がっていないので、いま話したことは残りません。</strong>ページを開き直すか、書き出して退避してください。");
-    else if (n >= 800) near.innerHTML = `<strong>記録が ${n.toLocaleString()} 件になりました。</strong>
-      1回に読み込めるのは<strong>1000件まで</strong>です。超えたぶんは保存されていますが、画面には出なくなります。
+    else if (n >= READ_WARN) near.innerHTML = `<strong>記録が ${n.toLocaleString()} 件になりました。</strong>
+      1回に読み込めるのは<strong>${READ_LIMIT.toLocaleString()}件まで</strong>です。超えたぶんは保存されていますが、画面には出なくなります。
       <strong>「書き出す（JSON）」で控えを取ってから</strong>、古い記録の整理を考えてください。`;
   }
   $("#useAI").checked = s.useAI !== false;
@@ -3149,16 +3155,20 @@ async function act(a, id, el) {
 
 /* サンドボックス内では window.confirm が表示されず false になる。
    確認は必ずこのページ内のシートで行う。ブラウザのダイアログを使わない。 */
-function askConfirm({ title, body, yes, danger }) {
+/* `alt` を渡すと3つ目の道が出る（返り値は `"alt"`）。**渡さなければ今までどおり** true/false。
+   「全部足す／一部だけ足す／やめる」のように、**やめる以外の逃げ道**が要るときだけ使う。 */
+function askConfirm({ title, body, yes, danger, alt }) {
   return new Promise(resolve => {
     let done = false;
     const finish = v => { if (done) return; done = true; closeSheet(); resolve(v); };
     openSheet(`<h3>${esc(title)}</h3><p class="hint">${body}</p>
       <div class="foot">
         <button class="btn ${danger ? "danger" : "pri"} wide" id="cfYes">${esc(yes)}</button>
+        ${alt ? `<button class="btn" id="cfAlt">${esc(alt)}</button>` : ""}
         <button class="btn" id="cfNo" style="margin-left:auto">やめる</button>
       </div>`);
     $("#cfYes").addEventListener("click", () => finish(true));
+    if (alt) $("#cfAlt").addEventListener("click", () => finish("alt"));
     $("#cfNo").addEventListener("click", () => finish(false));
     $("#sheetHost .sheet").addEventListener("click", e => { if (e.target === e.currentTarget) finish(false); });
   });
@@ -4635,18 +4645,37 @@ async function importICS(text, name) {
   };
   const cand = found.map(mk).filter(it => !state.items.some(x => x.dedupeKey === it.dedupeKey));
   if (!cand.length) { $("#expOut").innerHTML = '<p class="hint">すべて既に入っていました。</p>'; return; }
+  /* **件数の上限を、足す前に言う**。本物のカレンダーの書き出しには何年ぶんも入っていて、
+     数千件が一度に入ることがある。読み込めるのは `READ_LIMIT` 件までなので、
+     超えたぶんは**保存はされるのに画面から消える**——いちばん気づきにくい壊れ方になる。
+     だから「足りるかどうか」を先に数えて出し、**この先1年ぶんだけ**という逃げ道を用意する。
+     勝手にしぼらない。しぼるかどうかは本人が決める。 */
+  const todayKey = dayKey(new Date(), tz);
+  const tp = parts(new Date(), tz);
+  const yearKey = dayKey(zoned(tp.y + 1, tp.mo, tp.d, 0, 0, tz), tz);
+  const near = cand.filter(it => it.dayKey >= todayKey && it.dayKey <= yearKey);
+  const have = Math.max(state.notes.length, state.items.length);
+  const over = have + cand.length > READ_LIMIT;
+  const canNarrow = near.length > 0 && near.length < cand.length;
   const yes = await askConfirm({
     title: "カレンダーの予定を足しますか？",
-    body: `${esc(name || "選んだファイル")}から <strong>${cand.length}件</strong>の予定を足します（重なっているものは除きました）。<br>
+    body: `${esc(name || "選んだファイル")}から <strong>${cand.length.toLocaleString()}件</strong>の予定を足します（重なっているものは除きました）。<br>
       ${rep ? `<strong>くり返しの予定 ${rep}件は、最初の1回だけ</strong>入ります。<br>` : ""}
+      ${over ? `<strong>いまの記録 ${have.toLocaleString()}件と合わせると ${(have + cand.length).toLocaleString()}件になり、
+        1回に読み込める ${READ_LIMIT.toLocaleString()}件を超えます。</strong>
+        超えたぶんは保存されていますが、<strong>画面に出なくなります</strong>。<br>` : ""}
+      ${canNarrow ? `いまより前の予定や、1年より先の予定が ${(cand.length - near.length).toLocaleString()}件あります。<br>` : ""}
       いまの記録は消しません。`,
-    yes: "足す"
+    yes: "全部足す",
+    alt: canNarrow ? `この先1年ぶんだけ（${near.length.toLocaleString()}件）` : null
   });
   if (!yes) return;
-  for (const it of cand) await putItem(it);
+  const add = yes === "alt" ? near : cand;
+  for (const it of add) await putItem(it);
   renderAll();
-  $("#expOut").innerHTML = `<p class="hint">${cand.length}件を足しました。</p>`;
-  toast(`カレンダーから${cand.length}件を足しました`);
+  const tail = yes === "alt" ? `（この先1年ぶんだけ。残り ${(cand.length - near.length).toLocaleString()}件は足していません）` : "";
+  $("#expOut").innerHTML = `<p class="hint">${add.length.toLocaleString()}件を足しました。${tail}</p>`;
+  toast(`カレンダーから${add.length.toLocaleString()}件を足しました`);
 }
 
 $("#btnWipe").addEventListener("click", async () => {

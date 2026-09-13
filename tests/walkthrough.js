@@ -588,6 +588,48 @@
       await click('nav.tabs [data-tab="p-chat"]');
       if (!$$("#chatOut").innerHTML.trim()) throw new Error("話すタブが空白");
     });
+    /* .ics の取り込みは、本物のカレンダーだと**何年ぶんも**入っている。
+       足す前に件数を出し、「この先1年ぶんだけ」という逃げ道があること、
+       そして**しぼったら本当にしぼられている**ことを確かめる。 */
+    await step(".ics の取り込み：この先1年ぶんだけを選べる", async () => {
+      const tz = state.settings.timezone, P = parts(new Date(), tz);
+      const st = (y, mo, d) => `${y}${String(mo).padStart(2, "0")}${String(d).padStart(2, "0")}T100000Z`;
+      const ev = (t, v) => ["BEGIN:VEVENT", "SUMMARY:" + t, "DTSTART:" + v, "END:VEVENT"].join("\r\n");
+      const text = ["BEGIN:VCALENDAR",
+        ev("ずっと前の会議", st(P.y - 2, 5, 10)),
+        ev("来月の面談", st(P.y, P.mo, P.d).replace(/T.*/, "T100000Z")),
+        ev("2年先の式典", st(P.y + 2, P.mo, P.d)),
+        "END:VCALENDAR"].join("\r\n");
+      const before = state.items.length;
+      const pr = importICS(text, "test.ics");
+      if (!await waitFor(() => has("#cfYes"), 3000)) throw new Error("確認シートが出ない");
+      if (!has("#cfAlt")) throw new Error("「この先1年ぶんだけ」の道が出ない");
+      if (!/1年ぶんだけ（1件）/.test($$("#cfAlt").textContent)) throw new Error("しぼったときの件数が出ない: " + $$("#cfAlt").textContent);
+      await click("#cfAlt"); await pr; await wait(200);
+      const added = state.items.length - before;
+      if (added !== 1) throw new Error("しぼったのに " + added + "件 入った");
+      if (state.items.some(i => i.title === "ずっと前の会議" || i.title === "2年先の式典"))
+        throw new Error("しぼった範囲の外まで入っている");
+      if (!/足していません/.test($$("#expOut").textContent)) throw new Error("残りを足していないことを言わない");
+    });
+    await step(".ics の取り込み：上限を超えるときは、足す前に言う", async () => {
+      const tz = state.settings.timezone, P = parts(new Date(), tz);
+      const ev = (t, v) => ["BEGIN:VEVENT", "SUMMARY:" + t, "DTSTART:" + v, "END:VEVENT"].join("\r\n");
+      const text = ["BEGIN:VCALENDAR",
+        ev("上限ためし", `${P.y + 1}0301T100000Z`), "END:VCALENDAR"].join("\r\n");
+      const keep = state.notes;
+      state.notes = new Array(READ_LIMIT).fill(0).map((_, i) => ({ id: "x" + i }));   // 保存はしない。数えるところだけ演じる
+      const before = state.items.length;
+      try {
+        const pr = importICS(text, "big.ics");
+        if (!await waitFor(() => has("#cfYes"), 3000)) throw new Error("確認シートが出ない");
+        const body = $$("#sheetHost").textContent;
+        if (!/超えます/.test(body)) throw new Error("上限を超えることを言わない: " + body);
+        if (!/画面に出なくなります/.test(body)) throw new Error("超えると何が起きるかを言わない");
+        await click("#cfNo"); await pr; await wait(120);
+      } finally { state.notes = keep; }
+      if (state.items.length !== before) throw new Error("やめたのに入っている");
+    });
     await step("空の状態から、また話しかけられる", async () => {
       type("#say", "明日の11時に打ち合わせ。");
       await click("#btnSend"); await wait(400);
