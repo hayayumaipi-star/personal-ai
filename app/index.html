@@ -3889,7 +3889,7 @@ function hasAI() {
 
 async function callAI(prompt, isJson, options) {
   if (state.settings && state.settings.geminiKey) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${state.settings.geminiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${state.settings.geminiKey}`;
     const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2 } };
     if (isJson) payload.generationConfig.responseMimeType = "application/json";
     const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
@@ -4467,7 +4467,7 @@ if ($("#btnSaveKey")) {
     btn.textContent = "確認中...";
     btn.disabled = true;
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${key}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
       const payload = { contents: [{ parts: [{ text: "Hello" }] }], generationConfig: { maxOutputTokens: 5 } };
       const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!res.ok) {
