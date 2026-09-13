@@ -1351,6 +1351,57 @@
         ok("AN. 見出しが空でも黙って捨てない",
            r9.changes.length === 0 && r9.asks.length > 0, JSON.stringify(r9.asks));
 
+        /* AO. AIが返した時刻にも、午前・午後の判定を効かせる（v5.3・実機で報告）。
+           22:09 の「11時から12時まで勉強する」が **9/13 11:00**（もう過ぎた朝）になった。
+           ルールは 23:00 と読み、速い返事へのヒントも「夜」を渡していたのに、
+           決まり4b/4c が parseWhen の中にしかなく、AIの dueTime は素通りだった。 */
+        {
+          const LATE = zoned(2026, 9, 13, 22, 9, TZ).toISOString();
+          const late = text => ({ id: uid(), text, hash: "ao" + Math.random(),
+            capturedAt: LATE, source: "talk", createdAt: LATE });
+
+          // 範囲の終わりが 12時 のとき、午後シフトから漏れて13時間になっていた
+          const w = parseWhen("11時から12時まで勉強する", LATE, TZ);
+          ok("AO. 夜の「11時から12時まで」は 23:00 から",
+             !!w && fmtDT(w.start, TZ).endsWith("23:00"), w && fmtDT(w.start, TZ));
+          ok("AO. その終わりは翌日の0:00（翌日の12:00にしない）",
+             !!w && (new Date(w.end) - new Date(w.start)) === 3600000,
+             w && fmtDT(w.end, TZ));
+
+          // AIが12時間ずれた時刻を返しても、ルールを採る
+          reset();
+          const na = late("11時から12時まで勉強する"); await putNote(na);
+          await applyOps([{ op: "add", kind: "event", title: "勉強する", dueDate: "2026-09-14",
+            dueTime: "11:00", duePrecision: "exact", estimateMin: 60, quote: "勉強する" }], na);
+          const ia = state.items.find(i => i.kind === "event");
+          ok("AO. AIの「11:00」を採らず、ルールの 23:00 にする",
+             !!ia && fmtDT(ia.start, TZ) === "9/13 23:00", ia && fmtDT(ia.start, TZ));
+
+          // ルールが翌日へ送ったものを、話した日へ引き戻さない
+          reset();
+          const nb = late("10時から11時まで勉強する"); await putNote(nb);
+          await applyOps([{ op: "add", kind: "event", title: "勉強する", dueDate: "2026-09-14",
+            dueTime: "10:00", duePrecision: "exact", estimateMin: 60, quote: "勉強する" }], nb);
+          const ib = state.items.find(i => i.kind === "event");
+          ok("AO. ルールが翌日にしたものを、今日へ引き戻さない",
+             !!ib && ib.dayKey === "2026-09-14", ib && ib.dayKey);
+
+          // 12時間ずれていないときは、AIの時刻をそのまま使う
+          reset();
+          const nc = late("11時から12時まで勉強する"); await putNote(nc);
+          await applyOps([{ op: "add", kind: "event", title: "勉強する", dueDate: "2026-09-13",
+            dueTime: "23:30", duePrecision: "exact", estimateMin: 30, quote: "勉強する" }], nc);
+          const ic = state.items.find(i => i.kind === "event");
+          ok("AO. ずれが12時間ちょうどでなければ、触らない",
+             !!ic && fmtDT(ic.start, TZ) === "9/13 23:30", ic && fmtDT(ic.start, TZ));
+
+          // 「夜11時から深夜1時まで」は今までどおり日をまたぐ（深夜は +12 しない）
+          const w2 = parseWhen("夜11時から深夜1時までゼミ", LATE, TZ);
+          ok("AO. 「夜11時から深夜1時まで」は2時間のまま",
+             !!w2 && (new Date(w2.end) - new Date(w2.start)) === 7200000,
+             w2 && fmtDT(w2.start, TZ) + "〜" + fmtDT(w2.end, TZ));
+        }
+
         // AIに日付の言葉を書かせない（決まり8の日付版）
         {
           const nq = mkNote("30分勉強する");

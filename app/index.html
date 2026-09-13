@@ -848,8 +848,12 @@ function parseWhen(rawText, baseISO, tz) {
       const sMs = new Date(res.start).getTime();
       let endAt = zoned(ky, km, kd, h2, m2, tz);
       if (endAt.getTime() <= sMs) {
+        /* `h2 + 12` が **24**（＝翌日の0:00）になる場合も許すこと（v5.3・実機で報告）。
+           `<= 23` で切っていたので、夜に「11時から12時まで」と言うと終わりだけ
+           午後シフトから漏れ、**翌日の12:00＝13時間**の枠になっていた。
+           `zoned` は 24時をそのまま翌日0:00として扱う。 */
         const pm = zoned(ky, km, kd, h2 + 12, m2, tz);
-        endAt = (h2 + 12 <= 23 && pm.getTime() > sMs) ? pm : zoned(ky, km, kd + 1, h2, m2, tz);
+        endAt = (h2 + 12 <= 24 && pm.getTime() > sMs) ? pm : zoned(ky, km, kd + 1, h2, m2, tz);
       }
       res.end = endAt.toISOString();
       res.precision = "exact"; res.hasTime = true;
@@ -3466,14 +3470,21 @@ function dateWasSpoken(note, tz) {
    呼んだ側は、これが true なら `asks` に一言添えること。 */
 function applyFields(it, o, tz, note) {
   let pulledBack = false;
-  if (isDate(o.dueDate) && note && !dateWasSpoken(note, tz)) {
+  /* 同じ発言を、ルールでも読んでおく。AIの読み違いを見つけるための「もう一つの目」。 */
+  const rw = (note && note.text)
+    ? parseWhen(note.text, note.capturedAt || new Date().toISOString(), tz) : null;
+  if (isDate(o.dueDate) && note && !(rw && !rw.timeOnly)) {
     pulledBack = true;
     /* 本人は日付を言っていない。**AIが足した日付は採らない**（v4.7）。
        - 言い直しなら、いまの日付を保つ（「14時にして」で今日へ動かさない）
        - 時刻だけ言われたなら、**話した日**（ルールで読んだときと同じ）
        - どちらも無ければ日付なし。「そのうち」を明日の期限にしない */
-    const w = parseWhen(note.text, note.capturedAt || new Date().toISOString(), tz);
-    const spoken = (w && w.hasTime) ? dayKey(new Date(note.capturedAt || Date.now()), tz) : null;
+    /* 時刻を言っているなら、**ルールが決めた日**を使う（v5.3）。
+       話した日をそのまま使うと、決まり4b が翌日へ送った分（22時の「10時から」＝翌朝）
+       まで今日へ引き戻して、もう過ぎた時刻に置いてしまう。 */
+    const w = rw;
+    const spoken = (w && w.hasTime && (w.start || w.iso))
+      ? dayKey(new Date(w.start || w.iso), tz) : null;
     const day = it.dayKey || spoken || null;
     o = Object.assign({}, o, {
       dueDate: day,
@@ -3487,6 +3498,18 @@ function applyFields(it, o, tz, note) {
   const curDur = (it.kind === "event" && it.start && it.end)
     ? Math.max(5, Math.round((new Date(it.end) - new Date(it.start)) / 60000)) : null;
   let clock = isTime(o.dueTime) ? o.dueTime : null;
+  /* **12時間ちょうどのズレは、ルールを採る**（v5.3・実機で報告）。
+     決まり4b/4c（午前とも午後とも言われていない時刻）は `parseWhen` の中にしかなく、
+     AIが返す `dueTime` には一切かかっていなかった。22:09 の「11時から12時まで勉強する」が
+     **9/13 11:00**（もう過ぎた朝）になった。ルールは 23:00 と読み、
+     速い返事へのヒントも「夜」を渡していたのに、AIの時刻がそのまま通った。
+     12時間ぴったりのズレは、午前/午後の取り違え以外にはほとんど起きない。
+     決まり8「時刻はコードが作る」に揃える。 */
+  if (clock && rw && rw.hasTime && (rw.start || rw.iso)) {
+    const ruleMin = minOfDay(rw.start || rw.iso, tz);
+    const aiMin = (+clock.slice(0, 2)) * 60 + (+clock.slice(3, 5));
+    if (Math.abs(ruleMin - aiMin) === 720) { clock = hhmm(ruleMin); it.dateInferred = true; }
+  }
   if (!clock && it.kind === "event" && it.start && !it.timeUnknown) {
     const p = parts(new Date(it.start), tz); clock = pad2(p.h) + ":" + pad2(p.mi);   // 日付だけ動かす
   }
