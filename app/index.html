@@ -1556,9 +1556,13 @@ async function putDoc(d) {
   lsWrite();
   if (DB) { try { await DB.doc("docs/" + d.id).set(d); } catch (e) { dbTrouble(e); } }
 }
+/* 資料を消す。**消せたときだけ true**（v5.7）。ここにも同じ穴が残っていた——
+   先に手元から消して、呼んだ側が無条件に「資料を消しました」と言っていた。
+   消す道は4つだと思っていたが、これを入れて**5つ**あった。 */
 async function delDoc(id) {
+  if (!await deleteFromStore("docs/" + id)) return false;
   state.docs = state.docs.filter(x => x.id !== id); lsWrite();
-  if (DB) { try { await DB.doc("docs/" + id).delete(); } catch (e) { dbTrouble(e); } }
+  return true;
 }
 
 /* 会話は日ごとに1ドキュメントへまとめる（1件1ドキュメントにすると保存上限に当たるため） */
@@ -1655,8 +1659,9 @@ async function wipeCollection(name) {
 /* 保存先から1件消す。**消せたときだけ true**（v5.6）。
    消す道は tidy / 原文を消す / 項目を完全に消す / 全部消す の4つあり、
    同じ穴が別々に開いていた（実際、v4.8 で直したのは「全部消す」だけだった）。
-   手元から消すのは、これが true を返してから。 */
-async function deleteDoc(path) {
+   手元から消すのは、これが true を返してから。
+   **名前は `delDoc`（資料を消す）と間違えないこと。**こちらは保存先の1文書を消すだけ。 */
+async function deleteFromStore(path) {
   if (!DB) return true;                        // 保存先が無いときは、手元だけで完結する
   try { await DB.doc(path).delete(); return true; }
   catch (e) { dbTrouble(e); return false; }    // 理由は設定タブの「最後に起きた不具合」に残る
@@ -2992,7 +2997,11 @@ async function act(a, id, el) {
       yes: "資料を消す", danger: true
     });
     if (!yes) return;
-    await delDoc(id); toast("資料を消しました"); renderAll(); return;
+    if (!await delDoc(id)) {
+      renderSettings(); toast("保存先から消せませんでした。設定の「最後に起きた不具合」を見てください");
+      return;
+    }
+    toast("資料を消しました"); renderAll(); return;
   }
   if (a === "shownote") {
     const n = state.notes.find(x => x.id === id);
@@ -3016,7 +3025,7 @@ async function act(a, id, el) {
       yes: "原文を消す", danger: true
     });
     if (!yes) return;
-    if (!await deleteDoc("notes/" + id)) {     // 消せていないなら手元も消さない（戻ってくるため）
+    if (!await deleteFromStore("notes/" + id)) {     // 消せていないなら手元も消さない（戻ってくるため）
       renderSettings(); toast("保存先から消せませんでした。設定の「最後に起きた不具合」を見てください");
       return;
     }
@@ -3060,7 +3069,7 @@ async function act(a, id, el) {
       yes: "完全に消す", danger: true
     });
     if (!yes) return;
-    if (!await deleteDoc("items/" + it.id)) {  // 消せていないなら手元も消さない
+    if (!await deleteFromStore("items/" + it.id)) {  // 消せていないなら手元も消さない
       closeSheet(); renderSettings();
       toast("保存先から消せませんでした。設定の「最後に起きた不具合」を見てください");
       return;
@@ -4685,7 +4694,7 @@ $("#btnTidy").addEventListener("click", async () => {
      画面からは消えるのに保存先には残り、**開き直すと全部戻ってくる**。
      見ているのは「delete を何回呼べたか」ではなく、**1件ずつの成否**。
      そして **消せなかったものは、手元からも消さない**。 */
-  const del = deleteDoc;                        // 消し方は1か所にまとめてある
+  const del = deleteFromStore;                        // 消し方は1か所にまとめてある
   const goneItems = [], goneNotes = [], goneDays = [];
   let failed = 0;
   for (const i of items) { if (await del("items/" + i.id)) goneItems.push(i.id); else failed++; }

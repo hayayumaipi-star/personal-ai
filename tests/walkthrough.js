@@ -428,6 +428,40 @@
       if (left) throw new Error("保存先に残っている");
     });
 
+    /* 資料を消す道にも、同じ穴があった（v5.7・2周目の調査で発見）。
+       消す道は4つだと思っていたが、`delDoc`（資料）を入れて**5つ**だった。
+       `act()` は確認シートの返事を待つので、**await で呼ぶと止まる**。押しっぱなしにして待つ。 */
+    async function docdelAndConfirm(id) {
+      const p = act("docdel", id);                       // await しない（確認待ちで止まるため）
+      if (!await waitFor(() => has("#cfYes"), 4000)) throw new Error("確認シートが出ない");
+      await click("#cfYes");
+      await p;
+    }
+    await step("資料を消せないときは「消しました」と言わない", async () => {
+      const d = { id: "doc-x", title: "検査用の資料", text: "なかみ", hash: "h-doc-x",
+                  chars: 3, truncated: false, source: "paste", sourceName: null,
+                  aiRead: false, createdAt: new Date().toISOString() };
+      await putDoc(d);
+      const db = await window.claude.use("db");
+      const origDoc = db.doc;
+      db.doc = function (p) {
+        const r = origDoc.call(db, p);
+        r.delete = () => Promise.reject({ code: "permission_denied", message: "テスト用に失敗させた" });
+        return r;
+      };
+      lastError = null;
+      try {
+        await docdelAndConfirm(d.id);
+        if (!state.docs.some(x => x.id === d.id))
+          throw new Error("保存先から消せていないのに、手元だけ消した");
+      } finally { db.doc = origDoc; }
+      if (!lastError) throw new Error("不具合として記録されない");
+      lastError = null;
+      // 後始末：ちゃんと消せる状態で消しておく
+      await docdelAndConfirm(d.id);
+      if (state.docs.some(x => x.id === d.id)) throw new Error("消せるはずのものが消えない");
+    });
+
     /* ===== 再読み込みしても残るか（凍結データからの復帰） ===== */
     await step("保存先から読み直しても壊れない", async () => {
       const n = state.items.length;
