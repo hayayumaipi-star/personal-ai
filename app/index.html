@@ -3879,11 +3879,52 @@ ${note.text}
 """`;
 }
 
+/* =======================================================================
+   AI 通信（Claude Artifact 依存からの脱却 / Gemini API 対応）
+   ======================================================================= */
+function hasAI() {
+  return !!SAMPLEFN || !!(state.settings && state.settings.geminiKey);
+}
+
+async function callAI(prompt, isJson, options) {
+  if (state.settings && state.settings.geminiKey) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${state.settings.geminiKey}`;
+    const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2 } };
+    if (isJson) payload.generationConfig.responseMimeType = "application/json";
+    const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
+    if (options && options.signal) fetchOpts.signal = options.signal;
+    let res;
+    try { res = await fetch(url, fetchOpts); }
+    catch (e) {
+      if (e.name === "AbortError") throw { code: "timeout", message: "AIの応答がタイムアウトしました" };
+      throw { code: "network_error", message: "AIに接続できません" };
+    }
+    if (!res.ok) {
+      let emsg = res.status;
+      try { const errObj = await res.json(); emsg = errObj.error?.message || emsg; } catch(e){}
+      if (res.status === 429) throw { code: "rate_limited", message: "APIの無料枠の上限です" };
+      if (res.status === 400 && String(emsg).includes("API key")) throw { code: "unauthorized", message: "APIキーが間違っています" };
+      throw { code: "api_error", message: "API エラー: " + emsg };
+    }
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    if (isJson) {
+      try { return JSON.parse(text); } catch(e) { throw { code: "invalid_json", message: "AIが不正なJSONを返しました" }; }
+    }
+    return { text };
+  }
+  if (SAMPLEFN) {
+    if (isJson) return await SAMPLEFN.json(prompt, options);
+    return await SAMPLEFN(prompt, options);
+  }
+  throw { code: "not_declared", message: "AIが利用できません" };
+}
+
 async function aiTurn(note) {
   const cx = contextForAI(note);
   const g = aiSignal(AI_TIMEOUT_MAIN);
   let out;
-  try { out = await SAMPLEFN.json(buildPrompt(note, cx), { modelTier: "default", cache: false, signal: g.signal }); }
+  try { out = await callAI(buildPrompt(note, cx), true, { signal: g.signal }); }
   finally { g.done(); }
   // 形が違うなら、黙って「何もしない」で終わらせずにルールへ戻す
   if (!out || typeof out !== "object" || !Array.isArray(out.ops)) throw { code: "invalid_json", message: "返事の形が違います" };
@@ -3947,7 +3988,7 @@ async function aiQuickReply(note) {
   const cx = contextForAI(note);
   const g = aiSignal(AI_TIMEOUT_QUICK);
   let r;
-  try { r = await SAMPLEFN(quickPrompt(note, cx), { modelTier: "quick", cache: false, signal: g.signal }); }
+  try { r = await callAI(quickPrompt(note, cx), false, { signal: g.signal }); }
   finally { g.done(); }
   return (r && typeof r.text === "string") ? r.text.trim().slice(0, 200) : "";
 }
