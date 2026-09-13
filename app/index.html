@@ -3131,6 +3131,10 @@ const RE_KEEP = /(見返せる|見返し|残しておき|残しておいて|あ�
 /* 家にあるもの・食材の話。あとで「何を食べよう」と聞かれたときに参照する。 */
 const RE_PANTRY = /(冷蔵庫|家にある|うちにある|家にあった|残ってる|残っている|ストック|買っておいた|買ってある)/;
 const RE_RESTATE = /(じゃなくて|ではなく|やっぱり|やっぱ|に変更|変えて|あと\s*\d+\s*(分|時間)|もう少しかか|もうちょっとかか|思ったより|かかってる|かかりそう|延ばして|後ろに|遅らせ)/;
+/* 言い直しかどうかの判定は **1か所にまとめる**（v5.4）。
+   ルールの中に同じ判定が2つあり、幅が違っていたので取りこぼした。 */
+const looksRestating = t => RE_RESTATE.test(t)
+  || /にして[。、]?$|に変えて|じゃなくて|ではなく|さっきの|さっき言った/.test(t);
 
 /* --- 発言の意図を分ける。全部をタスクにしないための入口 --- */
 // 質問・相談。タスクを作らず、いまの状態から答える。
@@ -3181,7 +3185,7 @@ function ruleOps(note) {
   const ops = [], text = halfWidth(note.text), raw = note.text, q = raw.slice(0, 60);
   // 「明日の打ち合わせ、14時にして」は言い直し。ルールでは対象を決められないが、
   // だからといって新しい予定を作ってはいけない（同じ用事が二重になる）。
-  const restating = RE_RESTATE.test(text) || /にして[。、]?$|に変えて|じゃなくて|ではなく/.test(text);
+  const restating = looksRestating(text);
   let needsAi = false;
   for (const it of extractByRule(note, state.settings)) {
     if (it.kind === "condition") { ops.push({ op: "condition", text: it.selfReport, quote: it.evidence.text }); continue; }
@@ -3255,7 +3259,11 @@ function ruleOps(note) {
   if (RE_KEEP.test(text)) ops.push({ op: "memo", text: raw.slice(0, 200), quote: q });
   // 言い直し・見積もり直しは、ルールだけでは「どれのことか」を決められない。黙って無視せず伝える。
   // ただし、その発話から実際に何か作れているなら言い直しではないので黙っている。
-  if (RE_RESTATE.test(text) && !ops.some(o => ["done", "update", "add"].includes(o.op))) ops.push({ op: "_needs_ai" });
+  /* **上の `restating` と同じ幅で見ること**（v5.4・実機で報告）。
+     ここだけ `RE_RESTATE` の狭いほうを使っていたので、
+     「さっきの勉強、23時からにして」が **どこにも引っかからず、まるごと黙って消えた**
+     （ops 0件・変更0件・知らせ0件）。判定が2か所に分かれると、必ず片方だけ直す。 */
+  if (looksRestating(text) && !ops.some(o => ["done", "update", "add"].includes(o.op))) ops.push({ op: "_needs_ai" });
   return ops;
 }
 
@@ -3956,7 +3964,17 @@ async function sendTurn(text) {
     try { const r = await aiTurn(note); ops = r.ops; reply = r.reply; usedAI = true; }
     catch (e) { err = AI_ERR[e && e.code] || "AIに接続できなかったので、ルールだけで読み取りました。"; }
   }
+  /* **AIが「何もしない」を返しても、ルールが読めたものは捨てない**（v5.4・実機で報告）。
+     ここは `if (!ops)` だけだったので、AIが失敗したときにしかルールへ戻らなかった。
+     AIが成功して **空の ops** を返すと `[]` は真なので、ルールが正しく読めていても
+     まるごと捨てられ、**画面には何も出ない**（「追加すらされなかった」の正体）。
+     決まり7「ルール抽出だけで成立すること」は、ここで破れていた。
+     AIがオンのときに `_needs_ai`（AIをオンにして、の案内）を混ぜても意味が無いので外す。 */
   if (!ops) ops = ruleOps(note);
+  else if (!ops.length) {
+    const ro = ruleOps(note).filter(o => o.op !== "_needs_ai");
+    if (ro.length) { ops = ro; usedAI = false; }
+  }
   const quickText = quick ? await quick : "";
 
   // 5. 適用してから、予定を計算し直す

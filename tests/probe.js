@@ -1402,6 +1402,37 @@
              w2 && fmtDT(w2.start, TZ) + "〜" + fmtDT(w2.end, TZ));
         }
 
+        /* AP. 黙って何も起きない道をふさぐ（v5.4・実機で報告）。
+           「チャットにも予定表が出ず、スケジュールにも追加されない」。 */
+        {
+          const LATE2 = zoned(2026, 9, 13, 22, 20, TZ).toISOString();
+          const mk = text => ({ id: uid(), text, hash: "ap" + Math.random(),
+            capturedAt: LATE2, source: "talk", createdAt: LATE2 });
+
+          // ① 言い直しの判定が2か所に分かれていて、片方だけ狭かった
+          ok("AP. 「〜にして」の言い直しを取りこぼさない",
+             looksRestating("さっきの勉強、23時からにして") === true);
+          ok("AP. 「さっき言った」も言い直し", looksRestating("さっき言ったやつ、30分にして") === true);
+          ok("AP. ふつうの発言は言い直しにしない",
+             looksRestating("23時から24時まで勉強する") === false);
+          reset();
+          const nr = mk("さっきの勉強、23時からにして"); await putNote(nr);
+          const rr2 = await applyOps(ruleOps(nr), nr);
+          ok("AP. 対象を決められなくても、黙って終わらない",
+             rr2.asks.length > 0, JSON.stringify(rr2.asks));
+
+          /* ② AIが「何もしない」を返したら、ルールが読めたものを使う。
+                `if (!ops)` だけだと `[]` は真なので、ルールへ戻らず全部捨てていた。 */
+          const src = String(sendTurn);
+          ok("AP. AIが空の ops を返したときに、ルールへ戻る道がある",
+             /ops\.length/.test(src) && /ruleOps\(note\)/.test(src), "sendTurn に戻り道が無い");
+          reset();
+          const nf = mk("23時から24時まで勉強する"); await putNote(nf);
+          const fallback = [].length ? [] : ruleOps(nf).filter(o => o.op !== "_needs_ai");
+          ok("AP. そのときルールは、ちゃんと読めている", fallback.length > 0,
+             JSON.stringify(ruleOps(nf).map(o => o.op)));
+        }
+
         // AIに日付の言葉を書かせない（決まり8の日付版）
         {
           const nq = mkNote("30分勉強する");
