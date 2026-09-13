@@ -2010,6 +2010,32 @@
       ok("AW. 本当に埋まっているときは「空きがありません」のまま",
          /空きがありません/.test(reasonAt(10 * 60)), reasonAt(10 * 60));
 
+      /* **朝7時に言っても同じ文が出ていた**（v6.2b・実機で報告）。
+         18:00〜21:00 は先の話で空っぽなのに「そこに30分の空きがありません」。
+         本当の理由は、その時間帯が**作業に使える帯の外**だったこと。
+         理由が違えば打つ手も変わる（「夜も入れていい」と言えば直る）ので、名指しする。 */
+      {
+        const morn = 7 * 60;
+        await act("drop", ev.id);          // 上で足した会食を外す。ここで見たいのは帯のほう
+        state.settings = Object.assign({}, state.settings, { workStart: "09:00", workEnd: "18:00" });
+        ok("AW. 作業に使える帯の外なら、そう言う",
+           /作業に使える時間帯（09:00〜18:00）の外です/.test(reasonAt(morn)), reasonAt(morn));
+        ok("AW. 帯の外を「空きがありません」と言わない",
+           !/空きがありません/.test(reasonAt(morn)), reasonAt(morn));
+
+        state.settings = Object.assign({}, state.settings, { workStart: "00:00", workEnd: "23:59" });
+        const pr = { id: uid(), noteId: null, kind: "preference", title: "夜は予定を入れないで",
+          preferKey: "noEveningWork", preferValue: 18 * 60, evidence: { text: "x" },
+          origin: "rule", confirmed: false, corrected: false, status: "open",
+          createdAt: T(7, 0), updatedAt: "", history: [] };
+        pr.dedupeKey = dedupeKey(pr); await putItem(pr);
+        ok("AW. 「夜は入れないで」で置けないときは、その希望を名指しする",
+           /夜は予定を入れないで/.test(reasonAt(morn)), reasonAt(morn));
+        await act("drop", pr.id);
+        ok("AW. その希望をやめれば、また置ける", planFor(KEY, { nowMin: morn }).blocks
+           .some(b => b.item && b.item.id === t.id), reasonAt(morn));
+      }
+
       // 元の文に区切りがあったら、それは残す（くっつけてよいのは、元から続いていた所だけ）
       const cut = x => cleanTitle(halfWidth(x), parseWhen(halfWidth(x), T(9, 0), TZ));
       ok("AW. 元からあった空白は残す", cut("レポート 2時間 書く") === "レポート 書く", cut("レポート 2時間 書く"));

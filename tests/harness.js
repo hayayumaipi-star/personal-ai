@@ -135,7 +135,11 @@
     state.settings.workStart = "09:00"; state.settings.workEnd = "09:30";
     const tight = planFor(capKey);
     ok("空き時間が足りなければ未配置にする", tight.unplaced.length >= 1, "未配置 " + tight.unplaced.length + "件");
-    ok("未配置に理由が付く", tight.unplaced.every(u => u.reason && /分|埋まって/.test(u.reason)), tight.unplaced.map(u => u.reason)[0]);
+    // 理由の言い方は増える（v6.2b で「帯の外です」「もう過ぎています」が加わった）。
+    // 見張るのは「説明になっているか」で、特定の文面ではない。
+    ok("未配置に理由が付く",
+       tight.unplaced.every(u => u.reason && /分|埋まって|空き|外です|過ぎて/.test(u.reason)),
+       tight.unplaced.map(u => u.reason)[0]);
     ok("空き時間を超える作業枠は作らない", tight.blocks.filter(b => b.type === "flex").every(b => b.e <= 570));
     state.settings.workStart = "09:00"; state.settings.workEnd = "18:00";
 

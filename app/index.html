@@ -2102,6 +2102,12 @@ function planFor(key, opts) {
          「そこに30分の空きがありません」と出ていた。予定が詰まっていると読めてしまう。
          理由は3つに分ける：①時間帯がまるごと過ぎている ②残りが足りない ③本当に埋まっている。 */
       const winPast = !!win && nowMin >= 0 && nowMin >= win[1];
+      /* **「作業に使える帯の外」を「空きがない」と言わない**（v6.2b・実機で報告）。
+         朝7時に「夜6時から9時までの間に30分」と言われて、18:00〜21:00 は空っぽなのに
+         「そこに30分の空きがありません」と出ていた。本当の理由は、その時間帯が
+         **作業に使える帯（`workStart`〜`workEnd`、「夜は入れないで」で縮んだぶんを含む）の外**
+         だったこと。理由が違えば、本人の打つ手も変わる（「夜も入れていい」と言えば直る）。 */
+      const winOutside = !!win && Math.min(win[1], winE) - Math.max(win[0], winS) <= 0;
       const winFree = win
         ? cursor.reduce((m, iv) => Math.max(m, Math.min(iv[1], win[1]) - Math.max(iv[0], win[0])), 0)
         : 0;
@@ -2110,6 +2116,10 @@ function planFor(key, opts) {
         reason: win
           ? winPast
             ? `${winName}にと言っていましたが、その時間はもう過ぎています`
+            : winOutside && winCapped
+            ? `${winName}にと言っていましたが、「夜は予定を入れないで」と言っていたので${hhmm(winE)}より後には置いていません`
+            : winOutside
+            ? `${winName}にと言っていましたが、作業に使える時間帯（${hhmm(winS)}〜${hhmm(winE)}）の外です`
             : winFree > 0
             ? `${winName}にと言っていましたが、空いているのは最大${durJa(winFree)}です`
             : `${winName}にと言っていましたが、そこに${durJa(need)}の空きがありません`
@@ -2742,7 +2752,13 @@ function renderSettings() {
   $("#breakLen") && ($("#breakLen").value = s.breakMin == null ? 10 : s.breakMin);
   $("#theme") && ($("#theme").value = s.theme || "auto");
   const turnCount = Object.values(state.turns).reduce((n, l) => n + l.length, 0);
-  $("#dataState").textContent = `会話 ${turnCount}件 ／ 原文 ${state.notes.length}件 ／ 項目 ${state.items.length}件 ／ 保存先：${state.backend === "db" ? "claude.ai（あなたの記録）＋この端末" : "この端末のみ"}`;
+  /* **作業に使える時間帯を、読めるところに1行だけ出す**（v6.2b・実機で報告）。
+     設定欄は v3.9 で外した（本人の指示）ので、ここは**入力欄ではなく事実の表示**。
+     出す理由：この帯の外だと予定が置けず、`planFor` の理由文がこの数字を名指しする。
+     数字が画面のどこにも出ていないと、理由を読んでも確かめようがない。 */
+  $("#dataState").textContent = `会話 ${turnCount}件 ／ 原文 ${state.notes.length}件 ／ 項目 ${state.items.length}件`
+    + ` ／ 作業に使える時間帯：${s.workStart}〜${s.workEnd}`
+    + ` ／ 保存先：${state.backend === "db" ? "claude.ai（あなたの記録）＋この端末" : "この端末のみ"}`;
   /* 1回に読み込める上限は1000件。近づいたら黙って欠け始める前に知らせる。
      消すのは本人の判断。勝手に古い記録を捨てない。 */
   const near = $("#dataWarn");
