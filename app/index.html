@@ -3884,43 +3884,77 @@ ${note.text}
 /* =======================================================================
    AI 通信（Claude Artifact 依存からの脱却 / Gemini API 対応）
    ======================================================================= */
+function getApiKey() {
+  const s = state.settings;
+  if (!s) return null;
+  const p = s.aiProvider || "gemini";
+  if (p === "gemini") return s.geminiKey;
+  if (p === "openai") return s.openaiKey;
+  if (p === "anthropic") return s.anthropicKey;
+  return null;
+}
+
 function hasAI() {
-  return !!SAMPLEFN || !!(state.settings && state.settings.geminiKey);
+  return !!SAMPLEFN || !!getApiKey();
 }
 
 async function callAI(prompt, isJson, options) {
-  if (state.settings && state.settings.geminiKey) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${state.settings.geminiKey}`;
-    const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2 } };
-    if (isJson) payload.generationConfig.responseMimeType = "application/json";
-    const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
-    if (options && options.signal) fetchOpts.signal = options.signal;
-    let res;
-    try { res = await fetch(url, fetchOpts); }
-    catch (e) {
-      if (e.name === "AbortError") throw { code: "timeout", message: "AIの応答がタイムアウトしました" };
-      throw { code: "network_error", message: "AIに接続できません" };
-    }
-    if (!res.ok) {
-      let emsg = res.status;
-      try { const errObj = await res.json(); emsg = errObj.error?.message || emsg; } catch(e){}
-      if (res.status === 404) throw { code: "not_found", message: "AIモデルが見つかりません。バージョンを確認してください" };
-      if (res.status === 429) throw { code: "rate_limited", message: "APIの無料枠の上限です" };
-      if (res.status === 400 && String(emsg).includes("API key")) throw { code: "unauthorized", message: "APIキーが間違っています" };
-      throw { code: "api_error", message: "API エラー: " + emsg };
-    }
-    const data = await res.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    if (isJson) {
-      try { 
-        // Geminiがまれにマークダウンのバッククォートを含める対策
-        const cleanText = text.replace(/^```(?:json)?\s*|\s*```$/gi, "").trim();
-        return JSON.parse(cleanText); 
-      } catch(e) { 
-        throw { code: "invalid_json", message: "AIが不正なJSONを返しました" }; 
+  const key = getApiKey();
+  const p = state.settings?.aiProvider || "gemini";
+  if (key) {
+    if (p === "gemini") {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+      const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2 } };
+      if (isJson) payload.generationConfig.responseMimeType = "application/json";
+      const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
+      if (options && options.signal) fetchOpts.signal = options.signal;
+      let res;
+      try { res = await fetch(url, fetchOpts); }
+      catch (e) { if (e.name === "AbortError") throw { code: "timeout", message: "タイムアウト" }; throw { code: "network_error", message: "通信エラー" }; }
+      if (!res.ok) {
+        let emsg = res.status; try { const errObj = await res.json(); emsg = errObj.error?.message || emsg; } catch(e){}
+        throw { code: "api_error", message: "Gemini API エラー: " + emsg };
       }
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      if (isJson) { try { return JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/gi, "").trim()); } catch(e) { throw { code: "invalid_json" }; } }
+      return { text };
     }
-    return { text };
+    if (p === "openai") {
+      const url = "https://api.openai.com/v1/chat/completions";
+      const payload = { model: "gpt-4o-mini", messages: [{role: "user", content: prompt}], temperature: 0.2 };
+      if (isJson) payload.response_format = { type: "json_object" };
+      const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` }, body: JSON.stringify(payload) };
+      if (options && options.signal) fetchOpts.signal = options.signal;
+      let res;
+      try { res = await fetch(url, fetchOpts); }
+      catch (e) { if (e.name === "AbortError") throw { code: "timeout", message: "タイムアウト" }; throw { code: "network_error", message: "通信エラー" }; }
+      if (!res.ok) {
+        let emsg = res.status; try { const errObj = await res.json(); emsg = errObj.error?.message || emsg; } catch(e){}
+        throw { code: "api_error", message: "OpenAI API エラー: " + emsg };
+      }
+      const data = await res.json();
+      const text = data.choices?.[0]?.message?.content || "";
+      if (isJson) { try { return JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/gi, "").trim()); } catch(e) { throw { code: "invalid_json" }; } }
+      return { text };
+    }
+    if (p === "anthropic") {
+      const url = "https://api.anthropic.com/v1/messages";
+      const payload = { model: "claude-3-5-haiku-latest", max_tokens: 1024, messages: [{role: "user", content: prompt}], temperature: 0.2 };
+      const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" }, body: JSON.stringify(payload) };
+      if (options && options.signal) fetchOpts.signal = options.signal;
+      let res;
+      try { res = await fetch(url, fetchOpts); }
+      catch (e) { if (e.name === "AbortError") throw { code: "timeout", message: "タイムアウト" }; throw { code: "network_error", message: "通信エラー" }; }
+      if (!res.ok) {
+        let emsg = res.status; try { const errObj = await res.json(); emsg = errObj.error?.message || emsg; } catch(e){}
+        throw { code: "api_error", message: "Anthropic API エラー: " + emsg };
+      }
+      const data = await res.json();
+      const text = data.content?.[0]?.text || "";
+      if (isJson) { try { return JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/gi, "").trim()); } catch(e) { throw { code: "invalid_json" }; } }
+      return { text };
+    }
   }
   if (SAMPLEFN) {
     if (isJson) return await SAMPLEFN.json(prompt, options);
