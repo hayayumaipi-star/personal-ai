@@ -4581,9 +4581,9 @@ if ($("#btnSaveKey")) {
     try {
       let url, payload, headers;
       if (p === "gemini") {
-        url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
+        url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
         payload = { contents: [{ parts: [{ text: "Hello" }] }], generationConfig: { maxOutputTokens: 5 } };
-        headers = { "Content-Type": "application/json", "x-goog-api-key": key };
+        headers = { "Content-Type": "application/json" };
       } else if (p === "openai") {
         url = "https://api.openai.com/v1/chat/completions";
         payload = { model: "gpt-4o-mini", messages: [{role: "user", content: "Hello"}], max_tokens: 5 };
@@ -4594,7 +4594,7 @@ if ($("#btnSaveKey")) {
         headers = { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" };
       }
       const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) });
-      if (!res.ok) throw new Error(`APIエラー (${res.status})`);
+      if (!res.ok) { let emsg = `(${res.status})`; try { const errObj = await res.json(); emsg += " " + (errObj.error?.message || errObj.error || ""); } catch(e){} throw new Error(`APIエラー ` + emsg); }
       
       if (p === "gemini") state.settings.geminiKey = key;
       if (p === "openai") state.settings.openaiKey = key;
