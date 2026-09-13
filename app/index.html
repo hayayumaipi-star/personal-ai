@@ -481,7 +481,8 @@ details.unconf>summary{color:var(--warn)}
       <div style="margin-top:10px; padding:10px; background:var(--bg); border-radius:8px;">
         <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">Gemini API キー (独立アプリ用)</label>
         <p class="hint" style="margin-bottom:8px;">
-          これを入れると、Claude環境以外（スマホ等）でも<strong>完全無料</strong>でAIがフル稼働します。<br>
+          Claude環境以外（スマホ等）でもGeminiを利用してAIを稼働させます。<br>
+          Google AI Studioの無料枠（1分間に15回、1日に1,500回まで等）の範囲内で利用できます（枠や課金仕様はGoogle側に準じます）。<br>
           <a href="https://aistudio.google.com/app/apikey" target="_blank" style="text-decoration:underline;">Google AI Studio</a> で取得してください。
         </p>
         <div class="row" style="gap:8px;">
@@ -4450,6 +4451,42 @@ $("#theme").addEventListener("change", () => applyTheme($("#theme").value));   /
 for (const id of ["#tz", "#defEst", "#breakEvery", "#breakLen", "#theme", "#useAI"]) {
   $(id).addEventListener("change", saveSettingsNow);
 }
+
+if ($("#btnSaveKey")) {
+  $("#btnSaveKey").addEventListener("click", async () => {
+    const key = $("#geminiKey").value.trim();
+    if (!key) {
+      state.settings.geminiKey = "";
+      saveSettingsNow(); renderSettings();
+      toast("APIキーをクリアしました");
+      return;
+    }
+    const btn = $("#btnSaveKey");
+    const orig = btn.textContent;
+    btn.textContent = "確認中...";
+    btn.disabled = true;
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${key}`;
+      const payload = { contents: [{ parts: [{ text: "Hello" }] }], generationConfig: { maxOutputTokens: 5 } };
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!res.ok) {
+        let msg = "APIキーが無効です";
+        if (res.status === 400) msg = "APIキーが間違っているか無効です";
+        if (res.status === 429) msg = "利用枠の上限に達している可能性があります";
+        throw new Error(msg);
+      }
+      state.settings.geminiKey = key;
+      saveSettingsNow(); renderSettings();
+      toast("有効なAPIキーを保存しました");
+    } catch (e) {
+      alert("通信確認エラー: " + e.message);
+    } finally {
+      btn.textContent = orig;
+      btn.disabled = false;
+    }
+  });
+}
+
 $("#btnExport").addEventListener("click", async () => {
   const data = JSON.stringify({ exportedAt: new Date().toISOString(), settings: state.settings, notes: state.notes, items: state.items, turns: state.turns, docs: state.docs }, null, 2);
   if (DL) {
