@@ -1,5 +1,5 @@
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AI秘書</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1641,7 +1641,13 @@ async function putItem(it) {
 async function putItems(list) { for (const it of list) await putItem(it); }
 async function putSettings(s) {
   s.updatedAt = new Date().toISOString(); state.settings = s; lsWrite();
-  if (DB) { try { await DB.doc("meta/settings").set(s); } catch (e) { dbTrouble(e); } }
+  if (DB) {
+    try {
+      const safeS = { ...s };
+      delete safeS.geminiKey; delete safeS.openaiKey; delete safeS.anthropicKey;
+      await DB.doc("meta/settings").set(safeS);
+    } catch (e) { dbTrouble(e); }
+  }
 }
 /* 保存先の中身を、読み込めていないぶんまで消し切る（v4.3）。
    1回に読めるのは1000件までなので、`state` にあるものだけ消すと、
@@ -2626,12 +2632,10 @@ function renderMe() {
     h += `</div>`;
   }
 
-  /* ---- ② 会話から集まったこと ---- */
-  h += `<div class="sect"><span class="eyebrow">FROM TALKING</span>
-    <h2>会話から集まったこと（${profs.length}件）</h2>
-    <p class="hint">話しているうちに出てきた、あなたについての情報です。${hasAI() && state.settings.useAI !== false
-      ? "AIが会話の中から見つけたものも含みます。" : "いまAIを使っていないので、はっきりした言い方（「〜が苦手」「昔から〜」など）だけを拾っています。"}</p></div>`;
-
+  /* ---- 会話から集まったこと ---- */
+  h += `<div class="sect"><span class="eyebrow">DETAILS & EDIT</span>
+    <h2 style="font-size:16px;">会話から集まったこと (編集・削除用)</h2>
+    <p class="hint">上のTELOSカードにまとめられている内容の元データ一覧です。不要なものを削除したり、詳細を訂正したりできます。</p></div>`;
   if (unconf.length) {
     h += `<div class="note warn" style="margin-top:8px">${unconf.length}件が未確認です。合っていないものは「訂正」か「取り消す」で直してください。
       <div class="row" style="margin-top:7px"><button class="btn sm" data-act="confirmprof">${unconf.length}件すべて「合ってる」にする</button></div></div>`;
@@ -2755,6 +2759,21 @@ function renderSettings() {
   }
   $("#useAI").checked = s.useAI !== false;
   $("#useAI").disabled = !hasAI();
+  if ($("#aiProvider")) $("#aiProvider").value = s.aiProvider || "gemini";
+  const gk = $("#geminiKey");
+  if (gk && document.activeElement !== gk) {
+    const p = s.aiProvider || "gemini";
+    if (p === "gemini") {
+      gk.value = s.geminiKey || ""; gk.placeholder = "AIzaSy...";
+      if ($("#aiHintText")) $("#aiHintText").innerHTML = "<strong>Gemini:</strong> 唯一の完全無料枠あり。<a href=\"https://aistudio.google.com/app/apikey\" target=\"_blank\" style=\"text-decoration:underline;\">Google AI Studio</a>で取得。";
+    } else if (p === "openai") {
+      gk.value = s.openaiKey || ""; gk.placeholder = "sk-proj-...";
+      if ($("#aiHintText")) $("#aiHintText").innerHTML = "<strong>OpenAI:</strong> 従量課金。GPT-4o-miniを使用。";
+    } else if (p === "anthropic") {
+      gk.value = s.anthropicKey || ""; gk.placeholder = "sk-ant-...";
+      if ($("#aiHintText")) $("#aiHintText").innerHTML = "<strong>Anthropic:</strong> 従量課金。Claude 3.5 Haikuを使用。";
+    }
+  }
   const ec = $("#errCard");
   if (ec) {
     ec.hidden = !lastError;
@@ -2764,12 +2783,19 @@ function renderSettings() {
   refreshAiState();
 }
 function refreshAiState() {
+function refreshAiState() {
   const el = $("#aiState"); if (!el) return;
-  el.innerHTML = SAMPLEFN
-    ? "この端末ではAIが使えます。あなたのClaudeアカウントの利用枠を使うので、<strong>別のAPI契約や追加の支払いは不要</strong>です。"
-    : "いまAIは使えません（未許可、または対応していない開き方）。<strong>ルールだけで、追加・計画・訂正・再計画は全部動きます。</strong>";
+  const p = state.settings?.aiProvider || "gemini";
+  if (hasAI()) {
+    if (getApiKey()) {
+      el.innerHTML = `<strong>${p.toUpperCase()} API</strong>を利用してAIが稼働します。利用枠や課金にご注意ください。`;
+    } else {
+      el.innerHTML = "Claude環境(Artifacts)のAIが稼働します。追加の支払いは不要です。";
+    }
+  } else {
+    el.innerHTML = "いまAIは使えません。設定タブからAPIキーを入れるとAIが稼働します。ルールによる予定管理のみ動きます。";
+  }
 }
-
 const view = { tab: "p-chat", day: null };
 function renderAll() {
   if (!view.day) view.day = dayKey(new Date(), state.settings.timezone);
@@ -2824,9 +2850,12 @@ function describeError(e) {
   return bits.join(" / ") + (where ? "  @" + where.trim().slice(0, 80) : "");
 }
 let toastTimer = null;
-function toast(msg) {
+function toast(msg, isErr = false) {
   const el = $("#toast"); if (!el) return;
-  el.textContent = msg; el.hidden = false;
+  el.textContent = msg;
+  el.style.background = isErr ? "var(--alert)" : "var(--tx)";
+  el.style.color = isErr ? "#fff" : "var(--bg)";
+  el.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
 }
@@ -3701,7 +3730,8 @@ async function aiReadDoc(doc, onProgress) {
   const found = [];
   for (let i = 0; i < chunks.length; i++) {
     onProgress && onProgress(i, chunks.length);
-    const arr = await callAI(PROFILE_PROMPT_HEAD + chunks[i] + '\n"""', true);
+    let arr = await callAI(PROFILE_PROMPT_HEAD + chunks[i] + '\n"""', true);
+    if (arr && !Array.isArray(arr)) arr = arr.items || arr.result || arr.profiles || Object.values(arr)[0];
     if (!Array.isArray(arr)) continue;
     for (const o of arr.slice(0, 20)) {
       if (!o || typeof o !== "object") continue;
@@ -3917,8 +3947,18 @@ async function callAI(prompt, isJson, options) {
       }
       const data = await res.json();
       const parts = data.candidates?.[0]?.content?.parts || [];
-      const text = parts.map(p => p.text || "").join("\n").trim();
-      if (isJson) { try { return JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/gi, "").trim()); } catch(e) { throw { code: "invalid_json" }; } }
+      let text = parts.filter(p => p.text && !p.thought).map(p => p.text).join("\n").trim();
+      if (isJson) {
+        try {
+          let clean = text.replace(/^```(?:json)?\s*|\s*```$/gi, "").trim();
+          const firstBrace = clean.indexOf("{"), firstBracket = clean.indexOf("[");
+          const first = (firstBrace === -1) ? firstBracket : (firstBracket === -1 ? firstBrace : Math.min(firstBrace, firstBracket));
+          const lastBrace = clean.lastIndexOf("}"), lastBracket = clean.lastIndexOf("]");
+          const last = Math.max(lastBrace, lastBracket);
+          if (first >= 0 && last >= 0) clean = clean.substring(first, last + 1);
+          return JSON.parse(clean);
+        } catch(e) { throw { code: "invalid_json" }; }
+      }
       return { text };
     }
     if (p === "openai") {
@@ -4400,10 +4440,19 @@ async function addDoc() {
     // 読み切れない分があるなら、必ず先に言う。黙って途中でやめない（v4.3）
     const rest = doc.chars - Math.min(doc.chars, AI_CHUNK * AI_MAX_CHUNKS);
     const mins = `約${Math.max(1, Math.round(n / 6))}〜${Math.max(2, Math.round(n / 3))}分`;
+    const p = state.settings?.aiProvider || "gemini";
+    let aiName = "AI"; let costMsg = "";
+    if (hasAI() && getApiKey()) {
+      if (p === "gemini") { aiName = "Gemini"; costMsg = "APIキーの利用枠内で処理します。"; }
+      if (p === "openai") { aiName = "OpenAI"; costMsg = "APIの従量課金が発生します。"; }
+      if (p === "anthropic") { aiName = "Anthropic"; costMsg = "APIの従量課金が発生します。"; }
+    } else {
+      aiName = "Claude"; costMsg = "あなたのClaudeアカウントの利用枠を使います（<strong>追加の支払いはありません</strong>）。";
+    }
     const yes = await askConfirm({
       title: "AIにも読ませますか？",
-      body: `この資料は${doc.chars.toLocaleString()}文字です。<strong>${n}回に分けて</strong>Claudeに送ります（${mins}）。<br>
-        あなたのClaudeアカウントの利用枠を使います（<strong>追加の支払いはありません</strong>）。<br>
+      body: `この資料は${doc.chars.toLocaleString()}文字です。<strong>${n}回に分けて</strong>${aiName}に送ります（${mins}）。<br>
+        ${costMsg}<br>
         ${rest > 0 ? `<strong>後ろの${rest.toLocaleString()}文字は読みません。</strong>資料そのものは全部残ります。<br>` : "<strong>全部読みます。</strong><br>"}<br>
         送らなくても、ルールで読み取った${byRule.length}件と資料そのものは残ります。`,
       yes: `AIに読ませる（${n}回）`
