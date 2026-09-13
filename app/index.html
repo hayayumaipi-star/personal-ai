@@ -1639,12 +1639,24 @@ async function wipeCollection(name) {
   catch (e) { error = error || e; remaining = -1; }
   return { remaining, failed, error, skipped: false };
 }
+/* 保存先への書き込みが落ちたとき。**黙って「この端末のみ」に変えない**（v5.0・実機で報告）。
+   リンクから開いた画面では `db` は渡るが**書き込みだけ拒まれる**（本人・仲間の両方で再現）。
+   今までは右上のバッジが変わるだけで、理由は `title`（マウスを乗せたとき）にしか出ず、
+   **スマホでは読む方法が無かった**。設定タブの「最後に起きた不具合」にも残していなかった。
+   「保存できたつもり」と同じ穴なので、`lastError` に残して、変わった瞬間に一度だけ知らせる。
+   **知らせるのは ok → local に変わった1回だけ。** `wipeCollection` のように
+   1回の操作で何十回も呼ばれる場所があるので、毎回トーストを出すと画面が埋まる。 */
 function dbTrouble(e) {
   const c = e && e.code;
   const msg = c === "quota_exceeded" ? "保存できる件数の上限です。古い記録を消してください。"
     : c === "revoked" || c === "not_granted" ? "このページの保存先に接続できません。この端末の中には残しています。"
+    : c === "permission_denied" || c === "unauthorized" || c === "forbidden"
+      ? "この開き方では保存先に書き込めません（読むだけ）。この端末の中には残しています。"
     : "保存先に書き込めませんでした。この端末の中には残しています。";
+  const wasOk = syncKind === "ok";
   setSync("local", msg);
+  lastError = msg + " / " + describeError(e);
+  if (wasOk) { try { toast(msg); renderSettings(); } catch {} }
 }
 let syncKind = null;
 function setSync(kind, msg) {

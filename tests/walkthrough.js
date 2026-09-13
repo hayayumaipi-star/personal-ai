@@ -324,6 +324,30 @@
       if (!$$("#errCard").hidden) throw new Error("消えていない");
     });
 
+    /* 保存先に**書き込めない**ときに、黙って「この端末のみ」にしない（v5.0・実機で報告）。
+       リンクから開いた画面では `db` は渡るのに書き込みだけ拒まれる。
+       今までは右上のバッジが変わるだけで、理由は `title` にしか出ず、スマホでは読めなかった。 */
+    await step("保存先に書き込めないとき、理由が画面に残る", async () => {
+      const db = await window.claude.use("db");
+      const origDoc = db.doc;
+      db.doc = function (p) {
+        const r = origDoc.call(db, p);
+        r.set = () => Promise.reject({ code: "permission_denied", message: "テスト用に書き込みを拒否" });
+        return r;
+      };
+      lastError = null; syncKind = "ok"; setSync("ok");
+      try {
+        await putSettings(Object.assign({}, state.settings));
+      } finally { db.doc = origDoc; }
+      if ($$("#sync").textContent !== "この端末のみ") throw new Error("右上が変わらない");
+      if (!lastError) throw new Error("理由が残らない");
+      if (!/読むだけ/.test(lastError)) throw new Error("理由が「読むだけ」と分かる文になっていない");
+      await click('nav.tabs [data-tab="p-set"]');
+      if ($$("#errCard").hidden) throw new Error("設定タブに不具合欄が出ない");
+      if (!/permission_denied/.test($$("#errText").value)) throw new Error("伝えられる中身になっていない");
+      lastError = null; syncKind = "ok"; setSync("ok"); renderSettings();
+    });
+
     /* ===== 再読み込みしても残るか（凍結データからの復帰） ===== */
     await step("保存先から読み直しても壊れない", async () => {
       const n = state.items.length;
