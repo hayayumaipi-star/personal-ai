@@ -1,4 +1,5 @@
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>AI秘書</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -3911,7 +3912,13 @@ async function callAI(prompt, isJson, options) {
     const data = await res.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
     if (isJson) {
-      try { return JSON.parse(text); } catch(e) { throw { code: "invalid_json", message: "AIが不正なJSONを返しました" }; }
+      try { 
+        // Geminiがまれにマークダウンのバッククォートを含める対策
+        const cleanText = text.replace(/^```(?:json)?\s*|\s*```$/gi, "").trim();
+        return JSON.parse(cleanText); 
+      } catch(e) { 
+        throw { code: "invalid_json", message: "AIが不正なJSONを返しました" }; 
+      }
     }
     return { text };
   }
