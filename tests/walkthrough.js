@@ -462,6 +462,75 @@
       if (state.docs.some(x => x.id === d.id)) throw new Error("消せるはずのものが消えない");
     });
 
+    /* 3周目の調査で、`act()` の23の操作のうち **3つが一度も叩かれていなかった**
+       （`blk` / `confirm` / `docai`）。ここでは前の2つを覆う。 */
+    await step("「確認済みにする」が効く（決まり2の中核）", async () => {
+      await click('nav.tabs [data-tab="p-day"]');
+      const t = state.items.find(i => i.status === "open" && !i.confirmed && i.kind !== "profile");
+      if (!t) { R.push("（未確認の項目が無いので省略）"); return; }
+      const before = (t.history || []).length;
+      await act("confirm", t.id);
+      const after = findItem(t.id);
+      if (!after.confirmed) throw new Error("確認済みにならない");
+      if ((after.history || []).length !== before + 1) throw new Error("履歴に残らない");
+      renderDay();
+      const html = $$("#dayOut").innerHTML + $$("#meOut").innerHTML;
+      if (!/確認済み/.test(html)) throw new Error("画面に「確認済み」の印が出ない");
+    });
+
+    await step("予定の枠を開いて、たたむ", async () => {
+      await click('nav.tabs [data-tab="p-day"]');
+      const head = document.querySelector('#dayOut .tlrow [data-act="blk"]');
+      if (!head) { R.push("（今日の予定表に枠が無いので省略）"); return; }
+      const row = head.closest(".tlrow");
+      const wasOpen = row.classList.contains("open");
+      await click(head);
+      if (row.classList.contains("open") === wasOpen) throw new Error("開閉が切り替わらない");
+      if (head.getAttribute("aria-expanded") !== String(!wasOpen))
+        throw new Error("aria-expanded が合っていない: " + head.getAttribute("aria-expanded"));
+      await click(head);
+      if (row.classList.contains("open") !== wasOpen) throw new Error("元に戻らない");
+    });
+
+    /* 毎分の見張りが、何も変わっていないのに描き直さないこと（v4.2）。
+       描き直すと `.tlrow.open`（本人が開いた枠）が勝手に閉じる。 */
+    await step("何も変わらなければ、描き直しの合図も変わらない", async () => {
+      const a = runningKey(), b = runningKey();
+      if (a !== b) throw new Error(`同じ条件で違う値が出る: ${a} / ${b}`);
+      if (typeof a !== "string") throw new Error("文字列が返らない: " + typeof a);
+    });
+
+    /* 「AIにも読ませる」は**全文を外へ送る**操作なのに、確認が無かった（v5.8・3周目の調査）。
+       保存直後の経路にだけ確認が付いていて、資料カードのボタンには無い。
+       `runDocAI` にはテストも1件も無かった。 */
+    await step("「AIにも読ませる」は、送る前に必ず確認を出す", async () => {
+      const d = { id: "doc-ai", title: "検査用の長い資料", text: "人前で発表するのは昔から苦手です。".repeat(40),
+                  hash: "h-doc-ai", chars: 40 * 17, truncated: false, source: "paste",
+                  sourceName: null, aiRead: false, createdAt: new Date().toISOString() };
+      await putDoc(d);
+      const p1 = act("docai", d.id);                       // await しない（確認待ちで止まる）
+      if (!await waitFor(() => has("#cfYes"), 4000)) throw new Error("確認シートが出ない（黙って送っている）");
+      const body = $$(".sheet .inner").textContent;
+      if (!/回に分けて/.test(body)) throw new Error("何回送るかを言っていない: " + body.slice(0, 80));
+      if (!/利用枠/.test(body)) throw new Error("誰の枠を使うかを言っていない");
+      await click("#cfNo");
+      await p1;
+      if (state.docs.find(x => x.id === d.id).aiRead) throw new Error("やめたのに送っている");
+
+      const p2 = act("docai", d.id);
+      if (!await waitFor(() => has("#cfYes"), 4000)) throw new Error("2回目の確認が出ない");
+      await click("#cfYes");
+      await p2;
+      if (!await waitFor(() => state.docs.find(x => x.id === d.id).aiRead, 6000))
+        throw new Error("読ませたのに、読んだ印が付かない");
+    });
+
+    await step("見つからない資料をAIに読ませようとしても、黙って終わらない", async () => {
+      const n = (R.filter(x => /^PASS|^FAIL/.test(x)) || []).length;
+      await runDocAI("no-such-doc");                        // 例外を投げず、黙りもしないこと
+      if (!/見つかりません/.test($$("#toast").textContent || "")) throw new Error("理由が出ない");
+    });
+
     /* ===== 再読み込みしても残るか（凍結データからの復帰） ===== */
     await step("保存先から読み直しても壊れない", async () => {
       const n = state.items.length;

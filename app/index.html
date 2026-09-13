@@ -2985,7 +2985,12 @@ async function act(a, id, el) {
       <div class="foot"><button class="btn pri" data-close style="margin-left:auto">閉じる</button></div>`);
     return;
   }
-  if (a === "docai") { await runDocAI(id); return; }
+  if (a === "docai") {                       // 全文を送る前に、必ず確認を出す（v5.8）
+    const d = state.docs.find(x => x.id === id);
+    if (!d) { toast("この資料は見つかりませんでした"); return; }
+    if (await confirmDocAI(d, "資料そのものと、ルールで読み取ったもの")) await runDocAI(id);
+    return;
+  }
   if (a === "docdel") {
     const d = state.docs.find(x => x.id === id);
     if (!d) { toast("この資料は見つかりませんでした"); return; }
@@ -4365,26 +4370,35 @@ async function addDoc() {
   toast(`資料を保存しました。ルールで${byRule.length}件を読み取りました。`);
 
   // AIが使えるなら、費用と送信量を示してから読ませる
-  if (SAMPLEFN && state.settings.useAI !== false) {
-    const n = Math.min(Math.ceil(doc.chars / AI_CHUNK), AI_MAX_CHUNKS);
-    // 読み切れない分があるなら、必ず先に言う。黙って途中でやめない（v4.3）
-    const rest = doc.chars - Math.min(doc.chars, AI_CHUNK * AI_MAX_CHUNKS);
-    const mins = `約${Math.max(1, Math.round(n / 6))}〜${Math.max(2, Math.round(n / 3))}分`;
-    const yes = await askConfirm({
-      title: "AIにも読ませますか？",
-      body: `この資料は${doc.chars.toLocaleString()}文字です。<strong>${n}回に分けて</strong>Claudeに送ります（${mins}）。<br>
-        あなたのClaudeアカウントの利用枠を使います（<strong>追加の支払いはありません</strong>）。<br>
-        ${rest > 0 ? `<strong>後ろの${rest.toLocaleString()}文字は読みません。</strong>資料そのものは全部残ります。<br>` : "<strong>全部読みます。</strong><br>"}<br>
-        送らなくても、ルールで読み取った${byRule.length}件と資料そのものは残ります。`,
-      yes: `AIに読ませる（${n}回）`
-    });
-    if (yes) await runDocAI(doc.id);
-  }
+  if (await confirmDocAI(doc, `ルールで読み取った${byRule.length}件と資料そのもの`)) await runDocAI(doc.id);
+}
+
+/* **全文をAIへ送る前に、必ず件数・時間・費用を見せる**（v5.8・3周目の調査で発見）。
+   これは「新しい外部送信を足すときは、送信先・送信内容・費用を画面に明記してから足す」
+   という決まりそのもの。**同じ確認が2か所から要る**のに、資料カードの
+   「AIにも読ませる」ボタン（`act("docai")`）には確認が無く、押すと黙って全文が送られていた。
+   保存直後の経路にしか付けていなかったのが理由で、`runDocAI` にはテストも1件も無かった。 */
+async function confirmDocAI(doc, keepNote) {
+  if (!doc || !SAMPLEFN || state.settings.useAI === false) return false;
+  const n = Math.min(Math.ceil(doc.chars / AI_CHUNK), AI_MAX_CHUNKS);
+  // 読み切れない分があるなら、必ず先に言う。黙って途中でやめない（v4.3）
+  const rest = doc.chars - Math.min(doc.chars, AI_CHUNK * AI_MAX_CHUNKS);
+  const mins = `約${Math.max(1, Math.round(n / 6))}〜${Math.max(2, Math.round(n / 3))}分`;
+  return await askConfirm({
+    title: "AIにも読ませますか？",
+    body: `この資料は${doc.chars.toLocaleString()}文字です。<strong>${n}回に分けて</strong>Claudeに送ります（${mins}）。<br>
+      あなたのClaudeアカウントの利用枠を使います（<strong>追加の支払いはありません</strong>）。<br>
+      ${rest > 0 ? `<strong>後ろの${rest.toLocaleString()}文字は読みません。</strong>資料そのものは全部残ります。<br>` : "<strong>全部読みます。</strong><br>"}
+      送らなくても、${keepNote || "資料そのもの"}は残ります。`,
+    yes: `AIに読ませる（${n}回）`
+  });
 }
 
 async function runDocAI(docId) {
   const doc = state.docs.find(d => d.id === docId);
-  if (!doc || !SAMPLEFN) return;
+  // 黙って終わらない（決まり「guard も黙って return せず、toast() で理由を出す」）
+  if (!doc) { toast("この資料は見つかりませんでした"); return; }
+  if (!SAMPLEFN) { toast("いまAIは使えません。資料とルールでの読み取りは残っています"); return; }
   const prog = $("#docProg");
   const show = (i, n) => { if (prog) prog.innerHTML = `<div class="hint">AIが読んでいます… ${i}/${n}</div><div class="bar"><i style="width:${Math.round(i / n * 100)}%"></i></div>`; };
   try {
