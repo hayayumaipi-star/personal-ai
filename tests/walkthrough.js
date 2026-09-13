@@ -301,6 +301,33 @@
       await click("#btnExport"); await wait(300);
       if (!/書き出しました|コピーして/.test($$("#expOut").textContent)) throw new Error("書き出しの反応が無い");
     });
+    /* 1件消す道も、消せたか確かめてから言うこと（v5.6）。
+       `dbTrouble` は呼んでいたが、**先に手元から消して**「消しました」と言っていた。
+       保存先に残っているのに画面からは消えるので、開き直すと戻ってくる。 */
+    await step("原文を消せないときは「消しました」と言わない", async () => {
+      const db = await window.claude.use("db");
+      const origDoc = db.doc;
+      db.doc = function (p) {
+        const r = origDoc.call(db, p);
+        r.delete = () => Promise.reject({ code: "permission_denied", message: "テスト用に失敗させた" });
+        return r;
+      };
+      lastError = null;
+      const before = state.notes.length;
+      try {
+        const b = firstAct("#p-set", "delnote");
+        if (!b) throw new Error("「この原文を消す」が無い");
+        await click(b);
+        if (!has("#cfYes")) throw new Error("確認シートが出ない");
+        await click("#cfYes");
+        if (!await waitFor(() => !has("#cfYes"), 6000)) throw new Error("シートが閉じない");
+        await wait(250);
+        if (state.notes.length !== before) throw new Error("保存先から消せていないのに、手元だけ消した");
+      } finally { db.doc = origDoc; }
+      if (!lastError) throw new Error("不具合として記録されない");
+      lastError = null;
+    });
+
     await step("原文を開いて1件消す", async () => {
       const b = firstAct("#p-set", "delnote");
       if (!b) throw new Error("「この原文を消す」が無い");

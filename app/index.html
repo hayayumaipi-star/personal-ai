@@ -1652,6 +1652,15 @@ async function wipeCollection(name) {
    「保存できたつもり」と同じ穴なので、`lastError` に残して、変わった瞬間に一度だけ知らせる。
    **知らせるのは ok → local に変わった1回だけ。** `wipeCollection` のように
    1回の操作で何十回も呼ばれる場所があるので、毎回トーストを出すと画面が埋まる。 */
+/* 保存先から1件消す。**消せたときだけ true**（v5.6）。
+   消す道は tidy / 原文を消す / 項目を完全に消す / 全部消す の4つあり、
+   同じ穴が別々に開いていた（実際、v4.8 で直したのは「全部消す」だけだった）。
+   手元から消すのは、これが true を返してから。 */
+async function deleteDoc(path) {
+  if (!DB) return true;                        // 保存先が無いときは、手元だけで完結する
+  try { await DB.doc(path).delete(); return true; }
+  catch (e) { dbTrouble(e); return false; }    // 理由は設定タブの「最後に起きた不具合」に残る
+}
 function dbTrouble(e) {
   const c = e && e.code;
   const msg = c === "quota_exceeded" ? "保存できる件数の上限です。古い記録を消してください。"
@@ -3007,8 +3016,11 @@ async function act(a, id, el) {
       yes: "原文を消す", danger: true
     });
     if (!yes) return;
+    if (!await deleteDoc("notes/" + id)) {     // 消せていないなら手元も消さない（戻ってくるため）
+      renderSettings(); toast("保存先から消せませんでした。設定の「最後に起きた不具合」を見てください");
+      return;
+    }
     state.notes = state.notes.filter(x => x.id !== id); lsWrite();
-    if (DB) { try { await DB.doc("notes/" + id).delete(); } catch (e) { dbTrouble(e); } }
     toast("原文を消しました");
     renderAll();
     return;
@@ -3048,8 +3060,12 @@ async function act(a, id, el) {
       yes: "完全に消す", danger: true
     });
     if (!yes) return;
+    if (!await deleteDoc("items/" + it.id)) {  // 消せていないなら手元も消さない
+      closeSheet(); renderSettings();
+      toast("保存先から消せませんでした。設定の「最後に起きた不具合」を見てください");
+      return;
+    }
     state.items = state.items.filter(x => x.id !== it.id); lsWrite();
-    if (DB) { try { await DB.doc("items/" + it.id).delete(); } catch (e) { dbTrouble(e); } }
     closeSheet(); toast(`完全に消しました：${it.title}`); renderAll(); return;
   }
   else if (a === "defer") {
@@ -4657,11 +4673,7 @@ $("#btnTidy").addEventListener("click", async () => {
      画面からは消えるのに保存先には残り、**開き直すと全部戻ってくる**。
      見ているのは「delete を何回呼べたか」ではなく、**1件ずつの成否**。
      そして **消せなかったものは、手元からも消さない**。 */
-  const del = async path => {
-    if (!DB) return true;                       // 保存先が無いときは、手元だけで完結する
-    try { await DB.doc(path).delete(); return true; }
-    catch (e) { dbTrouble(e); return false; }   // 理由は設定タブの「最後に起きた不具合」に残る
-  };
+  const del = deleteDoc;                        // 消し方は1か所にまとめてある
   const goneItems = [], goneNotes = [], goneDays = [];
   let failed = 0;
   for (const i of items) { if (await del("items/" + i.id)) goneItems.push(i.id); else failed++; }
