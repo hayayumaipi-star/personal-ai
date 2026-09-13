@@ -506,6 +506,11 @@ details.unconf>summary{color:var(--warn)}
         <strong>その人自身のページとして公開</strong>してもらってください。データもAIの枠も完全に分かれます。<br>
         端末の中の控え（localStorage）は、その端末の中だけに残ります。</p>
       <div class="note warn" id="dataWarn" hidden></div>
+      <!-- 作業に使える時間帯が狭いまま保存されている人の逃げ道（v6.3・実機で報告）。
+           設定欄は v3.9 で外したので、古い値のままだと**画面から直す道が無かった**。
+           実機で 05:00〜11:00 のまま残っていて、11時より後に何も置けなくなっていた。
+           入力欄は戻さない。戻すのは「一日じゅうに戻す」の1手だけ。 -->
+      <div class="note warn" id="windowWarn" hidden></div>
       <div class="row">
         <button class="btn" id="btnExport">書き出す（JSON）</button>
         <button class="btn" id="btnImport">読み込む（JSON）</button>
@@ -2759,6 +2764,26 @@ function renderSettings() {
   $("#dataState").textContent = `会話 ${turnCount}件 ／ 原文 ${state.notes.length}件 ／ 項目 ${state.items.length}件`
     + ` ／ 作業に使える時間帯：${s.workStart}〜${s.workEnd}`
     + ` ／ 保存先：${state.backend === "db" ? "claude.ai（あなたの記録）＋この端末" : "この端末のみ"}`;
+  /* **狭いまま保存されている帯からの逃げ道**（v6.3・実機で報告）。
+     設定欄は外してあるので、古い値が残っていると**画面から直す道が無い**。
+     実機で 05:00〜11:00 のまま残り、11時より後に一切置けなくなっていた。
+     **勝手に書き換えない**（本人が決めたのかもしれない）。道だけ出して、押すかは本人が決める。 */
+  const wWarn = $("#windowWarn");
+  if (wWarn) {
+    const narrow = s.workStart !== DEFAULTS.workStart || s.workEnd !== DEFAULTS.workEnd;
+    wWarn.hidden = !narrow;
+    if (narrow) wWarn.innerHTML = `<strong>作業に使える時間帯が ${esc(s.workStart)}〜${esc(s.workEnd)} になっています。</strong>
+      この外には作業を置けないので、外の時間を指定すると「作業に使える時間帯の外です」と出ます。
+      （設定欄は無くしたので、昔のままの値が残っていることがあります）<br>
+      <button class="btn sm" id="btnWholeDay" style="margin-top:8px">一日じゅう使えるようにする（${DEFAULTS.workStart}〜${DEFAULTS.workEnd}）</button>`;
+    // innerHTML を書き直すたびにボタンは新しくなるので、ここで毎回つなぐ
+    if (narrow) $("#btnWholeDay").addEventListener("click", async () => {
+      await putSettings(Object.assign({}, state.settings,
+        { workStart: DEFAULTS.workStart, workEnd: DEFAULTS.workEnd }));
+      renderAll();
+      toast(`作業に使える時間帯を ${DEFAULTS.workStart}〜${DEFAULTS.workEnd} にしました`);
+    });
+  }
   /* 1回に読み込める上限は1000件。近づいたら黙って欠け始める前に知らせる。
      消すのは本人の判断。勝手に古い記録を捨てない。 */
   const near = $("#dataWarn");

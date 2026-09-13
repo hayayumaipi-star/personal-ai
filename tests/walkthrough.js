@@ -630,6 +630,26 @@
       } finally { state.notes = keep; }
       if (state.items.length !== before) throw new Error("やめたのに入っている");
     });
+    /* 作業に使える時間帯が狭いまま保存されていると、その外に何も置けない。
+       設定欄は外してあるので、**押して直せること**をここで確かめる（v6.3・実機で報告）。 */
+    await step("作業に使える時間帯が狭いと知らせ、押すと一日じゅうに戻る", async () => {
+      await putSettings(Object.assign({}, state.settings, { workStart: "05:00", workEnd: "11:00" }));
+      await click('nav.tabs [data-tab="p-set"]');
+      const w = $$("#windowWarn");
+      if (!w || w.hidden) throw new Error("狭いことを知らせない");
+      if (!/05:00〜11:00/.test(w.textContent)) throw new Error("いまの値を出さない: " + w.textContent);
+      if (!/作業に使える時間帯：05:00〜11:00/.test($$("#dataState").textContent))
+        throw new Error("データ欄にも出ていない: " + $$("#dataState").textContent);
+      await click("#btnWholeDay");
+      if (state.settings.workStart !== "00:00" || state.settings.workEnd !== "23:59")
+        throw new Error("押しても戻らない: " + state.settings.workStart + "〜" + state.settings.workEnd);
+      // **保存先まで読み直して確かめる**（画面だけ変わって保存できていない、を防ぐ）
+      const db = await window.claude.use("db");
+      const got = await db.doc("meta/settings").get();
+      if (!got.exists || got.data().workEnd !== "23:59")
+        throw new Error("保存先に残っていない: " + (got.exists ? got.data().workEnd : "無し"));
+      if (!$$("#windowWarn").hidden) throw new Error("戻したのに知らせが残る");
+    });
     await step("空の状態から、また話しかけられる", async () => {
       type("#say", "明日の11時に打ち合わせ。");
       await click("#btnSend"); await wait(400);
