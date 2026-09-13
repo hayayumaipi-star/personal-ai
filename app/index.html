@@ -3275,7 +3275,7 @@ async function applyOps(rawOps, note) {
     }
 
     if (o.op === "add") {
-      let it = o._built;
+      let it = o._built, pulledBack = false;
       if (!it) {
         const kind = ["task", "event", "goal"].includes(o.kind) ? o.kind : "task";
         /* AIが付けた見出しにも、**こちらと同じ掃除**を通す（v4.6）。
@@ -3290,7 +3290,7 @@ async function applyOps(rawOps, note) {
           origin: "ai", corrected: false, confirmed: false, status: "open",
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: []
         };
-        applyFields(it, o, tz, note);
+        pulledBack = applyFields(it, o, tz, note);
       }
       // AIが「ご飯食べに行こうかな」のような言い方で返してきても、食事は名前を揃える
       const mt = mealTitle(it.title, note.capturedAt, tz) || mealTitle(o.quote || "", note.capturedAt, tz);
@@ -3306,6 +3306,8 @@ async function applyOps(rawOps, note) {
       touch(it.dayKey);
       touch(it.targetDay);   // 締切が明日でも、手を付けるのが今日なら今日の案を見せる
       changes.push(`${KIND_JA[it.kind]}を追加：${it.title}${describeWhen(it, tz)}`);
+      // AIが足した日付を引き戻したなら、黙っていない（v5.1）
+      if (pulledBack) asks.push(pulledBackAsk(it, tz));
       // 午前とも午後とも読める時刻だった。選んだほうを書いて、もう一方を出して聞き返す
       if (it.whenAlt) {
         asks.push(`「${it.title}」は ${fmtDT(it.start || it.due, tz)} と読みました。`
@@ -3314,7 +3316,7 @@ async function applyOps(rawOps, note) {
     }
     else if (o.op === "update") {
       const before = { title: target.title, day: target.dayKey, est: target.estimateMin, start: target.start };
-      applyFields(target, o, tz, note);
+      const pulledBack = applyFields(target, o, tz, note);
       if (typeof o.title === "string" && o.title.trim()) target.title = cleanTitle(o.title.trim(), null).slice(0, 80);
       target.corrected = true; target.confirmed = true; target.whenAlt = null;   // 本人が決めたので、もう一方は要らない
       target.dedupeKey = dedupeKey(target);
@@ -3326,6 +3328,7 @@ async function applyOps(rawOps, note) {
       if (o.travelMin != null) d.push(`移動 ${target.travelMin}分を確保`);
       if (o.prepMin != null) d.push(`準備 ${target.prepMin}分を確保`);
       if (o.targetDate) d.push(`${target.targetDay.slice(5).replace("-", "/")}までに終えたい、として扱う`);
+      if (pulledBack) asks.push(pulledBackAsk(target, tz));
       note2(target, "訂正：" + (d.join(" / ") || "変更なし"));
       await putItem(target);
       touch(target.dayKey); touch(before.day);
@@ -3449,8 +3452,14 @@ function dateWasSpoken(note, tz) {
   return !!(w && !w.timeOnly);
 }
 
+/* 戻り値は「**AIが付けた日付を引き戻したか**」（v5.1）。
+   引き戻したことを黙っていると、**予定表は今日なのに返事だけ「明日」**になる。
+   v4.7 で日付を直したぶん、文章とのズレはむしろ起きやすくなった（実機で報告）。
+   呼んだ側は、これが true なら `asks` に一言添えること。 */
 function applyFields(it, o, tz, note) {
+  let pulledBack = false;
   if (isDate(o.dueDate) && note && !dateWasSpoken(note, tz)) {
+    pulledBack = true;
     /* 本人は日付を言っていない。**AIが足した日付は採らない**（v4.7）。
        - 言い直しなら、いまの日付を保つ（「14時にして」で今日へ動かさない）
        - 時刻だけ言われたなら、**話した日**（ルールで読んだときと同じ）
@@ -3515,6 +3524,24 @@ function applyFields(it, o, tz, note) {
       }
     }
   }
+  return pulledBack;
+}
+/* 日付を引き戻したことを、**こちらの言葉で**伝える（v5.1）。
+   AIの文章は書き換えない（決まり7c と同じ理屈で、触ると別の壊れ方をする）。
+   代わりに、コードが数えた事実をあとから足す。何日になったかは `describeWhen` が出す。 */
+function pulledBackAsk(it, tz) {
+  const iso = it.start || it.due;
+  /* 時刻を出してよいのは、本当に時刻が決まっているときだけ。
+     用事の `23:59` は「その日まで」の意味なので時刻ではない（決まり6a）。
+     月は1桁にも2桁にもなるので、`fmtDT` を文字位置で切らないこと（「9/13 22:00」→「2:00」）。 */
+  const showTime = validISO(iso)
+    && (it.kind === "event" ? !it.timeUnknown : it.duePrecision === "exact");
+  const where = it.dayKey
+    ? (showTime ? fmtDT(iso, tz) : it.dayKey.slice(5).replace("-", "/"))
+    : null;
+  return where
+    ? `日付は言っていなかったので、「${it.title}」は ${where} として記録したよ。別の日なら「明日の」のように言ってね。`
+    : `日付は言っていなかったので、「${it.title}」に日付は付けていないよ。決まったら言ってね。`;
 }
 function describeWhen(it, tz) {
   if (it.kind === "event" && it.start) {
@@ -3702,6 +3729,9 @@ ${cx.recent || "（なし）"}
 - **日付を言っていないのに日付を作らない。** 「そのうち」「近いうちに」に日付を付けない。
 - 体調・気分・集中について、点数や診断や推定値を作らない。本人の言葉をそのまま text に入れる。
 - 返事に時刻・時間割・表を書かない。予定表はアプリが計算して表示する。
+- **返事に「今日」「明日」「あさって」「◯日」「◯曜」などの日付の言葉も書かない。**
+  日付もアプリが計算して出す。ここを書かれると、**予定表は今日なのに返事は明日**になる
+  （日付を言っていないとき、アプリは話した日に引き戻すため）。実機で起きた。
 - **返事は2〜4文。** 変えたことを短く伝え、必要なときだけ次の一手を一つ。
   毎回の分析・タスク一覧・予定表を書かない。確認が要らないなら質問で終わらせない。
 - **全部をタスクにしない。**

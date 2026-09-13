@@ -1289,6 +1289,50 @@
         const a4 = state.items.find(i => i.kind === "task");
         ok("AL. 日付を言っていれば、その日付を使う", !!a4 && a4.dayKey === tom, a4 && a4.dayKey);
         ok("AL. そのときは推測の印を付けない", !!a4 && !a4.dateInferred);
+
+        /* AM. 引き戻したことを黙らない（v5.1・実機で報告）。
+           日付は今日に直るのに、AIの文章だけ「明日」のまま残っていた。
+           文章は書き換えず、こちらの言葉で `asks` に足す。 */
+        reset();
+        const n5 = mkNote("6〜9時の間に30分勉強する"); await putNote(n5);
+        const r5 = await applyOps([{ op: "add", kind: "task", title: "勉強する", dueDate: tom,
+          duePrecision: "day", estimateMin: 30, quote: "30分勉強する" }], n5);
+        ok("AM. 日付を引き戻したら、返事で知らせる",
+           r5.asks.some(a => /日付は言っていなかったので/.test(a)), JSON.stringify(r5.asks));
+        ok("AM. どの日にしたかを、その場に書く",
+           r5.asks.some(a => a.includes(KEY.slice(5).replace("-", "/"))), JSON.stringify(r5.asks));
+
+        // 日付を言っているときは、よけいなことを言わない
+        reset();
+        const n6 = mkNote("明日までに資料を出す"); await putNote(n6);
+        const r6 = await applyOps([{ op: "add", kind: "task", title: "資料を出す", dueDate: tom,
+          duePrecision: "day", quote: "資料を出す" }], n6);
+        ok("AM. 日付を言っていれば、断りを入れない",
+           !r6.asks.some(a => /日付は言っていなかったので/.test(a)), JSON.stringify(r6.asks));
+
+        // 言い直し（時刻だけ）でも知らせる
+        reset();
+        const ev3 = { id: uid(), kind: "event", title: "打ち合わせ", fixed: true,
+          start: zoned(...tom.split("-").map(Number), 15, 0, TZ).toISOString(),
+          end: zoned(...tom.split("-").map(Number), 16, 0, TZ).toISOString(),
+          dayKey: tom, duePrecision: "exact", origin: "user", confirmed: true, corrected: false,
+          status: "open", evidence: { text: "x" }, createdAt: T(9, 0), updatedAt: "", history: [] };
+        ev3.dedupeKey = dedupeKey(ev3); await putItem(ev3);
+        const n7 = mkNote("15時じゃなくて14時だった"); await putNote(n7);
+        const r7 = await applyOps([{ op: "update", id: ev3.id, dueDate: KEY, dueTime: "14:00", quote: "14時" }], n7);
+        ok("AM. 言い直しで日付を守ったときも、そう言う",
+           r7.asks.some(a => /日付は言っていなかったので/.test(a)), JSON.stringify(r7.asks));
+        /* 月は1桁にも2桁にもなる。`fmtDT` を文字位置で切ると「9/14 14:00」が「4:00」になる。 */
+        ok("AM. 時刻は切り落とさずに書く",
+           r7.asks.some(a => /14:00/.test(a)), JSON.stringify(r7.asks));
+
+        // AIに日付の言葉を書かせない（決まり8の日付版）
+        {
+          const nq = mkNote("30分勉強する");
+          const pr = buildPrompt(nq, contextForAI(nq));
+          ok("AM. 依頼文に「返事に日付の言葉を書かない」と書いてある",
+             /返事に「今日」「明日」/.test(pr) || /日付の言葉も書かない/.test(pr));
+        }
       }
     }
 
