@@ -478,6 +478,17 @@ details.unconf>summary{color:var(--warn)}
         <input type="checkbox" id="useAI" style="width:auto;min-height:auto">
         <span style="font-size:13.5px">話しかけたときにAIへ送る</span>
       </label>
+      <div style="margin-top:10px; padding:10px; background:var(--bg); border-radius:8px;">
+        <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">Gemini API キー (独立アプリ用)</label>
+        <p class="hint" style="margin-bottom:8px;">
+          これを入れると、Claude環境以外（スマホ等）でも<strong>完全無料</strong>でAIがフル稼働します。<br>
+          <a href="https://aistudio.google.com/app/apikey" target="_blank" style="text-decoration:underline;">Google AI Studio</a> で取得してください。
+        </p>
+        <div class="row" style="gap:8px;">
+          <input type="password" id="geminiKey" placeholder="AIzaSy..." style="flex:1">
+          <button class="btn sm" id="btnSaveKey">保存</button>
+        </div>
+      </div>
       <p class="hint"><strong>オンのとき</strong>：話した内容と、いま開いている用事の一覧が、あなたのClaudeアカウント経由でClaudeに送られます。言い直し（「15時じゃなくて14時」）や完了の判断ができるようになります。<br>
       <strong>1回の発言につき2回</strong>Claudeを呼びます。速い方が1〜2秒で受け止めの一言を返し、丁寧な方が裏で読み取って静かに反映します。どちらも<strong>追加の支払いは不要</strong>です。<br>
       <strong>オフのとき</strong>：何も送信しません。ルールだけで動きます。追加はできますが、言い直しや完了の自動判定はできません。<br>
@@ -2616,7 +2627,7 @@ function renderMe() {
   /* ---- ② 会話から集まったこと ---- */
   h += `<div class="sect"><span class="eyebrow">FROM TALKING</span>
     <h2>会話から集まったこと（${profs.length}件）</h2>
-    <p class="hint">話しているうちに出てきた、あなたについての情報です。${SAMPLEFN && state.settings.useAI !== false
+    <p class="hint">話しているうちに出てきた、あなたについての情報です。${hasAI() && state.settings.useAI !== false
       ? "AIが会話の中から見つけたものも含みます。" : "いまAIを使っていないので、はっきりした言い方（「〜が苦手」「昔から〜」など）だけを拾っています。"}</p></div>`;
 
   if (unconf.length) {
@@ -2658,7 +2669,7 @@ function renderMe() {
         <div class="acts">
           <button class="btn sm" data-act="docopen" data-id="${d.id}">全文を見る</button>
           <button class="btn sm" data-act="docitems" data-id="${d.id}">読み取ったものを見る</button>
-          ${SAMPLEFN && state.settings.useAI !== false && !d.aiRead ? `<button class="btn sm" data-act="docai" data-id="${d.id}">AIにも読ませる</button>` : ""}
+          ${hasAI() && state.settings.useAI !== false && !d.aiRead ? `<button class="btn sm" data-act="docai" data-id="${d.id}">AIにも読ませる</button>` : ""}
           <button class="btn sm danger" data-act="docdel" data-id="${d.id}">この資料を消す</button>
         </div></div>`;
     }).join("")}</div>`;
@@ -3320,11 +3331,11 @@ async function applyOps(rawOps, note) {
   const touch = k => { if (k && days.indexOf(k) < 0) days.push(k); };
   for (const o of (Array.isArray(rawOps) ? rawOps : [])) {
     if (!o || typeof o !== "object") continue;
-    if (o.op === "_ambiguous_done") { asks.push("どれが終わったのか特定できませんでした。「スケジュール」タブの項目から「完了」を押してください。"); continue; }
+    if (o.op === "_ambiguous_done") { asks.push("どれが完了したのか分かりませんでした。「スケジュール確認」や「あのタスク終わった」と言って教えて。"); continue; }
     if (o.op === "_needs_ai") {
-      asks.push(SAMPLEFN
-        ? "言い直しのようですが、うまく読み取れませんでした。「スケジュール」タブの「所要時間を直す」から直してください。"
-        : "いまAIを使っていないので、言い直し（時刻や所要時間の変更、完了）は自動で反映できません。「スケジュール」タブのボタンから直すか、設定でAIをオンにしてください。");
+      asks.push(hasAI()
+        ? "この言い方だと、ルール抽出では分かりませんでした。「スケジュール確認」と言うか、AIをオンにして聞いてみて。"
+        : "いまAIを使っていないので（場所や設定の都合で）、用事の変更・完了は自動で判断できません。「スケジュール確認」のボタンから開いて、直接AIなしの画面で操作してね。");
       continue;
     }
     if (!OPS.includes(o.op)) continue;
@@ -3979,7 +3990,7 @@ async function sendTurn(text) {
 
   // 4. 二段構え。速いAIが先に受け止めて返し、丁寧なAIが裏で読み取る。
   //    返事を読み取りの完了まで待たせない（40秒後の「うん、聞いたよ」は冷たい）。
-  const useAI = SAMPLEFN && state.settings.useAI !== false;
+  const useAI = hasAI() && state.settings.useAI !== false;
   let quick = null;
   if (useAI) {
     quick = aiQuickReply(note).then(t => {
@@ -4299,7 +4310,7 @@ async function addDoc() {
   toast(`資料を保存しました。ルールで${byRule.length}件を読み取りました。`);
 
   // AIが使えるなら、費用と送信量を示してから読ませる
-  if (SAMPLEFN && state.settings.useAI !== false) {
+  if (hasAI() && state.settings.useAI !== false) {
     const n = Math.min(Math.ceil(doc.chars / AI_CHUNK), AI_MAX_CHUNKS);
     // 読み切れない分があるなら、必ず先に言う。黙って途中でやめない（v4.3）
     const rest = doc.chars - Math.min(doc.chars, AI_CHUNK * AI_MAX_CHUNKS);
@@ -4318,7 +4329,7 @@ async function addDoc() {
 
 async function runDocAI(docId) {
   const doc = state.docs.find(d => d.id === docId);
-  if (!doc || !SAMPLEFN) return;
+  if (!doc || !hasAI()) return;
   const prog = $("#docProg");
   const show = (i, n) => { if (prog) prog.innerHTML = `<div class="hint">AIが読んでいます… ${i}/${n}</div><div class="bar"><i style="width:${Math.round(i / n * 100)}%"></i></div>`; };
   try {
