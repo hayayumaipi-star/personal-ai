@@ -1964,6 +1964,60 @@
       }
     }
 
+    /* ===== AW. 置けなかった理由と、落とした跡（v6.2・実機で報告） =====
+       「夜6時から9時までの間にお風呂に30分入る」で2つ出た：
+       ① 時間帯がまるごと過ぎているのに「そこに30分の空きがありません」と言っていた
+          （空っぽなのに、予定が詰まっていると読める）
+       ② 見出しが「間にお風呂に 入る」——「までの間に」が落ちず、跡が空白になっていた */
+    {
+      const LINE = "夜6時から9時までの間にお風呂に30分入る";
+      // この群だけ、作業に使える時間帯をアプリの既定（一日じゅう）に戻す。
+      // 09:00〜18:00 のままだと 18:00〜21:00 がまるごと枠外で、別の理由で置けなくなる。
+      const keepW = [state.settings.workStart, state.settings.workEnd];
+      state.settings = Object.assign({}, state.settings, { workStart: "00:00", workEnd: "23:59" });
+      reset();
+      await say(LINE, T(10, 0));
+      const t = state.items.find(i => i.kind === "task");
+      ok("AW. 時間帯つきの用事として拾う", !!t && t.winFrom === 18 * 60 && t.winTo === 21 * 60,
+         t ? t.kind + "/" + t.winFrom + "-" + t.winTo : "拾えていない");
+      ok("AW. 「までの間に」を見出しに残さない", !!t && !/間に/.test(t.title), t && t.title);
+      ok("AW. 落とした跡を空白でつながない", !!t && t.title === "お風呂に入る", t && t.title);
+
+      const reasonAt = m => {
+        const u = planFor(KEY, { nowMin: m }).unplaced.find(x => x.item.id === t.id);
+        return u ? u.reason : "(置けた)";
+      };
+      const placedAt = m => {
+        const b = planFor(KEY, { nowMin: m }).blocks.find(x => x.item && x.item.id === t.id);
+        return b ? b.s : null;
+      };
+      ok("AW. 時間帯の中に置ける", placedAt(10 * 60) === 18 * 60, String(placedAt(10 * 60)));
+      ok("AW. いまが時間帯の中なら、いまから置く", placedAt(19 * 60) === 19 * 60, String(placedAt(19 * 60)));
+      ok("AW. 時間帯が過ぎていたら「過ぎています」と言う",
+         /もう過ぎています/.test(reasonAt(22 * 60)), reasonAt(22 * 60));
+      ok("AW. 過ぎているのを「空きがありません」と言わない",
+         !/空きがありません/.test(reasonAt(22 * 60)), reasonAt(22 * 60));
+      ok("AW. 残りが足りないときは、残りの長さを言う",
+         /空いているのは最大15分/.test(reasonAt(20 * 60 + 45)), reasonAt(20 * 60 + 45));
+
+      // 本当に埋まっているときは、今までどおり「空きがありません」
+      const ev = { id: uid(), noteId: null, kind: "event", title: "会食", fixed: true,
+        origin: "user", confirmed: true, corrected: false, status: "open",
+        evidence: { text: "x" }, start: zoned(2026, 9, 12, 18, 0, TZ).toISOString(),
+        end: zoned(2026, 9, 12, 21, 0, TZ).toISOString(), dayKey: KEY, duePrecision: "exact",
+        createdAt: T(9, 0), updatedAt: "", history: [] };
+      ev.dedupeKey = dedupeKey(ev); await putItem(ev);
+      ok("AW. 本当に埋まっているときは「空きがありません」のまま",
+         /空きがありません/.test(reasonAt(10 * 60)), reasonAt(10 * 60));
+
+      // 元の文に区切りがあったら、それは残す（くっつけてよいのは、元から続いていた所だけ）
+      const cut = x => cleanTitle(halfWidth(x), parseWhen(halfWidth(x), T(9, 0), TZ));
+      ok("AW. 元からあった空白は残す", cut("レポート 2時間 書く") === "レポート 書く", cut("レポート 2時間 書く"));
+      ok("AW. 元から続いていた所はつなぐ", cut("Zoomで10時に会議") === "Zoomで会議", cut("Zoomで10時に会議"));
+
+      state.settings = Object.assign({}, state.settings, { workStart: keepW[0], workEnd: keepW[1] });
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;
