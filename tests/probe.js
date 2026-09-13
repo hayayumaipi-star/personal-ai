@@ -1670,6 +1670,67 @@
              byKind("condition") && String(byKind("condition").selfReport.length));
         }
 
+        /* AV. 振り返りは「間違えて押した完了・取り消しを戻せる**唯一の**場所」（決まり6f）なのに、
+           テストでの言及が1か所しか無かった（v5.9・4周目の調査）。往復を固定する。
+           **`completedAt` は本物の「いま」**なので、固定の日ではなく
+           **完了が載る日**で見ること（記録済みの落とし穴）。 */
+        {
+          const today = dayKey(new Date(), TZ);
+          const seed = async (title) => {
+            const it = { id: uid(), noteId: null, kind: "task", title,
+              evidence: { text: "x" }, origin: "rule", confirmed: false, corrected: false,
+              status: "open", estimateMin: 30,
+              createdAt: new Date().toISOString(), updatedAt: "", history: [] };
+            it.dedupeKey = dedupeKey(it); await putItem(it); return it;
+          };
+          reset();
+          const a = await seed("完了を押してみる用事");
+          await act("done", a.id);
+          ok("AV. 完了にすると status が done になる", findItem(a.id).status === "done",
+             findItem(a.id).status);
+          let rv = reviewFor(today);
+          ok("AV. 振り返りに、その日の完了が出る",
+             rv.done.some(i => i.id === a.id), rv.done.map(i => i.title).join(","));
+          await act("undone", a.id);
+          ok("AV. 振り返りから完了を戻せる", findItem(a.id).status === "open",
+             findItem(a.id).status);
+          rv = reviewFor(today);
+          ok("AV. 戻したら、完了の一覧から消える", !rv.done.some(i => i.id === a.id),
+             rv.done.map(i => i.title).join(","));
+
+          const b = await seed("取り消してみる用事");
+          await act("drop", b.id);
+          ok("AV. 取り消すと status が dropped になる", findItem(b.id).status === "dropped",
+             findItem(b.id).status);
+          rv = reviewFor(today);
+          ok("AV. 振り返りに、その日の取り消しが出る",
+             rv.dropped.some(x => x.i.id === b.id), rv.dropped.map(x => x.i.title).join(","));
+          await act("undrop", b.id);
+          ok("AV. 振り返りから取り消しを戻せる", findItem(b.id).status === "open",
+             findItem(b.id).status);
+
+          // 別の日の完了は、その日の振り返りに混ぜない
+          const c = await seed("昨日やった用事");
+          c.status = "done";
+          c.completedAt = new Date(Date.now() - 3 * 86400000).toISOString();
+          await putItem(c);
+          rv = reviewFor(today);
+          ok("AV. 別の日の完了は、今日の振り返りに出さない",
+             !rv.done.some(i => i.id === c.id), rv.done.map(i => i.title).join(","));
+
+          // 体調はその日の申告だけ（決まり3）
+          const cond = { id: uid(), noteId: null, kind: "condition", title: "眠い",
+            selfReport: "あんまり寝ていなくて眠い", reportedAt: new Date().toISOString(),
+            evidence: { text: "眠い" }, origin: "rule", confirmed: false, corrected: false,
+            status: "open", createdAt: new Date().toISOString(), updatedAt: "", history: [] };
+          cond.dedupeKey = dedupeKey(cond); await putItem(cond);
+          rv = reviewFor(today);
+          ok("AV. 体調は本人の言葉のまま、その日のぶんだけ出る",
+             rv.conds.some(i => i.selfReport === "あんまり寝ていなくて眠い")
+             && rv.conds.every(i => i.score === undefined),
+             rv.conds.map(i => i.selfReport).join(","));
+        }
+
         // AIに日付の言葉を書かせない（決まり8の日付版）
         {
           const nq = mkNote("30分勉強する");
