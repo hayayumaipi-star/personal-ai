@@ -1326,6 +1326,31 @@
         ok("AM. 時刻は切り落とさずに書く",
            r7.asks.some(a => /14:00/.test(a)), JSON.stringify(r7.asks));
 
+        /* AN. 同じものが既にあって足さなかったとき、黙らない（v5.2・実機で報告）。
+           「追加すらされなかった」に見えるのは、ここで何も言わずに捨てていたから。 */
+        reset();
+        const n8 = mkNote("明日までに資料を出す"); await putNote(n8);
+        const op8 = { op: "add", kind: "task", title: "資料を出す", dueDate: tom,
+          duePrecision: "day", quote: "資料を出す" };
+        const r8a = await applyOps([op8], n8);
+        ok("AN. 1回目はふつうに足す", r8a.changes.length === 1, JSON.stringify(r8a.changes));
+        const r8b = await applyOps([op8], n8);
+        ok("AN. 2回目は足さない", r8b.changes.length === 0, JSON.stringify(r8b.changes));
+        ok("AN. 足さなかったことを、黙らずに言う",
+           r8b.asks.some(a => /足さなかった/.test(a) && a.includes("資料を出す")), JSON.stringify(r8b.asks));
+        // 完了済みとぶつかったときは、その状態も書く
+        const d8 = state.items.find(i => i.title === "資料を出す");
+        d8.status = "done"; await putItem(d8);
+        const r8c = await applyOps([op8], n8);
+        ok("AN. 完了済みとぶつかったら、そう書く",
+           r8c.asks.some(a => /完了/.test(a)), JSON.stringify(r8c.asks));
+        // 見出しが取り出せないときも黙らない
+        reset();
+        const n9 = mkNote("うーん"); await putNote(n9);
+        const r9 = await applyOps([{ op: "add", kind: "task", title: "  ", quote: "うーん" }], n9);
+        ok("AN. 見出しが空でも黙って捨てない",
+           r9.changes.length === 0 && r9.asks.length > 0, JSON.stringify(r9.asks));
+
         // AIに日付の言葉を書かせない（決まり8の日付版）
         {
           const nq = mkNote("30分勉強する");

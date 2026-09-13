@@ -3283,7 +3283,9 @@ async function applyOps(rawOps, note) {
            これは言い換えではない——時刻や所要時間や語尾をそろえるだけで、
            中身の語は変わらないので `dedupeKey` も照合も揺れない（決まり7cb）。 */
         const title = typeof o.title === "string" ? cleanTitle(o.title.trim(), null).slice(0, 80) : "";
-        if (!title) continue;
+        /* 見出しが空になったら黙って捨てない（v5.2・実機で報告）。
+           画面には何も出ないので、本人からは「送れていない」ようにしか見えない。 */
+        if (!title) { asks.push("いまの話から用事の名前を取り出せませんでした。「スケジュール」タブの「＋ 自分で足す」から入れてください。"); continue; }
         it = {
           id: uid(), noteId: note.id, kind, title,
           evidence: evidenceOf(note, o.quote),
@@ -3299,7 +3301,13 @@ async function applyOps(rawOps, note) {
         if (it.estimateMin == null) it.estimateMin = 30;
       }
       it.dedupeKey = dedupeKey(it);
-      if (state.items.some(x => x.dedupeKey === it.dedupeKey)) continue;   // 完了・取消も含めて突き合わせる
+      /* 同じものを二重に作らない（決まり5）。ただし **黙って捨てない**（v5.2・実機で報告）。
+         `changes` にも `asks` にも何も入らないので、画面はまったく変わらず、
+         本人からは「**追加すらされなかった**」ようにしか見えない。
+         突き合わせは完了・取り消し済みも含めるので、**前に終わらせたものと同じ名前**でも
+         ここに落ちる。何とぶつかったのかを言って、足す道も示すこと。 */
+      const dup = state.items.find(x => x.dedupeKey === it.dedupeKey);
+      if (dup) { asks.push(dupeAsk(dup, tz)); continue; }
       const twin = findSimilar(it);
       if (twin) { await mergeInto(twin, it, changes, tz); continue; }      // 言い換えちがいの二重登録を防ぐ
       await putItem(it);
@@ -3525,6 +3533,15 @@ function applyFields(it, o, tz, note) {
     }
   }
   return pulledBack;
+}
+/* 同じものが既にあって足さなかったとき、何とぶつかったのかを言う（v5.2）。
+   完了・取り消し済みとぶつかることもあるので、その状態も書く。 */
+function dupeAsk(dup, tz) {
+  const when = describeWhen(dup, tz);
+  const state_ja = dup.status === "done" ? "もう完了にしてある"
+    : dup.status === "dropped" ? "取り消してある" : "もう入っている";
+  return `「${dup.title}」${when}が${state_ja}ので、足さなかったよ。`
+    + `別のものなら「スケジュール」タブの「＋ 自分で足す」から入れてね。`;
 }
 /* 日付を引き戻したことを、**こちらの言葉で**伝える（v5.1）。
    AIの文章は書き換えない（決まり7c と同じ理屈で、触ると別の壊れ方をする）。
