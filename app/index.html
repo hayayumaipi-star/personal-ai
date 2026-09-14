@@ -3864,8 +3864,17 @@ async function applyOps(rawOps, note) {
           moved.push({ id: same.id, title: same.title, mine: !same.suggested });
           continue;
         }
-        // **黙って捨てない**（決まり5）。既にあるものは足さず、何とぶつかったかを言う
-        if (state.items.some(x => x.dedupeKey === it.dedupeKey)) { dupes.push(it.title); continue; }
+        /* **消したものに、言ったことを塞がせない**（v7.6・実機で報告）。
+           決まり5は「突き合わせに完了・取り消し済みも含める」——**完了した用事を
+           こちらから再提案しない**ための決まり。ところが組み立ては**本人が名指しで
+           頼んでいる**ので、同じ規則を当てると逆に働く。実機ではこうなった：
+           ① 組み立てる → ②「さっきの話を全部消して」で10件が取り消し →
+           ③ もう一度同じことを言う → **勉強・ご飯・お風呂が「もう入っています」で
+           飛ばされ**、「言われた0件」。消したのに、消したものが邪魔をしていた。
+           **本人が「これをやる」と言っている場面では、開いているものだけを見る。** */
+        if (state.items.some(x => x.dedupeKey === it.dedupeKey && x.status === "open")) {
+          dupes.push(it.title); continue;                 // **黙って捨てない**（決まり5）
+        }
         made.push(it);
       }
       for (const it of made) await putItem(it);

@@ -2472,6 +2472,31 @@
          dedupeKey({ kind: "task", title: "お風呂に入る", dayKey: "2026-09-16" }) !== mk2("お風呂に入る", 8),
          "同じ鍵になっている");
 
+
+      /* **消したものに、言ったことを塞がせない**（v7.6・実機で報告）。
+         ①組み立てる →②「さっきの話を全部消して」→③もう一度同じことを言う、で
+         **勉強・ご飯・お風呂が「もう入っています」で飛ばされ**「言われた0件」になった。
+         決まり5（突き合わせに取り消し済みも含める）は**再提案を止める**ための決まりで、
+         本人が名指しで頼んでいる組み立てには当てない。 */
+      state.items = [];
+      await build(null);
+      let killed = 0;
+      for (const i of state.items) if (i.dayKey === DAY && i.status === "open") {
+        i.status = "dropped"; i.updatedAt = new Date().toISOString(); await putItem(i); killed++;
+      }
+      ok("BB. 「全部消して」でその日が空になる",
+         killed > 0 && planFor(DAY).blocks.filter(b => b.item).length === 0, String(killed));
+      const r3 = await build(FILL_A);
+      const a3 = rows();
+      ok("BB. 消したあとでも、言ったものがちゃんと入る",
+         /言われた4件/.test(r3.changes.join("")), r3.changes.join(""));
+      ok("BB. 消したものを「もう入っています」で塞がない",
+         !r3.asks.some(x => /足していません/.test(x)), r3.asks.join(" / "));
+      ok("BB. 消したあとの組み立てにも穴が空かない",
+         a3.slice(1).every((r, i) => r.s === a3[i].e), a3.map(r => hhmm(r.s) + "-" + hhmm(r.e)).join(" "));
+      ok("BB. 消したあとでも二重にならない",
+         new Set(a3.map(r => r.t)).size === a3.length, a3.map(r => r.t).join("/"));
+
       state.items = before;
       state.settings = Object.assign({}, state.settings, { workStart: keepW4[0], workEnd: keepW4[1] });
     }
