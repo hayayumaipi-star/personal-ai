@@ -3774,6 +3774,14 @@ async function applyOps(rawOps, note) {
     }
     if (o.op === "buildday") {
       const req = o.req, plan = buildDayPlan(req, state.settings, aiFill);
+      /* **持ち札に戻ったことを黙らない**（v7.4・実機で報告）。
+         AIがオンなのに `dayfill` が返らないと、決まった9つから選ぶ。画面には
+         **前とまったく同じ顔ぶれ**が出るので、本人からは「直っていない」ようにしか見えない
+         （実際にそう報告された）。理由が分かれば、もう一度言えば済む。決まり5と同じ理屈。 */
+      if (SAMPLEFN && state.settings.useAI !== false && !aiFill.length) {
+        asks.push("提案の中身がAIから返ってこなかったので、決まった顔ぶれから選びました。"
+          + "もう一度同じことを言うと、その人に合わせたものが出ることがあります。");
+      }
       const [ky, km, kd] = req.dayKey.split("-").map(Number);
       const made = [], dupes = [];
       for (const r of plan.rows) {
@@ -4326,6 +4334,20 @@ function contextForAI(note) {
 
 function buildPrompt(note, cx) {
   const tz = state.settings.timezone;
+  /* **組み立ての依頼なら、「何を組み立てるのか」をAIに渡す**（v7.4・実機で報告）。
+     渡していなかったので、AIの手がかりは【いまの日時】（21:30）だけだった。
+     その結果、**朝6時〜11時半の組み立てに「寝る前にスマホを置いて」**と返した（実測）。
+     時間帯を知らないのだから当たり前で、**AIの落ち度ではなくこちらの渡し忘れ**。
+     判定は `parseDayRequest` をそのまま呼ぶ——同じ判定を2か所に書かない（決まり7e）。 */
+  const dayReq = parseDayRequest(note, tz);
+  const buildBlock = dayReq ? `
+【この発話は「1日の組み立て」の依頼です】
+組み立てる時間帯：${fmtDayPlain(dayReq.dayKey, tz)} ${hhmm(dayReq.win[0])}〜${hhmm(dayReq.win[1])}
+この時間帯は**${WHEN_WORD(Math.floor(dayReq.win[0] / 60))}**です。${dayReq.win[1] >= 21 * 60 ? "終わりは就寝に向かう枠で締めてください。" : "**就寝・寝る前・夜の話を書かないでください。**この時間帯には合いません。"}
+- **「dayfill」を必ず1つ返してください。**返ってこないと、決まった顔ぶれの提案しか出せず、毎回同じ予定表になります。
+- 返事の最後の「習慣の提案」も、**この時間帯に合うもの**にしてください。
+- ここに書いた日付と時刻は、**返事に書かないでください**（アプリが表示します）。
+` : "";
   return `あなたは本人専属の秘書です。本人は整理せずに、予定・気分・思いつきを混ぜて話します。
 その発話を読んで、(1) 予定とタスクへの操作 と (2) 短い返事 を返してください。
 
@@ -4379,7 +4401,7 @@ estimateMin は 30 のように返してください（開始時刻を決めな�
 - **がんばりを増やす提案にしない。** 増やすより「やめる・減らす・許す」でもよい。
 - **時刻・分数・件数は書かない**（予定表と食い違うため）。
 - 押して登録するボタンは出ません。気に入ったら本人が言葉で返します。
-【作業に使える時間帯】${hhmm(cx.winS)}〜${hhmm(cx.winE)}
+${buildBlock}【作業に使える時間帯】${hhmm(cx.winS)}〜${hhmm(cx.winE)}
 【いまの予定案】${cx.plan}
 【本人が前に言った「こうしてほしい」】${cx.pf.length ? cx.pf.join(" / ") : "（まだありません）"}
 【この人について分かっていること（変わらないこと）】

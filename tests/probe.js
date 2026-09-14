@@ -2363,6 +2363,48 @@
       state.settings = Object.assign({}, state.settings, { workStart: keepW3[0], workEnd: keepW3[1] });
     }
 
+    /* ===== BA群：組み立ての依頼は、何を組み立てるのかをAIに渡す（v7.4・実機で報告） =====
+       渡していなかったので、AIは【いまの日時】（夜21:30）しか手がかりが無く、
+       **朝6時〜11時半の組み立てに「寝る前にスマホを置いて」**と返した（実測）。
+       ここが抜けると症状は「習慣の提案がちぐはぐ」としてしか出ないので、
+       **プロンプトの中身そのものを見張る**。 */
+    {
+      const mk = (at, text) => ({ id: "ba" + Math.random(), text, hash: "h",
+        capturedAt: at, source: "talk", sourceName: null, createdAt: at });
+      const pr = n => buildPrompt(n, contextForAI(n));
+
+      const nightAsk = mk("2026-09-14T12:30:00Z",
+        "明日の朝6時から11時半までの間で勉強を30分かける2回。その間にお風呂とご飯それぞれ30分ずつ使う。他に入れる予定ややった方がいい習慣などを提案してスケジュールを組み立てて。");
+      const pm = pr(nightAsk);
+      ok("BA. 組み立ての依頼だと、依頼だと分かる案内が入る",
+         pm.includes("【この発話は「1日の組み立て」の依頼です】"), "案内なし");
+      ok("BA. 組み立てる時間帯が渡っている", pm.includes("06:00〜11:30"), "窓が無い");
+      ok("BA. 組み立てる日が渡っている", /9\/15/.test(pm), "日が無い");
+      ok("BA. 朝の組み立てなら『朝』と伝える", pm.includes("**朝**です"), "時間帯の言葉が無い");
+      ok("BA. 朝の組み立てで就寝の話を禁じる",
+         pm.includes("就寝・寝る前・夜の話を書かないでください"), "禁止が無い");
+      ok("BA. 朝なのに『就寝で締めて』と言わない",
+         !pm.includes("就寝に向かう枠で締めて"), "夜向けの指示が出ている");
+      ok("BA. dayfill を必ず返すよう頼んでいる",
+         pm.includes("「dayfill」を必ず1つ返してください"), "依頼が弱い");
+      ok("BA. 渡した日付と時刻を返事に書かせない（決まり8）",
+         pm.includes("返事に書かないでください"), "歯止めが無い");
+
+      const eveAsk = mk("2026-09-14T09:30:00Z",
+        "6時から11時半までの間で勉強を30分かける2回。その間にお風呂とご飯それぞれ30分ずつ使う。他に入れる予定を提案して組み立てて。");
+      const pe = pr(eveAsk);
+      ok("BA. 夜の組み立てなら就寝で締めるよう伝える",
+         pe.includes("就寝に向かう枠で締めて"), "夜向けの指示が無い");
+      ok("BA. 夜の組み立てでは就寝の話を禁じない",
+         !pe.includes("就寝・寝る前・夜の話を書かないでください"), "朝向けの禁止が出ている");
+      ok("BA. もう始まっている範囲は、いまからの時刻で渡す",
+         pe.includes("18:30〜23:30"), "頭が寄せられていない");
+
+      const plain = pr(mk("2026-09-14T12:30:00Z", "眠い。明日までに資料を作らないと。"));
+      ok("BA. 組み立てでない発言には案内を出さない",
+         !plain.includes("【この発話は「1日の組み立て」の依頼です】"), "毎回出ている");
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;
