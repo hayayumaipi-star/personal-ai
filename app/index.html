@@ -2008,15 +2008,29 @@ function parseDayRequest(note, tz) {
      **「明日の朝6時から11時半まで」を22時に言うと、今日の22:00〜23:30 に組み立てて**いた（実測）。
      本人が「明日」と言っているのだから動かしてはいけない（決まり4b「言われていたら触らない」）。
      判定は既にある `dateSpokenIn` を使う——**同じ判定を2か所に書かない**（決まり7e）。 */
-  if (dk > spokeDay && !dateSpokenIn(w)) {
+  /* **飛ぶのは翌日だけではない**（v7.9・実機で報告）。
+     **06:07 に「6時から11時半までの間で」と言うと、18:00〜23:30 になっていた**（実測）。
+     6時が**7分だけ**過ぎていたので決まり4b が ＋12時間へ寄せ、
+     v6.6 の引き戻しは **日をまたいだときしか**見ていなかったので、そのまま通った。
+     11時半まであと5時間あるのに、朝の予定が夜になる。
+     **同じ日の中で飛ぶこともある。** 門を「翌日へ飛んだとき」から
+     **「日付を言われていないとき」全部**に広げる——そのうえで
+     ①終わりがまだ来ていない ②言われたぶんが入るだけ残っている 窓のうち、
+     **いまにいちばん近いもの**を選ぶ。選び方は v6.6 のまま変えない。 */
+  if (!dateSpokenIn(w)) {
     const nowMin = minOfDay(note.capturedAt, tz);
     const needMin = wants.reduce((a, x) => a + (x.min || 0) * (x.count || 1), 0);
     const cands = [win, [win[0] + 720, win[1] + 720], [win[0] - 720, win[1] - 720]]
       .filter(c => c[0] >= 0 && c[1] <= 1440 && c[1] > c[0])
-      // **言われたぶんが入るだけ残っている**ものだけ。残り30分の窓へ5時間half を押し込まない
+      // **言われたぶんが入るだけ残っている**ものだけ。残り30分の窓へ5時間半を押し込まない
       .filter(c => c[1] > nowMin && c[1] - Math.max(c[0], nowMin) >= needMin)
       .sort((a, b) => Math.abs(a[0] - nowMin) - Math.abs(b[0] - nowMin));
-    if (cands.length) { movedFrom = [dk, win]; win = cands[0]; dk = spokeDay; }
+    // **日をまたいだときだけ**「明日のことなら言い直して」と知らせる。
+    // 同じ日の中で寄せ直したときは、本人が言ったままの時刻に戻しただけなので言わない。
+    if (cands.length && (dk !== spokeDay || cands[0][0] !== win[0])) {
+      if (dk !== spokeDay) movedFrom = [dk, win];
+      win = cands[0]; dk = spokeDay;
+    }
   }
   /* **もう始まっている範囲は、いまから組み立てる**（v6.6）。
      20時に「6時から11時半までの間で」と言われて 18:00 から並べると、
@@ -2885,7 +2899,8 @@ function turnHTML(t) {
   const err = t.error ? `<div class="note warn">${esc(t.error)}</div>` : "";
   return `<div class="turn ai"><div class="bub">${esc(t.text)}</div>
     <div class="extra">${err}${nextLine}${changes}${plan}</div>
-    <span class="stamp">${stamp} · ${t.ai ? "AIが読み取り" : "ルールで読み取り"}</span></div>`;
+    <span class="stamp">${stamp} · ${t.ai ? "AIが読み取り"
+      : t.aiQuiet ? "ルールで読み取り（AIは返事だけ）" : "ルールで読み取り"}</span></div>`;
 }
 function renderChat(scroll) {
   if (!state.settings) return;
@@ -4442,11 +4457,19 @@ function buildPrompt(note, cx) {
         && minOfDay(i.due, tz) >= dayReq.win[0] && minOfDay(i.due, tz) < dayReq.win[1])
       .slice(0, 10).map(i => i.title)
   ) : [];
+  /* **この案内は依頼文のいちばん上に置く**（v7.9・実機で報告）。
+     7,000字の真ん中に置いていたときは、AIが `ops` を**空**で返してきた（実測の形）。
+     直前に「組み立てを頼まれたら add / update を返すな」と書いてあるので、
+     **「何も返さない」がいちばん安全な読み方**になってしまう。
+     だから返す形そのもの（`dayfill` 1件）を、いちばん先に見えるところへ書く。 */
   const buildBlock = dayReq ? `
 【この発話は「1日の組み立て」の依頼です】
 組み立てる時間帯：${fmtDayPlain(dayReq.dayKey, tz)} ${hhmm(dayReq.win[0])}〜${hhmm(dayReq.win[1])}
 この時間帯は**${WHEN_WORD(Math.floor(dayReq.win[0] / 60))}**です。${dayReq.win[1] >= 21 * 60 ? "終わりは就寝に向かう枠で締めてください。" : "**就寝・寝る前・夜の話を書かないでください。**この時間帯には合いません。"}
 - **「dayfill」を必ず1つ返してください。**返ってこないと、決まった顔ぶれの提案しか出せず、毎回同じ予定表になります。
+- **「ops」を空にしないでください。**この発話で返すのは、次の形ちょうど1件です：
+  {"ops":[{"op":"dayfill","blocks":[ … ]}],"reply":"短い返事"}
+  「add」「update」を返すなと書いてあるのは**その2つだけ**の話で、「dayfill」は返してください。
 ${already.length ? `この時間帯には、本人が言った次のものが**すでに入ります**：
 ${already.map(x => "  - " + x).join("\n")}
 **これらと同じもの・似たものは出さないでください。**（同じことが2回並びます）
@@ -4455,6 +4478,7 @@ ${already.map(x => "  - " + x).join("\n")}
 ` : "";
   return `あなたは本人専属の秘書です。本人は整理せずに、予定・気分・思いつきを混ぜて話します。
 その発話を読んで、(1) 予定とタスクへの操作 と (2) 短い返事 を返してください。
+${buildBlock}
 
 【いまの日時】${cx.p.y}年${cx.p.mo}月${cx.p.d}日(${DOW_JA[cx.p.dow]}) ${pad2(cx.p.h)}:${pad2(cx.p.mi)}（${tz}）
 「今日」「明日」「あとで」はこの日時を基準に解釈してください。
@@ -4506,7 +4530,7 @@ estimateMin は 30 のように返してください（開始時刻を決めな�
 - **がんばりを増やす提案にしない。** 増やすより「やめる・減らす・許す」でもよい。
 - **時刻・分数・件数は書かない**（予定表と食い違うため）。
 - 押して登録するボタンは出ません。気に入ったら本人が言葉で返します。
-${buildBlock}【作業に使える時間帯】${hhmm(cx.winS)}〜${hhmm(cx.winE)}
+【作業に使える時間帯】${hhmm(cx.winS)}〜${hhmm(cx.winE)}
 【いまの予定案】${cx.plan}
 【本人が前に言った「こうしてほしい」】${cx.pf.length ? cx.pf.join(" / ") : "（まだありません）"}
 【この人について分かっていること（変わらないこと）】
@@ -4708,7 +4732,7 @@ async function sendTurn(text) {
     }).catch(() => "");
   }
 
-  let ops = null, reply = "", usedAI = false, err = null;
+  let ops = null, reply = "", usedAI = false, err = null, aiSaidNothing = false;
   if (useAI) {
     try { const r = await aiTurn(note); ops = r.ops; reply = r.reply; usedAI = true; }
     catch (e) { err = AI_ERR[e && e.code] || "AIに接続できなかったので、ルールだけで読み取りました。"; }
@@ -4722,7 +4746,12 @@ async function sendTurn(text) {
   if (!ops) ops = ruleOps(note);
   else if (!ops.length) {
     const ro = ruleOps(note).filter(o => o.op !== "_needs_ai");
-    if (ro.length) { ops = ro; usedAI = false; }
+    /* **「AIが答えなかった」と「AIは答えたが操作が空だった」を、同じ顔で出さない**
+       （v7.9・実機で報告）。ここで `usedAI = false` にすると、画面の印が
+       **「ルールで読み取り」**になる。AIの返事はすぐ上に出ているのに、である。
+       本人はこれを見て **「AIが使えなくなった」** と読んだ（実際にそう報告された）。
+       読み取ったのがルールなのは事実なので印は変えないが、**理由は別に持つ**。 */
+    if (ro.length) { ops = ro; usedAI = false; aiSaidNothing = true; }
   }
   /* **1日の組み立ては、AIがオンでもコードがやる**（v6.5）。
      決まり8「時刻と予定表はコードが作る」の一番大事な場面がここ。
@@ -4798,7 +4827,7 @@ async function sendTurn(text) {
   const r2 = document.getElementById("reading"); if (r2) r2.parentElement.remove();
   await pushTurn({
     id: uid(), role: "assistant", text: reply, at: new Date().toISOString(),
-    changes, plan: sn, ai: usedAI, error: err,
+    changes, plan: sn, ai: usedAI, aiQuiet: aiSaidNothing, error: err,
     habitDay: applied.habitDay || null,
     showTable: shouldShowTable(ctx)     // 毎回は出さない
   });
