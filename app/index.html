@@ -1795,6 +1795,158 @@ function normNote(t) {
 }
 
 /* =======================================================================
+   1日を組み立てる（v6.5・本人の指示）
+   「6時から11時半までの間で勉強を30分かける2回。その間にお風呂とご飯それぞれ
+   30分ずつ使う。他に入れる予定ややった方がいい習慣などを提案して組み立てて。」
+   —— これを受け取って、**言われたものを言われた長さで置き、空いた所に提案を足す**。
+   決まり8は崩さない：**時刻も並びもコードが決める。AIは文章だけ。**
+   提案は**こちらが足したもの**なので `suggested:true` を立て、印を出し、1手で全部消せる。
+   ======================================================================= */
+const RE_BUILD_DAY = /(組み立て|組みたて|くみたて|組んで)|((スケジュール|予定|一日|1日|日程).{0,8}(作って|つくって|立てて|考えて))|提案して/;
+const RE_DUR_TIMES = /(\d{1,3})\s*分\s*(?:かける|×|x|X|\*|＊)\s*(\d{1,2})\s*回?/;
+const RE_TIMES = /(\d{1,2})\s*回/;
+const RE_DAY_RANGE = new RegExp(
+  "(午前|午後|朝|昼|夕方|夜|晩|深夜|夜中)?\\s*\\d{1,2}\\s*時\\s*(?:\\d{1,2}\\s*分|半)?\\s*(?:から|〜|～|-|–)\\s*"
+  + "(午前|午後|朝|昼|夕方|夜|晩|深夜|夜中)?\\s*\\d{1,2}\\s*時\\s*(?:\\d{1,2}\\s*分|半)?\\s*(?:まで)?\\s*(?:の)?\\s*(?:間|あいだ)?\\s*[でに]?", "g");
+
+/* 提案の持ち札。**これで全部**——ここに無いものは提案しない（勝手に増やさない）。
+   `w` は並べる順の重み。`drop` は入りきらないときに**先に落とす順**（大きいほど先に落ちる）。
+   `need` が満たされないものは最初から出さない（勉強が無いのに「切り替え・準備」は要らない）。 */
+const DAY_FILL = [
+  { key: "prep",   title: "切り替え・準備",       min: 10, w: 5,  drop: 5, need: "focus", why: "やる範囲を決めて、通知を切る" },
+  { key: "tidy",   title: "片付け・軽い運動",     min: 20, w: 25, drop: 6, need: "meal",  why: "食器を片付けて、散歩かストレッチ" },
+  { key: "break",  title: "休憩",                 min: 15, w: 35, drop: 4, need: "focus2", why: "席を離れてひと息" },
+  { key: "main",   title: "大事な用事を1つ",       min: 45, w: 40, drop: 7, need: null,   why: "制作・家事・手続きなど。終わりの条件を決める" },
+  { key: "ready",  title: "身支度・明日の準備",   min: 20, w: 55, drop: 3, need: "bath",  why: "髪を乾かす、服や持ち物を用意する" },
+  { key: "spare",  title: "自由・予備時間",       min: 30, w: 60, drop: 9, need: null,   why: "趣味や、遅れた予定の調整" },
+  { key: "review", title: "振り返り・明日の計画", min: 10, w: 70, drop: 2, need: null,   why: "できたことと、明日の最優先を1つずつ書く" },
+  { key: "relax",  title: "リラックス",           min: 30, w: 75, drop: 8, need: null,   why: "読書や音楽など、区切りをつけやすいもの" },
+  { key: "bed",    title: "就寝準備",             min: 30, w: 90, drop: 1, need: null,   why: "歯磨き、トイレ、照明を落とす" }
+];
+/* 本人が言った活動を、一日のどのあたりに置くか。
+   **順番はこちらが決めてよい**（「組み立てて」と言われているので）。ただし理由が言えること：
+   集中は前半、食事は中盤、入浴は身支度の前。ここに無い言葉は「大事な用事」の後ろに置く。 */
+const RE_FOCUS = /(勉強|学習|課題|作業|仕事|レポート|研究|練習|読書)/;
+const RE_BATHY = /(風呂|入浴|シャワー)/;
+function wantWeight(title, nth) {
+  if (RE_FOCUS.test(title)) return 10 + nth * 20;        // 勉強①=10 / 勉強②=30
+  if (RE_MEAL.test(title)) return 20 + nth * 20;
+  if (RE_BATHY.test(title)) return 50 + nth;
+  return 45 + nth;
+}
+
+/* 発言から「何を・何分・何回」を取り出す。**言われていない数は作らない。** */
+function wantsIn(sentence) {
+  let s = halfWidth(sentence), min = null, count = 1;
+  const m = s.match(RE_DUR_TIMES);
+  if (m) { min = +m[1]; count = +m[2]; s = s.replace(m[0], " "); }
+  else {
+    min = parseDuration(s);
+    const c = s.match(RE_TIMES);
+    if (c) { count = clamp(+c[1], 1, 8); s = s.replace(c[0], " "); }
+    s = s.replace(/\d{1,3}\s*分\s*(くらい|ほど|程度)?/g, " ").replace(/\d{1,2}\s*時間\s*半?/g, " ");
+  }
+  s = s.replace(RE_DAY_RANGE, " ")
+       .replace(/その\s*(間|あいだ)\s*[にで]?/g, " ")
+       .replace(/(それぞれ|ずつ|各|合計|ぜんぶ|全部)/g, " ")
+       .replace(/(使う|使いたい|とる|取る|やる|する|入る|入りたい|食べる|かける|確保)[たい]*。?\s*$/, " ");
+  const out = [];
+  for (let part of s.split(/[とや、,・]/)) {
+    part = cleanTitle(part.trim(), null)
+      .replace(/^[をにではがも\s]+/, "")
+      .replace(/[をにへでがはもの]$/, "")           // 「勉強を」→「勉強」。見出しに助詞を残さない
+      .trim();
+    if (part.length < 2 || part.length > 14) continue;
+    if (/^(これ|それ|あれ|もの|こと|時間|予定|習慣|スケジュール)$/.test(part)) continue;
+    out.push({ title: part, min: min || null, count });
+  }
+  return out;
+}
+
+/* 発言ぜんぶを読んで、組み立ての依頼として成立するかを返す。
+   **時間帯が読めなければ組み立てない**（どこへ置くか分からないものを置かない）。 */
+function parseDayRequest(note, tz) {
+  const text = halfWidth(note.text);
+  if (!RE_BUILD_DAY.test(text)) return null;
+  /* **時間帯は、範囲を言っている文からだけ読む**（v6.5・作りながら見つけた）。
+     全文を `parseWhen` に渡すと、「生産性の高い**1日**を過ごす」の「1日」を
+     **10月1日**として拾い、日付も午前/午後の判定もまるごと狂った（実測）。
+     決まり「1行に複数の話題があるとき、日時を他の話題に持ち込まない」と同じ理屈。 */
+  let w = null;
+  const wants = [];
+  for (const l of splitLines(text)) for (const st of l.sentences) {
+    if (!w) { const x = parseWhen(st.text, note.capturedAt, tz); if (x && x.between) w = x; }
+    if (RE_BUILD_DAY.test(st.text)) continue;           // 「提案して」の文からは活動を拾わない
+    for (const x of wantsIn(st.text)) wants.push(x);
+  }
+  if (!w || !w.between || !wants.length) return null;
+  return { win: [w.between.from, w.between.to], wants, dayKey: dayKey(new Date(w.start), tz) };
+}
+
+/* 並べる。**入りきらなければ提案から落とす**（本人が言ったものは落とさない）。
+   余った時間は「自由・予備時間」に足す——余りを黙って消さない。 */
+function buildDayPlan(req, st) {
+  const [from, to] = req.win;
+  const rows = [];
+  const seen = {};
+  for (const wnt of req.wants) {
+    const n = Math.max(1, Math.min(8, wnt.count || 1));
+    for (let i = 0; i < n; i++) {
+      const nth = (seen[wnt.title] = (seen[wnt.title] || 0));
+      seen[wnt.title]++;
+      rows.push({ title: n > 1 ? `${wnt.title}${"①②③④⑤⑥⑦⑧"[i]}` : wnt.title,
+        min: clamp(wnt.min || st.defaultEstimate, 5, 480), w: wantWeight(wnt.title, nth), mine: true });
+    }
+  }
+  const kinds = {
+    focus: rows.some(r => RE_FOCUS.test(r.title)),
+    focus2: rows.filter(r => RE_FOCUS.test(r.title)).length >= 2,
+    meal: rows.some(r => RE_MEAL.test(r.title)),
+    bath: rows.some(r => RE_BATHY.test(r.title))
+  };
+  const fill = DAY_FILL.filter(f => !f.need || kinds[f.need])
+    .map(f => ({ title: f.title, min: f.min, w: f.w, why: f.why, drop: f.drop, key: f.key, mine: false }));
+
+  const room = to - from;
+  const mineMin = rows.reduce((a, r) => a + r.min, 0);
+  let picked = fill.slice(), dropped = [];
+  const total = () => mineMin + picked.reduce((a, f) => a + f.min, 0);
+  // 入りきらないぶんは、決めた順に提案から落とす（本人が言ったものには触らない）
+  while (total() > room && picked.length) {
+    picked.sort((a, b) => b.drop - a.drop);
+    dropped.push(picked.shift().title);
+  }
+  const short = Math.max(0, mineMin - room);          // 本人のぶんだけで溢れている量
+  // 余りは「自由・予備時間」に足す。無ければ最後の提案を延ばす
+  let left = room - total();
+  if (left > 0 && picked.length) {
+    const sp = picked.find(f => f.key === "spare") || picked[picked.length - 1];
+    sp.min += left; left = 0;
+  }
+  const all = rows.concat(picked).sort((a, b) => a.w - b.w);
+  let at = from;
+  for (const r of all) { r.s = at; r.e = at + r.min; at += r.min; }
+  return { rows: all, dropped, short, left, win: req.win };
+}
+
+/* 習慣の提案。**予定表に本当に入っているものからしか作らない**（言っていないことを勧めない）。 */
+/* 直前に出した習慣の提案。ボタンの `data-id` はこの並びの番号。
+   `act` に渡るのは `data-id` だけなので、文そのものは渡さずここから引く。 */
+let LAST_HABITS = [];
+function suggestHabits(plan) {
+  const has = k => plan.rows.some(r => r.title.indexOf(k) === 0 || r.title === k);
+  const focus = plan.rows.find(r => RE_FOCUS.test(r.title));
+  const bed = plan.rows.find(r => r.title === "就寝準備");
+  const out = [];
+  if (focus) out.push(`${focus.title.replace(/[①②③④⑤⑥⑦⑧]/, "")}の前に「${durJa(focus.min)}で何を終えるか」を決める。`);
+  if (has("身支度・明日の準備")) out.push("明日の服・持ち物・最初にやることを、夜のうちに用意する。");
+  if (bed) out.push(`予定が遅れても、${hhmm(bed.e)}の就寝は後ろにずらさない。「大事な用事」を短くして調整する。`);
+  if (has("片付け・軽い運動")) out.push("食べたあとは座り続けず、20分だけ動く（片付け・散歩・ストレッチ）。");
+  if (has("振り返り・明日の計画")) out.push("一日の終わりに、できたこと1つと明日の最優先1つだけ書く。");
+  return out.slice(0, 4);
+}
+
+/* =======================================================================
    計画づくり（固定予定と移動可能な作業枠を分ける）
    ======================================================================= */
 function liveItems() { return state.items.filter(i => i.status !== "dropped"); }
@@ -2165,6 +2317,9 @@ function nextAction(plan, nowOverride) {
 /* どこから来た情報かを、必ず見えるようにする。
    「本人が決めたこと」と「読み取ったままのこと」を混ぜないための唯一の手掛かり。 */
 function srcChip(it) {
+  /* **アプリが提案して入れたものは、そう言う**（v6.5）。本人が言ったものと混ぜない。
+     訂正すれば「本人が訂正」に変わる——そのときはもう提案ではない。 */
+  if (it.suggested && !it.corrected && it.origin !== "user") return `<span class="chip src-ai">アプリの提案</span>`;
   if (it.corrected || it.origin === "user") return `<span class="chip src-user">本人が訂正</span>`;
   if (it.confirmed) return `<span class="chip src-user">確認済み</span>`;
   if (it.origin === "ai") return `<span class="chip src-ai">AIが読み取ったまま</span>`;
@@ -2550,8 +2705,17 @@ function turnHTML(t) {
     : show ? miniplanHTML(sn)
     : `<details class="allplan"><summary>この時点の予定案を見る（${sn.blocks.length}件）</summary><div style="margin-top:8px">${miniplanHTML(sn)}</div></details>`;
   const err = t.error ? `<div class="note warn">${esc(t.error)}</div>` : "";
+  /* 提案した習慣（v6.5）。**押すまでは保存しない**ので、ここはただの提案。
+     習慣の文そのものを `data-h` に持たせる——`act` には `data-id` しか渡らないが、
+     押された要素は渡るので、開き直しても押せる（番号で覚えると会話が増えたときにずれる）。 */
+  const habits = (t.habits || []).length
+    ? `<div class="changes"><span class="eyebrow">このような習慣はどうですか？</span>
+       ${t.habits.map(h => `<div class="revrow"><span>・${esc(h)}</span>
+         <button class="btn sm" data-act="habit" data-h="${esc(h)}" style="margin-left:auto">取り入れる</button></div>`).join("")}
+       ${t.habitDay ? `<div style="margin-top:8px"><button class="btn sm" data-act="clearsug" data-id="${esc(t.habitDay)}">提案した予定を全部消す</button></div>` : ""}
+      </div>` : "";
   return `<div class="turn ai"><div class="bub">${esc(t.text)}</div>
-    <div class="extra">${err}${nextLine}${changes}${plan}</div>
+    <div class="extra">${err}${nextLine}${changes}${habits}${plan}</div>
     <span class="stamp">${stamp} · ${t.ai ? "AIが読み取り" : "ルールで読み取り"}</span></div>`;
 }
 function renderChat(scroll) {
@@ -2972,6 +3136,36 @@ function note(it, what) { it.history = (it.history || []).concat({ at: new Date(
 
 async function act(a, id, el) {
   const tz = state.settings.timezone;
+  /* 提案した習慣を取り入れる（v6.5）。**押したときだけ保存する**——
+     提案しただけのものを本人の目標にしない（決まり2「推測を確定にしない」）。 */
+  if (a === "habit") {
+    const text = (el && el.dataset && el.dataset.h) || LAST_HABITS[+id];
+    if (!text) { toast("この提案はもう残っていません。もう一度組み立ててください"); return; }
+    const it = { id: uid(), noteId: null, kind: "goal", title: text,
+      evidence: { text: "（アプリの提案を取り入れた）" }, origin: "user",
+      confirmed: true, corrected: false, status: "open",
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      history: [{ at: new Date().toISOString(), by: "user", what: "提案された習慣を取り入れた" }] };
+    it.dedupeKey = dedupeKey(it);
+    if (state.items.some(x => x.dedupeKey === it.dedupeKey)) { toast("もう入っています"); return; }
+    await putItem(it); renderAll(); toast("習慣として「わたしのこと」に入れました");
+    return;
+  }
+  /* **提案した予定は、1手で全部消せること**（v6.5）。こちらが足したものなので、
+     1件ずつ消させない。本人が言ったものには触らない。 */
+  if (a === "clearsug") {
+    const hit = state.items.filter(i => i.suggested && i.dayKey === id && i.status === "open");
+    if (!hit.length) { toast("消す提案がありません"); return; }
+    const yes = await askConfirm({ title: "提案した予定を消しますか？",
+      body: `アプリが提案して入れた <strong>${hit.length}件</strong>を消します。<br>あなたが言った予定は残します。`,
+      yes: `${hit.length}件を消す`, danger: true });
+    if (!yes) return;
+    for (const i of hit) { i.status = "dropped"; i.updatedAt = new Date().toISOString();
+      i.history = (i.history || []).concat({ at: i.updatedAt, by: "user", what: "提案をまとめて取り消した" });
+      await putItem(i); }
+    renderAll(); toast(`提案した${hit.length}件を消しました`);
+    return;
+  }
   if (a === "addmanual") {
     const t = $("#mT").value.trim(); if (!t) return;
     const kind = $("#mK").value, d = $("#mD").value, h = $("#mH").value || "09:00", e = +$("#mE").value || 60;
@@ -3286,6 +3480,11 @@ function matchOpenTask(text) {
 
 function ruleOps(note) {
   const ops = [], text = halfWidth(note.text), raw = note.text, q = raw.slice(0, 60);
+  /* **「組み立てて」は用事でも目標でもない**（v6.5）。ふつうの読み取りへ流すと、
+     依頼文が `goal` として保存され、活動は「その間にお風呂とご飯それぞれずつ使う」の
+     ような1件のゴミ見出しになる（実測）。専用の道で受ける。 */
+  const dayReq = parseDayRequest(note, state.settings.timezone);
+  if (dayReq) return [{ op: "buildday", req: dayReq, quote: q }];
   // 「明日の打ち合わせ、14時にして」は言い直し。ルールでは対象を決められないが、
   // だからといって新しい予定を作ってはいけない（同じ用事が二重になる）。
   const restating = looksRestating(text);
@@ -3372,12 +3571,50 @@ function ruleOps(note) {
 
 async function applyOps(rawOps, note) {
   const tz = state.settings.timezone, changes = [], asks = [], days = [], kinds = [];
+  let habits = [], habitDay = null;                 // 提案した習慣と、提案した日（決まり8：文はコードが作る）
   // 用事が1件だけのときに限り、ルールが読んだ日時をAIの項目へ足してよい（v5.5）
   const soleAdd = (Array.isArray(rawOps) ? rawOps : []).filter(o => o && o.op === "add").length === 1;
   const touch = k => { if (k && days.indexOf(k) < 0) days.push(k); };
   for (const o of (Array.isArray(rawOps) ? rawOps : [])) {
     if (!o || typeof o !== "object") continue;
     if (o.op === "_ambiguous_done") { asks.push("どれが終わったのか特定できませんでした。「スケジュール」タブの項目から「完了」を押してください。"); continue; }
+    /* 1日を組み立てる（v6.5）。**言われたものを言われた長さで置き、空いた所に提案を足す。**
+     提案は `suggested:true` を立てる——こちらが決めたものと本人が言ったものを混ぜない（決まり2）。 */
+    if (o.op === "buildday") {
+      const req = o.req, plan = buildDayPlan(req, state.settings);
+      const [ky, km, kd] = req.dayKey.split("-").map(Number);
+      const made = [], dupes = [];
+      for (const r of plan.rows) {
+        const at = new Date(zoned(ky, km, kd, 0, 0, tz).getTime() + r.s * 60000);
+        const it = {
+          id: uid(), noteId: note ? note.id : null, kind: "task", title: r.title,
+          evidence: { text: (o.quote || req.wants.map(w => w.title).join("・")), start: 0, end: 0 },
+          origin: "rule", confirmed: false, corrected: false, status: "open",
+          dayKey: req.dayKey, duePrecision: "exact", due: at.toISOString(),
+          estimateMin: r.min, suggested: !r.mine, suggestWhy: r.why || null,
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+          history: [{ at: new Date().toISOString(), by: r.mine ? "rule" : "app",
+            what: r.mine ? "組み立ての依頼から作った" : "アプリが提案して入れた" }]
+        };
+        it.dedupeKey = dedupeKey(it);
+        // **黙って捨てない**（決まり5）。既にあるものは足さず、何とぶつかったかを言う
+        if (state.items.some(x => x.dedupeKey === it.dedupeKey)) { dupes.push(it.title); continue; }
+        made.push(it);
+      }
+      for (const it of made) await putItem(it);
+      days.push(req.dayKey); kinds.push("task");
+      const mineN = made.filter(i => !i.suggested).length, sugN = made.filter(i => i.suggested).length;
+      changes.push(`${hhmm(req.win[0])}〜${hhmm(req.win[1])}で1日を組み立てました（言われた${mineN}件＋提案${sugN}件）`);
+      if (dupes.length) asks.push(`${dupes.join("・")}は、もう同じものが入っていたので足していません。`);
+      if (plan.dropped.length) asks.push(`時間が足りないので、提案のうち${plan.dropped.join("・")}は入れませんでした。`);
+      if (plan.short > 0) asks.push(`言われたぶんだけで${durJa(plan.short)}はみ出しています。どれかを短くするか、時間帯を広げてください。`);
+      /* **習慣は `asks` に入れない**（v6.5・作った直後に気づいた）。
+         `asks` は返事の文に混ぜて `esc()` されるので、**ボタンが文字列として出る**。
+         「変えたこと」と同じ場所（`.extra`）に、独立した欄として返す。 */
+      LAST_HABITS = suggestHabits(plan);
+      habits = LAST_HABITS.slice(); habitDay = req.dayKey;
+      continue;
+    }
     if (o.op === "_needs_ai") {
       asks.push(SAMPLEFN
         ? "言い直しのようですが、うまく読み取れませんでした。「スケジュール」タブの「所要時間を直す」から直してください。"
@@ -3570,7 +3807,7 @@ async function applyOps(rawOps, note) {
     }
     kinds.push(o.op);
   }
-  return { changes, asks: [...new Set(asks)], days, kinds };
+  return { changes, asks: [...new Set(asks)], days, kinds, habits, habitDay };
 }
 
 /* AIが日付を付けてきたとき、その発言に**日付の言葉**が本当にあったかを確かめる。
@@ -3896,6 +4133,10 @@ estimateMin は 30 のように返してください（開始時刻を決めな�
 「30分勉強する」ではなく「勉強する」、「勉強しようかな」ではなく「勉強する」。
 **日付の言葉（今日・明日・◯日・曜日など）が無いときは、dueDate を null にしてください。**
 時刻だけ言われたものは、**話したその日**のことです。勝手に「明日」にしないこと。
+**「1日を組み立てて」「スケジュールを作って」「他に入れる予定を提案して」と頼まれたときは、
+ops を返さないでください。**組み立てはコードが行い、時刻も並びもコードが決めます
+（決まり8）。あなたは「組み立てました」の一言だけ書いてください。
+**時刻・枠の数・習慣の中身を文章に書かないこと。**画面に出る予定表と食い違います。
 【作業に使える時間帯】${hhmm(cx.winS)}〜${hhmm(cx.winE)}
 【いまの予定案】${cx.plan}
 【本人が前に言った「こうしてほしい」】${cx.pf.length ? cx.pf.join(" / ") : "（まだありません）"}
@@ -4114,6 +4355,15 @@ async function sendTurn(text) {
     const ro = ruleOps(note).filter(o => o.op !== "_needs_ai");
     if (ro.length) { ops = ro; usedAI = false; }
   }
+  /* **1日の組み立ては、AIがオンでもコードがやる**（v6.5）。
+     決まり8「時刻と予定表はコードが作る」の一番大事な場面がここ。
+     決まり7 の戻りは「AIが空を返したとき」だけなので、**AIが何か返した瞬間に
+     組み立てが丸ごと消える**（作った直後に気づいた。AIオンの実機では動かなかった）。
+     依頼文はプロンプトでも禁じてあるが、**禁じただけで守られたと思わない**（決まり9）。 */
+  if (parseDayRequest(note, tz)) {
+    const ro = ruleOps(note).filter(o => o.op === "buildday");
+    if (ro.length) ops = ro;
+  }
   const quickText = quick ? await quick : "";
 
   // 5. 適用してから、予定を計算し直す
@@ -4174,6 +4424,7 @@ async function sendTurn(text) {
   await pushTurn({
     id: uid(), role: "assistant", text: reply, at: new Date().toISOString(),
     changes, plan: sn, ai: usedAI, error: err,
+    habits: applied.habits || [], habitDay: applied.habitDay || null,
     showTable: shouldShowTable(ctx)     // 毎回は出さない
   });
   renderChat(true); renderDay(); renderMe(); renderNotes(); renderSettings();

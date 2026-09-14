@@ -650,6 +650,41 @@
         throw new Error("保存先に残っていない: " + (got.exists ? got.data().workEnd : "無し"));
       if (!$$("#windowWarn").hidden) throw new Error("戻したのに知らせが残る");
     });
+    /* 1日の組み立て（v6.5）。**AIがオンの本番と同じ条件**で、
+       発言 → 13枠が予定表に入る → 習慣を取り入れる → 提案だけ全部消す、まで実際に押す。 */
+    await step("「1日を組み立てて」で、予定表に入る（AIオンのまま）", async () => {
+      await putSettings(Object.assign({}, state.settings, { workStart: "00:00", workEnd: "23:59" }));
+      await click('nav.tabs [data-tab="p-chat"]');
+      type("#say", "6時から11時半までの間で勉強を30分かける2回。その間にお風呂とご飯それぞれ30分ずつ使う。"
+        + "他に入れる予定ややった方がいい習慣などを提案してスケジュールを組み立てて。");
+      await click("#btnSend");
+      if (!await waitFor(() => state.items.filter(i => i.suggested).length >= 8, 8000))
+        throw new Error("提案が入らない（AIオンだとコードの組み立てが消えている）："
+          + state.items.length + "件 / 提案" + state.items.filter(i => i.suggested).length + "件");
+      if (state.items.filter(i => !i.suggested && i.kind === "task").length < 4)
+        throw new Error("本人が言った4件が入っていない");
+      if (!/このような習慣はどうですか/.test($$("#chatOut").textContent))
+        throw new Error("習慣を提案していない");
+    });
+    await step("提案された習慣を「取り入れる」で押せる", async () => {
+      const b = document.querySelector('#chatOut [data-act="habit"]');
+      if (!b) throw new Error("「取り入れる」が無い");
+      const before = state.items.filter(i => i.kind === "goal").length;
+      await click(b);
+      if (state.items.filter(i => i.kind === "goal").length !== before + 1)
+        throw new Error("押しても目標にならない");
+    });
+    await step("「提案した予定を全部消す」で、提案だけ消える", async () => {
+      const b = document.querySelector('#chatOut [data-act="clearsug"]');
+      if (!b) throw new Error("まとめて消す道が無い");
+      const mine = state.items.filter(i => !i.suggested && i.kind === "task").length;
+      const pr = act("clearsug", b.dataset.id);
+      if (!await waitFor(() => has("#cfYes"), 3000)) throw new Error("確認シートが出ない");
+      await click("#cfYes"); await pr; await wait(200);
+      if (state.items.some(i => i.suggested && i.status === "open")) throw new Error("提案が残っている");
+      if (state.items.filter(i => !i.suggested && i.kind === "task" && i.status === "open").length !== mine)
+        throw new Error("本人が言った予定まで消した");
+    });
     await step("空の状態から、また話しかけられる", async () => {
       type("#say", "明日の11時に打ち合わせ。");
       await click("#btnSend"); await wait(400);

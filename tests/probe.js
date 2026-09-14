@@ -2044,6 +2044,94 @@
       state.settings = Object.assign({}, state.settings, { workStart: keepW[0], workEnd: keepW[1] });
     }
 
+    /* ===== AX. 1日を組み立てる（v6.5・本人の指示） =====
+       「6時から11時半までの間で勉強を30分かける2回。その間にお風呂とご飯それぞれ30分ずつ使う。
+        他に入れる予定ややった方がいい習慣などを提案してスケジュールを組み立てて。」
+       これで **13枠の予定表が実際に入り、習慣が提案される**ところまでを固定する。 */
+    {
+      const LINE = "生産性の高い1日を過ごすのが目的。6時から11時半までの間で勉強を30分かける2回。"
+        + "その間にお風呂とご飯それぞれ30分ずつ使う。他に入れる予定ややった方がいい習慣などを提案してスケジュールを組み立てて。";
+      reset();
+      const keepW = [state.settings.workStart, state.settings.workEnd];
+      state.settings = Object.assign({}, state.settings, { workStart: "00:00", workEnd: "23:59" });
+      const at = zoned(2026, 9, 12, 17, 0, TZ).toISOString();
+      const note = { id: uid(), text: normNote(LINE), hash: hash(LINE), capturedAt: at,
+        source: "talk", sourceName: null, createdAt: at };
+      await putNote(note);
+
+      const req = parseDayRequest(note, TZ);
+      ok("AX. 組み立ての依頼だと分かる", !!req, req ? "ok" : "拾えていない");
+      ok("AX. 時間帯を 18:00〜23:30 と読む", !!req && req.win[0] === 18 * 60 && req.win[1] === 23 * 60 + 30,
+         req && hhmm(req.win[0]) + "-" + hhmm(req.win[1]));
+      /* **「生産性の高い1日」の「1日」を日付にしない**（作りながら出た）。
+         全文を parseWhen に渡すと 10月1日として拾い、日付も午前/午後もまるごと狂った。 */
+      ok("AX. 「1日」を日付として拾わない", !!req && req.dayKey === KEY, req && req.dayKey);
+      ok("AX. 「30分かける2回」を 30分×2 と読む",
+         !!req && req.wants.some(w => w.title === "勉強" && w.min === 30 && w.count === 2),
+         req && JSON.stringify(req.wants));
+      ok("AX. 「お風呂とご飯それぞれ30分ずつ」を2件に分ける",
+         !!req && req.wants.some(w => w.title === "お風呂" && w.min === 30)
+               && req.wants.some(w => w.title === "ご飯" && w.min === 30),
+         req && req.wants.map(w => w.title).join(","));
+      ok("AX. 見出しに助詞を残さない（「勉強を」にしない）",
+         !!req && !req.wants.some(w => /[をにへでがはもの]$/.test(w.title)),
+         req && req.wants.map(w => w.title).join(","));
+
+      const ops = ruleOps(note);
+      ok("AX. 依頼文を目標として保存しない",
+         ops.length === 1 && ops[0].op === "buildday", ops.map(o => o.op).join(","));
+      const res = await applyOps(ops, note);
+
+      const mine = state.items.filter(i => !i.suggested && i.kind === "task");
+      const sug = state.items.filter(i => i.suggested);
+      ok("AX. 言われた4件が入る", mine.length === 4, mine.map(i => i.title).join(","));
+      ok("AX. 提案が足される", sug.length >= 8, sug.length + "件");
+      ok("AX. 提案には「アプリの提案」の印が付く",
+         sug.every(i => /アプリの提案/.test(srcChip(i))), srcChip(sug[0] || {}));
+
+      const pl = planFor(KEY, { nowMin: 17 * 60 });
+      const rows = pl.blocks.filter(b => b.item && b.item.dayKey === KEY)
+        .map(b => hhmm(b.s) + "〜" + hhmm(b.e) + " " + b.item.title);
+      ok("AX. 13枠が予定表に入る", rows.length === 13, rows.length + "枠");
+      ok("AX. 18:00 から始まる", rows[0] === "18:00〜18:10 切り替え・準備", rows[0]);
+      ok("AX. 23:30 に就寝準備で終わる", rows[rows.length - 1] === "23:00〜23:30 就寝準備", rows[rows.length - 1]);
+      ok("AX. 勉強①②が 18:10 と 19:30 に入る",
+         rows.includes("18:10〜18:40 勉強①") && rows.includes("19:30〜20:00 勉強②"), rows.join(" / "));
+      ok("AX. ご飯は前半、お風呂は身支度の前",
+         rows.indexOf("18:40〜19:10 ご飯") >= 0 && rows.indexOf("21:00〜21:30 お風呂") >= 0, rows.join(" / "));
+      ok("AX. 置けなかったものが出ない", pl.unplaced.length === 0,
+         pl.unplaced.map(u => u.item.title + "→" + u.reason).join(" / "));
+
+      /* 習慣は `asks` ではなく専用の欄で返す（`asks` は返事の文に混ぜて esc されるため、
+         ボタンが文字列として出てしまう。画面に本当に出るかは walkthrough が押して確かめる）。 */
+      ok("AX. 習慣を、返事の文とは別に返す", res.habits.length >= 3, res.habits.length + "件");
+      ok("AX. 勉強前に決める習慣を出す",
+         LAST_HABITS.some(h => /何を終えるか/.test(h)), LAST_HABITS.join(" / "));
+      ok("AX. 就寝をずらさない習慣を、実際の時刻で出す",
+         LAST_HABITS.some(h => /23:30の就寝は後ろにずらさない/.test(h)), LAST_HABITS.join(" / "));
+      ok("AX. まとめて消すための日を返す", res.habitDay === KEY, String(res.habitDay));
+
+      // 押して取り入れるまで、習慣は保存しない（決まり2）
+      const before = state.items.filter(i => i.kind === "goal").length;
+      ok("AX. 提案しただけでは目標にしない", before === 0, before + "件");
+      await act("habit", "0");
+      ok("AX. 「取り入れる」で目標になる",
+         state.items.filter(i => i.kind === "goal" && i.origin === "user").length === 1,
+         state.items.filter(i => i.kind === "goal").map(i => i.title).join(","));
+
+      // 同じことをもう一度言っても、二重にならない（決まり5）
+      const n2 = { id: uid(), text: normNote(LINE), hash: hash(LINE + "2"), capturedAt: at,
+        source: "talk", sourceName: null, createdAt: at };
+      await putNote(n2);
+      const cnt = state.items.length;
+      const res2 = await applyOps(ruleOps(n2), n2);
+      ok("AX. もう一度言っても予定は増えない", state.items.length === cnt, cnt + "→" + state.items.length);
+      ok("AX. 増えなかったことを黙らない", res2.asks.some(x => /足していません/.test(x)),
+         res2.asks.join(" / ").replace(/<[^>]+>/g, ""));
+
+      state.settings = Object.assign({}, state.settings, { workStart: keepW[0], workEnd: keepW[1] });
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;
