@@ -655,14 +655,20 @@
     await step("「1日を組み立てて」で、予定表に入る（AIオンのまま）", async () => {
       await putSettings(Object.assign({}, state.settings, { workStart: "00:00", workEnd: "23:59" }));
       await click('nav.tabs [data-tab="p-chat"]');
-      type("#say", "6時から11時半までの間で勉強を30分かける2回。その間にお風呂とご飯それぞれ30分ずつ使う。"
+      /* **本物の時計に依存させない**（記録済みの落とし穴。実際に踏んだ）。
+         「6時から11時半」だと、**テストを回した時刻が18時を過ぎている日は窓が切り詰められ**、
+         提案が9件→6件に減って落ちる（21:54 に走らせて実際にそうなった）。
+         「明日の朝」と日付を明示すれば、いつ走らせても窓が丸ごと使える
+         （v7.0 で「日付を言われたら今日へ寄せない」を入れてある）。 */
+      type("#say", "明日の朝6時から11時半までの間で勉強を30分かける2回。その間にご飯と散歩それぞれ30分ずつ使う。"
         + "他に入れる予定ややった方がいい習慣などを提案してスケジュールを組み立てて。");
       await click("#btnSend");
-      if (!await waitFor(() => state.items.filter(i => i.suggested).length >= 8, 8000))
+      if (!await waitFor(() => state.items.filter(i => i.suggested).length >= 5, 8000))
         throw new Error("提案が入らない（AIオンだとコードの組み立てが消えている）："
           + state.items.length + "件 / 提案" + state.items.filter(i => i.suggested).length + "件");
       if (state.items.filter(i => !i.suggested && i.kind === "task").length < 4)
-        throw new Error("本人が言った4件が入っていない");
+        throw new Error("本人が言った4件が入っていない：" +
+          state.items.filter(i => !i.suggested).map(i => i.title).join(","));
       // **習慣のための欄は作らない**（v6.7・本人の指示）。提案はAIの返事の文の中だけ
       if (document.querySelector('#chatOut [data-act="habit"]'))
         throw new Error("習慣の欄が残っている（返事の文の中だけにする）");

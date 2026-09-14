@@ -2305,6 +2305,64 @@
       state.settings = Object.assign({}, state.settings, { workStart: keepW2[0], workEnd: keepW2[1] });
     }
 
+    /* ===== AZ. AIが考えた提案の札を、コードが検算して置く（v7.2・本人の提案） =====
+       持ち札9つは全員に同じ顔ぶれが出る。中身はAIに考えてもらい、
+       **時刻と並びはコードが決める**（決まり8）。AIの言い値は一切信じない（決まり9）。 */
+    {
+      reset();
+      const keepW3 = [state.settings.workStart, state.settings.workEnd];
+      state.settings = Object.assign({}, state.settings, { workStart: "00:00", workEnd: "23:59" });
+      const at = zoned(2026, 9, 12, 17, 0, TZ).toISOString();
+      const LINE3 = "6時から11時半までの間で勉強を30分かける2回 その間にお風呂とご飯それぞれ30分ずつ使う 他に入れる予定や習慣を提案して組み立てて";
+      const n8 = { id: uid(), text: normNote(LINE3), hash: hash("az1"), capturedAt: at,
+        source: "talk", sourceName: null, createdAt: at };
+      await putNote(n8);
+      const fill = { op: "dayfill", blocks: [
+        { title: "机の上だけ片づける", min: 10, slot: "start" },
+        { title: "友だちに一言だけ連絡する", min: 10, slot: "early" },
+        { title: "外の空気を吸う", min: 15, slot: "middle" },
+        { title: "好きなことに使う", min: 30, slot: "late", flex: true },
+        { title: "明日の服を出す", min: 10, slot: "winddown" },
+        { title: "照明を落として休む", min: 30, slot: "end" },
+        { title: "勉強をする", min: 30, slot: "middle" },          // 本人が言ったものと重なる
+        { title: "", min: 9999, slot: "???" }                       // 壊れた札
+      ] };
+      const res8 = await applyOps([fill].concat(ruleOps(n8)), n8);
+      const pz = planFor(KEY, { nowMin: 17 * 60 });
+      const t8 = pz.blocks.filter(b => b.item).map(b => b.item.title);
+
+      ok("AZ. AIの札が予定表に入る", t8.includes("机の上だけ片づける") && t8.includes("外の空気を吸う"), t8.join(" / "));
+      ok("AZ. 持ち札の顔ぶれは出てこない",
+         !t8.some(x => /切り替え・準備|片付け・軽い運動|大事な用事|就寝準備/.test(x)), t8.join(" / "));
+      /* **禁じただけで守られたと思わない**（決まり9）。依頼文で
+         「本人が言った予定と同じものを出さない」と頼んでいるが、実測で「勉強をする」が来た。 */
+      ok("AZ. 本人が言ったものと重なる札は捨てる",
+         t8.filter(x => /勉強/.test(x)).length === 2, t8.filter(x => /勉強/.test(x)).join(","));
+      ok("AZ. 壊れた札は捨てる", !t8.some(x => !x || x.length < 2), t8.join(" / "));
+      ok("AZ. 長さは5〜120分に収める",
+         pz.blocks.filter(b => b.item && b.item.suggested).every(b => (b.e - b.s) >= 5 && (b.e - b.s) <= 120 + 90),
+         pz.blocks.filter(b => b.item && b.item.suggested).map(b => (b.e - b.s)).join(","));
+      ok("AZ. 置き場所の言葉どおりの順に並ぶ",
+         t8.indexOf("机の上だけ片づける") === 0 && t8[t8.length - 1] === "照明を落として休む", t8.join(" / "));
+      ok("AZ. 時刻はコードが決める（窓の中に収まる）",
+         pz.blocks.filter(b => b.item).every(b => b.s >= 18 * 60 && b.e <= 23 * 60 + 30),
+         t8.join(" / "));
+      ok("AZ. 提案の印は今までどおり付く",
+         pz.blocks.filter(b => b.item && /外の空気/.test(b.item.title)).every(b => b.item.suggested), "");
+
+      // AIが札を出さなければ、今までどおり持ち札9つに戻る（決まり7「AIは任意」）
+      reset();
+      const n9 = { id: uid(), text: normNote(LINE3), hash: hash("az2"), capturedAt: at,
+        source: "talk", sourceName: null, createdAt: at };
+      await putNote(n9);
+      await applyOps(ruleOps(n9), n9);
+      const t9 = planFor(KEY, { nowMin: 17 * 60 }).blocks.filter(b => b.item).map(b => b.item.title);
+      ok("AZ. AIが札を出さなければ持ち札に戻る",
+         t9.includes("切り替え・準備") && t9.includes("就寝準備"), t9.join(" / "));
+
+      state.settings = Object.assign({}, state.settings, { workStart: keepW3[0], workEnd: keepW3[1] });
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;

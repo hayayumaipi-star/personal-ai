@@ -1836,6 +1836,18 @@ const SUGGEST_WORDS = [
   [/(振り返り|ふりかえり|今日の計画)/, "review"], [/(リラックス|くつろ)/, "relax"],
   [/(就寝|寝る準備|寝支度)/, "bed"]
 ];
+/* AIが返してよい「置き場所」の言葉と、その重み（v7.2・本人の提案）。
+   **AIに時刻は返させない**（決まり8）。返すのは「だいたいどのあたりか」だけで、
+   実際の時刻と並びはコードが決める。ここに無い言葉は真ん中として扱う。
+   `drop` は入りきらないときに先に落ちる順（大きいほど先に落ちる）。 */
+const FILL_SLOTS = {
+  start:   { w: 5,  drop: 5 },   // 始める前の切り替え
+  early:   { w: 25, drop: 6 },   // 前半
+  middle:  { w: 45, drop: 8 },   // 真ん中
+  late:    { w: 62, drop: 7 },   // 後半
+  winddown:{ w: 76, drop: 3 },   // 終わりに向けて
+  end:     { w: 92, drop: 1 }    // いちばん最後
+};
 const RE_NO_SUGGEST = /(要らな|いらな|入れないで|提案しないで|提案しなくて|なくていい|無くていい|不要|やめて)/;
 const RE_YES_SUGGEST = /(も提案して|また提案して|入れていい|入れて欲しい|入れてほしい|戻して)/;
 function suggestKeyIn(sentence) {
@@ -2004,7 +2016,7 @@ function parseDayRequest(note, tz) {
 
 /* 並べる。**入りきらなければ提案から落とす**（本人が言ったものは落とさない）。
    余った時間は「自由・予備時間」に足す——余りを黙って消さない。 */
-function buildDayPlan(req, st) {
+function buildDayPlan(req, st, aiFill) {
   const [from, to] = req.win;
   const rows = [];
   const seen = {};
@@ -2032,11 +2044,25 @@ function buildDayPlan(req, st) {
   const isNight = to >= 21 * 60;
   // 「◯◯は提案しないで」と言われた札は出さない（v7.1）
   const off = prefs(req.dayKey).noSuggest;
-  const fill = DAY_FILL.filter(f => (!f.need || kinds[f.need]) && (!f.night || isNight) && !off.includes(f.key))
-    // 朝の「計画」は**始めに**置く。夜の「振り返り」と同じ重みだと終わりに来る（実測）
-    .map(f => ({ title: (!isNight && f.dayTitle) ? f.dayTitle : f.title, min: f.min,
-      w: (!isNight && f.dayW != null) ? f.dayW : f.w,
-      why: (!isNight && f.dayWhy) ? f.dayWhy : f.why, drop: f.drop, key: f.key, mine: false }));
+  /* **AIが考えた札があれば、そちらを使う**（v7.2・本人の提案）。
+     持ち札9つは全員に同じ顔ぶれが出るので、毎回同じ予定表になる。
+     AIはその人の話（わたしのこと・開いている用事）を見ているので、中身を任せる。
+     **ただし時刻と並びはコードが決める**（決まり8）。AIから受け取るのは
+     「名前・長さ・だいたいどのあたり」だけで、検算も全部こちらでやる（決まり9）。
+     AIがオフ・失敗・空のときは、今までどおり `DAY_FILL` に戻る（決まり7「AIは任意」）。 */
+  const wordsOff = off.flatMap(k => SUGGEST_WORDS.filter(([, kk]) => kk === k).map(([re]) => re));
+  /* **本人が言ったものと重なる札は捨てる**（v7.2・作った直後に実測で出た）。
+     依頼文で「本人が言った予定と同じものを出さない」と頼んでいるが、
+     **禁じただけで守られたと思わない**（決まり9）。実際「勉強をする」が
+     本人の枠とは別に、もう1つ提案として入った。 */
+  const fill = (aiFill && aiFill.length)
+    ? aiFill.filter(f => !wordsOff.some(re => re.test(f.title))
+        && !rows.some(r => sameTopic(r.title, f.title)))
+    : DAY_FILL.filter(f => (!f.need || kinds[f.need]) && (!f.night || isNight) && !off.includes(f.key))
+      // 朝の「計画」は**始めに**置く。夜の「振り返り」と同じ重みだと終わりに来る（実測）
+      .map(f => ({ title: (!isNight && f.dayTitle) ? f.dayTitle : f.title, min: f.min,
+        w: (!isNight && f.dayW != null) ? f.dayW : f.w,
+        why: (!isNight && f.dayWhy) ? f.dayWhy : f.why, drop: f.drop, key: f.key, mine: false }));
 
   const room = to - from;
   const mineMin = rows.reduce((a, r) => a + r.min, 0);
@@ -2055,7 +2081,8 @@ function buildDayPlan(req, st) {
      黙って消したことにはならない。 */
   let left = room - total();
   if (left > 0 && picked.length) {
-    const sp = picked.find(f => f.key === "spare") || picked[picked.length - 1];
+    const sp = picked.find(f => f.key === "spare")
+      || picked.find(f => f.flex) || picked[picked.length - 1];
     const take = Math.max(0, Math.min(left, 90 - sp.min));
     sp.min += take; left -= take;
   }
@@ -2834,7 +2861,12 @@ function turnHTML(t) {
 }
 function renderChat(scroll) {
   if (!state.settings) return;
-  const tz = state.settings.timezone, key = view.day || dayKey(new Date(), tz);
+  /* **会話は「話した日」を見せる**（v7.3・組み立てを測って見つけた）。
+     `view.day` は「変更が落ちた日」へ動く（予定表をそこへ合わせるため・v4.3）。
+     ところが会話まで一緒に動くので、**明日のぶんを組み立てると
+     自分の発言も返事も「変えたこと」もボタンも画面から消えた**（実測）。
+     会話は `turns/{話した日}` に入るので、見る日も話した日のままにする。 */
+  const tz = state.settings.timezone, key = view.chatDay || view.day || dayKey(new Date(), tz);
   $("#chatDay").innerHTML = fmtDay(key, tz) + (key === dayKey(new Date(), tz) ? " · 今日" : "");
   const list = turnsFor(key), host = $("#chatOut");
   if (!list.length) {
@@ -3694,6 +3726,25 @@ function ruleOps(note) {
 async function applyOps(rawOps, note) {
   const tz = state.settings.timezone, changes = [], asks = [], days = [], kinds = [];
   let habitDay = null;                              // 組み立てた日（まとめて消す道に渡す）
+  /* AIが考えた「提案の札」。**先に全部読んでから組み立てる**——
+     ops の並び順に頼ると、AIが順番を変えただけで効かなくなる（決まり9）。 */
+  const aiFill = [];
+  for (const o of rawOps || []) {
+    if (!o || o.op !== "dayfill" || !Array.isArray(o.blocks)) continue;
+    for (const b of o.blocks) {
+      if (aiFill.length >= 9) break;                             // 多すぎる札は受け取らない
+      const t = cleanTitle(String((b && b.title) || "").trim(), null).slice(0, 20);
+      if (t.length < 2) continue;                                // 名前になっていないものは捨てる
+      if (aiFill.some(x => x.title === t)) continue;              // 同じ名前を2つ入れない
+      const slot = FILL_SLOTS[String((b && b.slot) || "").trim()] || FILL_SLOTS.middle;
+      aiFill.push({
+        title: t,
+        min: num(b && b.min, 5, 120) || 20,                       // 5〜120分に収める
+        w: slot.w, drop: slot.drop, flex: !!(b && b.flex),
+        why: String((b && b.why) || "").slice(0, 60), key: null, mine: false
+      });
+    }
+  }
   // 用事が1件だけのときに限り、ルールが読んだ日時をAIの項目へ足してよい（v5.5）
   const soleAdd = (Array.isArray(rawOps) ? rawOps : []).filter(o => o && o.op === "add").length === 1;
   const touch = k => { if (k && days.indexOf(k) < 0) days.push(k); };
@@ -3722,7 +3773,7 @@ async function applyOps(rawOps, note) {
       continue;
     }
     if (o.op === "buildday") {
-      const req = o.req, plan = buildDayPlan(req, state.settings);
+      const req = o.req, plan = buildDayPlan(req, state.settings, aiFill);
       const [ky, km, kd] = req.dayKey.split("-").map(Number);
       const made = [], dupes = [];
       for (const r of plan.rows) {
@@ -4295,8 +4346,26 @@ estimateMin は 30 のように返してください（開始時刻を決めな�
 **日付の言葉（今日・明日・◯日・曜日など）が無いときは、dueDate を null にしてください。**
 時刻だけ言われたものは、**話したその日**のことです。勝手に「明日」にしないこと。
 **「1日を組み立てて」「スケジュールを作って」「他に入れる予定を提案して」と頼まれたときは、
-ops を返さないでください。**組み立てはコードが行い、時刻も並びもコードが決めます（決まり8）。
+「add」や「update」を返さないでください。**組み立てはコードが行い、**時刻も並びもコードが決めます**（決まり8）。
 **時刻・枠の数を文章に書かないこと。**画面に出る予定表と食い違います。
+
+そのかわり、**「dayfill」 を1つだけ返してください。**その日に入れるとよさそうな
+「本人が言っていない予定」を、**その人に合わせて**考えるところです。
+{"op":"dayfill","blocks":[{"title":"名前","min":分,"slot":"start|early|middle|late|winddown|end","flex":true|false,"why":"一言"}]}
+- **4〜8個**。多すぎると一日が埋まります。
+- 「title」 は**短い言い切り**（20文字まで）。「ストレッチをする」「弁当の下ごしらえ」のように。
+- 「min」 は **5〜120**。**時刻は書かないでください**（どこに置くかはコードが決めます）。
+- 「slot」 は**だいたいどのあたりか**だけ：
+  「start」=始める前の切り替え／「early」=前半／「middle」=真ん中／「late」=後半／
+  「winddown」=終わりに向けて／「end」=いちばん最後。
+- 「flex」 は「時間が余ったら延ばしてよい枠」に **1つだけ** true。
+- **本人が言った予定と同じものを出さない**（勉強・お風呂・食事などを重ねない）。
+- **その人の話に合わせて、毎回変えてください。**「わたしのこと」「開いている用事」
+  「その日の体調」を見て、いまのこの人に効くものを選ぶ。同じ顔ぶれを繰り返さない。
+- **暮らしがよくなる方へ寄せる。**段取りや効率だけにしない。
+  よく眠れる／気持ちが軽くなる／体が楽になる／人とのつながり／自然に触れる／
+  好きなことの時間が残る、といったものを混ぜる。
+- 夜の時間帯なら、**最後は就寝に向かう枠**で締める。朝なら入れない。
 そのうえで、**返事の最後に「習慣の提案」を1つだけ**書いてください。
 - **1つだけ。** 2つ以上は書かない。箇条書きにしない。
 - 「〜のはどうですか？」のように、**やってみないかと誘う形**にする。
@@ -4535,7 +4604,12 @@ async function sendTurn(text) {
      依頼文はプロンプトでも禁じてあるが、**禁じただけで守られたと思わない**（決まり9）。 */
   if (parseDayRequest(note, tz)) {
     const ro = ruleOps(note).filter(o => o.op === "buildday");
-    if (ro.length) ops = ro;
+    /* **AIから受け取るのは `dayfill` だけ**（v7.2・本人の提案）。
+       提案の中身はAIに考えてもらうが、`add` や `update` は今までどおり捨てる——
+       時刻と並びはコードが決める（決まり8）。**通す道を1つに絞るのが肝心**で、
+       「AIのopsを全部残す」にすると組み立てが二重になる。 */
+    const fills = (ops || []).filter(o => o.op === "dayfill");
+    if (ro.length) ops = fills.concat(ro);
   }
   const quickText = quick ? await quick : "";
 
@@ -4564,6 +4638,7 @@ async function sendTurn(text) {
   /* 予定表は「変更が落ちた日」を見せる（v4.3）。
      今までは話しかけるたびに今日へ戻していたので、別の日を見ていても飛ばされていた。 */
   view.day = key;
+  view.chatDay = today;          // 会話は話した日のまま（上の renderChat の注記）
   const plan = planFor(key);
   const na = nextAction(plan, key === today ? undefined : -1);
   const sn = planSnapshot(plan, na);
@@ -4897,12 +4972,18 @@ $("#file").addEventListener("change", e => {
   r.readAsText(f, "utf-8");
   e.target.value = "";
 });
-$("#dPrev").addEventListener("click", () => { view.day = dayKey(new Date(keyToDate(view.day, state.settings.timezone).getTime() - 86400000), state.settings.timezone); renderDay(); });
-$("#dNext").addEventListener("click", () => { view.day = dayKey(new Date(keyToDate(view.day, state.settings.timezone).getTime() + 86400000), state.settings.timezone); renderDay(); });
-$("#dToday").addEventListener("click", () => { view.day = dayKey(new Date(), state.settings.timezone); renderDay(); });
+/* 日付バーで動かしたときは、**会話も一緒に動く**（前の日の会話を読むため）。
+   自動で動くのは予定表だけ、という切り分け（v7.3）。
+   **ここで会話まで描き直さないこと。** チャットは `showTab` が開いたときに描き直す決まりで、
+   ここでも描くと日付を動かすたびに会話ぜんぶを組み直すことになり、**目に見えて重くなる**
+   （walkthrough のファイル読み込みが 3回とも間に合わなくなった）。 */
+const goDay = k => { view.day = k; view.chatDay = k; renderDay(); };
+$("#dPrev").addEventListener("click", () => goDay(dayKey(new Date(keyToDate(view.day, state.settings.timezone).getTime() - 86400000), state.settings.timezone)));
+$("#dNext").addEventListener("click", () => goDay(dayKey(new Date(keyToDate(view.day, state.settings.timezone).getTime() + 86400000), state.settings.timezone)));
+$("#dToday").addEventListener("click", () => goDay(dayKey(new Date(), state.settings.timezone)));
 $("#dPick").addEventListener("change", () => {
   const v = $("#dPick").value;
-  if (isDate(v)) { view.day = v; renderDay(); }
+  if (isDate(v)) { view.day = v; view.chatDay = v; renderDay(); }
 });
 /* 設定は触ったその場で保存する（v3.9）。保存ボタンは置かない。
    押し忘れると、直したつもりの設定が効いていない状態になる。
@@ -4938,7 +5019,7 @@ async function saveSettingsNow() {
   if (s.timezone !== wasTz) {
     const n = await retimeItems(s.timezone);
     if (n) toast(`タイムゾーンにあわせて、${n}件の日付を引き直しました`);
-    view.day = dayKey(new Date(), s.timezone);
+    view.day = view.chatDay = dayKey(new Date(), s.timezone);
   }
   renderAll();
   $("#setMsg").textContent = "保存しました。";
@@ -5267,7 +5348,7 @@ function startClock() {
       // 今日を見ていた人だけ、新しい今日へ移す。前の日を見ている人の画面は動かさない。
       const wasOnToday = view.day === tickDay;
       tickDay = today;
-      if (wasOnToday) { view.day = today; renderAll(); toast("日付が変わりました。今日に切り替えました"); }
+      if (wasOnToday) { view.day = today; view.chatDay = today; renderAll(); toast("日付が変わりました。今日に切り替えました"); }
       tickRunning = runningKey();
       return;
     }
