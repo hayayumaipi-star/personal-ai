@@ -1451,8 +1451,25 @@ async function mergeInto(keep, incoming, changes, tz) {
 
 function dedupeKey(it) {
   if (it.kind === "profile") return "profile|" + norm(it.title).slice(0, 40);
-  const d = it.kind === "event" ? (it.start || "").slice(0, 16) : (it.due || "").slice(0, 10);
+  /* **日付は「その人の日」で取る。ISO文字列を切らない**（v7.5・実機で報告）。
+     `(it.due || "").slice(0, 10)` は **UTCの日付**なので、日本時間の朝は前日になる。
+     同じ 9/15 でも **午前9時より前は "2026-09-14"、9時以降は "2026-09-15"** と割れ、
+     同じ日の同じ用事なのに別物として扱われた。実機では、組み立て直したときに
+     **「お風呂に入る」が 08:35 と 09:10 に二重に入った**（実測）。
+     決まり4「日付に触るときは必ず `zoned` / `parts` / `dayKey` を通す」そのもの。 */
+  const d = it.kind === "event"
+    ? (it.start || "").slice(0, 16)               // 予定は「その瞬間」で見るので、UTCのままでよい
+    : (it.dayKey || (validISO(it.due) ? dayKey(new Date(it.due), state.settings.timezone) : ""));
   return it.kind + "|" + norm(it.title).slice(0, 24) + "|" + d;
+}
+
+/* 保存済みの `dedupeKey` は、上の間違った式で作られている。
+   **読み込んだところで付け直す**——比べるのは手元の `state.items` なので、これで揃う。
+   保存先は書き換えない（`putItem` が次に書くときに正しい値になる）。
+   **読み込む場所は2つある**ので、必ずここを通すこと（決まり7e）。 */
+function rekey(list) {
+  for (const i of list) { try { i.dedupeKey = dedupeKey(i); } catch {} }
+  return list;
 }
 
 /* =======================================================================
@@ -1747,7 +1764,7 @@ async function boot() {
   state.settings = migrateWindow(safeSettings((cached && cached.settings) || {}));
   applyTheme(state.settings.theme);      // 端末の控えから、まず即座に当てる（ちらつかせない）
   state.notes = (cached && cached.notes) || [];
-  state.items = (cached && cached.items) || [];
+  state.items = rekey((cached && cached.items) || []);
   state.turns = (cached && cached.turns) || {};
   state.docs = (cached && cached.docs) || [];
   state.ready = true;
@@ -1778,7 +1795,7 @@ async function boot() {
     // 並びは、これまでどおり古い順に戻しておく（画面側がその前提で並べ替えている）。
     const byCreated = (a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
     state.notes = ns.docs.map(d => thaw(d.data())).sort(byCreated);
-    state.items = is.docs.map(d => thaw(d.data())).sort(byCreated);
+    state.items = rekey(is.docs.map(d => thaw(d.data())).sort(byCreated));
     state.docs = ds.docs.map(d => thaw(d.data())).sort(byCreated);
     state.turns = {};
     for (const d of ts.docs) { const v = thaw(d.data()); if (v && Array.isArray(v.list)) state.turns[d.id] = v.list; }
@@ -2081,10 +2098,24 @@ function buildDayPlan(req, st, aiFill) {
      黙って消したことにはならない。 */
   let left = room - total();
   if (left > 0 && picked.length) {
-    const sp = picked.find(f => f.key === "spare")
-      || picked.find(f => f.flex) || picked[picked.length - 1];
-    const take = Math.max(0, Math.min(left, 90 - sp.min));
-    sp.min += take; left -= take;
+    /* **名前のついた活動を、こちらの都合で長くしない**（v7.5・実機で報告）。
+       前は「余りを最後の札に全部足す」だったので、AIが「20分」と言った
+       **「好きな音楽を聴く」が 1時間30分**になった（実測）。
+       本人は一度もそう言っていないし、AIもそうは言っていない（決まり2）。
+       伸ばしてよいのは：
+       ①「自由・予備時間」——**もともと中身が無い枠**なので、長さに意味がある
+       ② AIが「余ったら延ばしてよい」と言った枠を、**少しだけ**（+30分・合計60分まで）
+       残りは空きのままにする。`planFor` が空き時間として描くので、黙って消したことにならない。 */
+    const sp = picked.find(f => f.key === "spare");
+    const fl = picked.find(f => f.flex);
+    const fx = sp || fl || picked[picked.length - 1];
+    if (fx) {
+      // 中身の無い「予備」は90分まで／AIが「延ばしてよい」と言った枠は+30分・合計60分まで／
+      // それ以外は**端数をならすだけ**（+15分）。名前のついた活動を勝手に長くしない
+      const cap = sp ? 90 : fl ? Math.min(60, fx.min + 30) : fx.min + 15;
+      const take = Math.max(0, Math.min(left, cap - fx.min));
+      fx.min += take; left -= take;
+    }
   }
   const all = rows.concat(picked).sort((a, b) => a.w - b.w);
   let at = from;
@@ -3783,7 +3814,25 @@ async function applyOps(rawOps, note) {
           + "もう一度同じことを言うと、その人に合わせたものが出ることがあります。");
       }
       const [ky, km, kd] = req.dayKey.split("-").map(Number);
-      const made = [], dupes = [];
+      const made = [], dupes = [], moved = [];
+      /* **もう一度組み立てたら、その日を組み直す**（v7.5・実機で報告）。
+         前は「同じものがある」で**足さずに飛ばす**だけだったので、こうなった（実測）：
+         ① 本人が言ったぶん（勉強・ご飯・お風呂）が飛ばされて **「言われた0件」**
+         ② 並びは飛ばす前に決めてあるので、**飛ばした場所が穴になる**
+            （06:10〜06:15 のあと、次が 07:15。その1時間に何も無い）
+         ③ 前の組み立ての提案がそのまま残り、新しい提案と重なる
+         組み立て直しは「その時間帯をやり直す」ことなので、**前のぶんを片付けてから置く**。
+         触るのは**この時間帯にある・前の組み立てが作ったもの**だけ。
+         手で入れた予定や、別の時間帯のものには触らない（決まり2）。 */
+      const winOfDay = x => {
+        if (!validISO(x.due) || x.dayKey !== req.dayKey) return false;
+        const m = minOfDay(x.due, tz);
+        return m >= req.win[0] && m < req.win[1];
+      };
+      /* 前の組み立てが作ったものか。`built` は今回から付ける印で、
+         それ以前に作られたものは `history` の文言で見分ける（古い記録も組み直せるように）。 */
+      const fromBuild = x => !!(x.built || x.suggested
+        || (x.history || []).some(h => h && h.what === "組み立ての依頼から作った"));
       for (const r of plan.rows) {
         const at = new Date(zoned(ky, km, kd, 0, 0, tz).getTime() + r.s * 60000);
         // 食事は、置かれた枠の時刻で朝食／昼食／夕食を決め直す（決まり6i・v6.9）
@@ -3800,15 +3849,48 @@ async function applyOps(rawOps, note) {
             what: r.mine ? "組み立ての依頼から作った" : "アプリが提案して入れた" }]
         };
         it.dedupeKey = dedupeKey(it);
+        it.built = true;                      // 次に組み直すとき、動かしてよい印
+        /* 同じ時間帯に、前の組み立てが作った同じものがある＝**組み立て直し**。
+           足さずに飛ばすと穴が空くので、**その枠へ動かして使う**。 */
+        const same = state.items.find(x => x.dedupeKey === it.dedupeKey
+          && x.status === "open" && fromBuild(x) && winOfDay(x));
+        if (same) {
+          same.due = it.due; same.estimateMin = it.estimateMin;
+          same.duePrecision = "exact"; same.built = true;
+          same.updatedAt = new Date().toISOString();
+          same.history = (same.history || []).concat({ at: same.updatedAt, by: "app",
+            what: "組み立て直しで時間を動かした" });
+          await putItem(same);
+          moved.push({ id: same.id, title: same.title, mine: !same.suggested });
+          continue;
+        }
         // **黙って捨てない**（決まり5）。既にあるものは足さず、何とぶつかったかを言う
         if (state.items.some(x => x.dedupeKey === it.dedupeKey)) { dupes.push(it.title); continue; }
         made.push(it);
       }
       for (const it of made) await putItem(it);
+      /* 新しい並びに入らなかった**前の組み立ての提案**だけを外す。
+         **順番が肝心**：先に外すと、外したものが「取り消し済み」として重複判定に残り
+         （決まり5「完了・取り消し済みも含める」）、**同じ提案を足し直せなくなる**
+         ——直した直後に実測して、提案が0件になった。置き終えてから片付けること。 */
+      const keep = new Set(made.map(i => i.id).concat(moved.map(m => m.id)));
+      let cleared = 0;
+      for (const x of liveItems()) {
+        if (x.status !== "open" || !x.suggested || keep.has(x.id) || !winOfDay(x)) continue;
+        x.status = "dropped"; x.updatedAt = new Date().toISOString();
+        x.history = (x.history || []).concat({ at: x.updatedAt, by: "app",
+          what: "組み立て直したので外した" });
+        await putItem(x); cleared++;
+      }
       days.push(req.dayKey); kinds.push("task");
-      const mineN = made.filter(i => !i.suggested).length, sugN = made.filter(i => i.suggested).length;
+      const mineN = made.filter(i => !i.suggested).length + moved.filter(m => m.mine).length;
+      const sugN = made.filter(i => i.suggested).length + moved.filter(m => !m.mine).length;
       changes.push(`${hhmm(req.win[0])}〜${hhmm(req.win[1])}で1日を組み立てました（言われた${mineN}件＋提案${sugN}件）`);
       if (dupes.length) asks.push(`${dupes.join("・")}は、もう同じものが入っていたので足していません。`);
+      if (cleared || moved.length) asks.push("この時間帯は前にも組み立てていたので、組み直しました"
+        + `（${moved.length ? `${moved.length}件を置き直し` : ""}`
+        + `${moved.length && cleared ? "、" : ""}`
+        + `${cleared ? `前の提案${cleared}件を外しました` : ""}）。`);
       if (plan.dropped.length) asks.push(`時間が足りないので、提案のうち${plan.dropped.join("・")}は入れませんでした。`);
       if (plan.short > 0) asks.push(`言われたぶんだけで${durJa(plan.short)}はみ出しています。どれかを短くするか、時間帯を広げてください。`);      /* **寄せたなら、そう言う**（決まり4b「選んだだけで終わらせない」）。
          黙って今日へ寄せると、明日のつもりだった人には理由が分からない。 */

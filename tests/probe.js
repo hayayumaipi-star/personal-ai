@@ -2133,7 +2133,10 @@
       const cnt = state.items.length;
       const res2 = await applyOps(ruleOps(n2), n2);
       ok("AX. もう一度言っても予定は増えない", state.items.length === cnt, cnt + "→" + state.items.length);
-      ok("AX. 増えなかったことを黙らない", res2.asks.some(x => /足していません/.test(x)),
+      /* 文言は v7.5 で変わった。同じ時間帯をもう一度組み立てると、飛ばすのではなく
+         **組み直す**（穴が空かないように）。見張っているのは「黙らないこと」なので、
+         どちらの言い方でも通す。 */
+      ok("AX. 増えなかったことを黙らない", res2.asks.some(x => /足していません|組み直しました/.test(x)),
          res2.asks.join(" / ").replace(/<[^>]+>/g, ""));
 
       /* **話す時刻で答えが変わる**（v6.6・本人が「夕方6時」と確認したあとに実測）。
@@ -2399,6 +2402,79 @@
          !pe.includes("就寝・寝る前・夜の話を書かないでください"), "朝向けの禁止が出ている");
       ok("BA. もう始まっている範囲は、いまからの時刻で渡す",
          pe.includes("18:30〜23:30"), "頭が寄せられていない");
+
+
+    /* ===== BB群：同じ時間帯をもう一度組み立てる（v7.5・実機で報告） =====
+       前は「同じものがある」で足さずに飛ばすだけだったので、こうなった（実測）：
+       ①本人が言ったぶんが飛ばされて「言われた0件」 ②飛ばした場所が穴になる
+       ③前の組み立ての提案が残って重なる。組み立て直しは「その時間帯のやり直し」。 */
+    {
+      const keepW4 = [state.settings.workStart, state.settings.workEnd];
+      state.settings = Object.assign({}, state.settings, { workStart: "00:00", workEnd: "23:59" });
+      const before = state.items.slice();
+      state.items = [];
+      const DAY = "2026-09-15", AT = "2026-09-14T13:28:00Z";      // JST 22:28
+      const TXT = "6時から11時半までの間で勉強を30分かける2回。その間にお風呂とご飯それぞれ30分ずつ使う。他に入れる予定ややった方がいい習慣などを提案してスケジュールを組み立てて";
+      const build = async (fill) => {
+        const n = { id: uid(), text: normNote(TXT), hash: hash(TXT + Math.random()),
+          capturedAt: AT, source: "talk", sourceName: null, createdAt: AT };
+        await putNote(n);
+        const ro = ruleOps(n).filter(x => x.op === "buildday");
+        return await applyOps((fill ? [fill] : []).concat(ro), n);
+      };
+      const rows = () => planFor(DAY).blocks.filter(b => b.item)
+        .map(b => ({ s: b.s, e: b.e, t: b.item.title, sug: !!b.item.suggested }));
+      const FILL_A = { op: "dayfill", blocks: [
+        { title: "軽くストレッチをする", min: 10, slot: "start" },
+        { title: "窓を開けて外の空気を吸う", min: 5, slot: "early" },
+        { title: "好きな音楽を聴く", min: 20, slot: "middle", flex: true },
+        { title: "家族や友人にひとこと連絡する", min: 10, slot: "late" }] };
+
+      const r1 = await build(null);                     // 1回目：AIの札なし＝持ち札
+      const a1 = rows();
+      ok("BB. 1回目は言われた4件が入る", /言われた4件/.test(r1.changes.join("")), r1.changes.join(""));
+      const r2 = await build(FILL_A);                   // 2回目：AIが別の札を返す
+      const a2 = rows();
+      ok("BB. 組み立て直しても『言われた4件』のまま",
+         /言われた4件/.test(r2.changes.join("")), r2.changes.join(""));
+      ok("BB. 組み直したことを黙らない",
+         r2.asks.some(x => /組み直しました/.test(x)), r2.asks.join(" / "));
+      ok("BB. 前の組み立ての提案は残らない",
+         !a2.some(r => /切り替え・準備|大事な用事を1つ|自由・予備時間/.test(r.t)),
+         a2.map(r => r.t).join("/"));
+      ok("BB. 新しい提案が入っている",
+         a2.some(r => r.t === "軽くストレッチをする") && a2.some(r => r.t === "好きな音楽を聴く"),
+         a2.map(r => r.t).join("/"));
+      ok("BB. 本人が言ったものは消えない",
+         ["勉強をする①", "勉強をする②", "朝食を食べる", "お風呂に入る"]
+           .every(t => a2.some(r => r.t === t)), a2.map(r => r.t).join("/"));
+      ok("BB. 同じものが二重に入らない",
+         new Set(a2.map(r => r.t)).size === a2.length, a2.map(r => r.t).join("/"));
+      /* **穴を空けない**。飛ばしたぶんの場所が空いたままになるのが、実機で見えた形。 */
+      const gaps = a2.slice(1).map((r, i) => r.s - a2[i].e).filter(g => g > 0);
+      ok("BB. 置いた枠のあいだに穴が空かない", gaps.length === 0, "穴 " + gaps.join(","));
+      /* **名前のついた活動を、こちらの都合で長くしない**（実機で音楽が1時間30分になった）。 */
+      const music = a2.find(r => r.t === "好きな音楽を聴く");
+      ok("BB. AIが20分と言った枠を1時間半にしない",
+         !!music && music.e - music.s <= 60, music ? (music.e - music.s) + "分" : "無い");
+
+      /* `dedupeKey` が **UTCの日付**を使っていたので、日本時間の午前9時をまたぐと
+         同じ日の同じ用事が別物になった（実機で「お風呂に入る」が二重に入った）。 */
+      const mk2 = (title, h) => {
+        const it = { kind: "task", title, dayKey: DAY,
+          due: zoned(2026, 9, 15, h, 0, state.settings.timezone).toISOString() };
+        return dedupeKey(it);
+      };
+      ok("BB. 同じ日なら、9時の前後で鍵が割れない",
+         mk2("お風呂に入る", 8) === mk2("お風呂に入る", 10),
+         mk2("お風呂に入る", 8) + " vs " + mk2("お風呂に入る", 10));
+      ok("BB. 別の日なら、ちゃんと別の鍵になる",
+         dedupeKey({ kind: "task", title: "お風呂に入る", dayKey: "2026-09-16" }) !== mk2("お風呂に入る", 8),
+         "同じ鍵になっている");
+
+      state.items = before;
+      state.settings = Object.assign({}, state.settings, { workStart: keepW4[0], workEnd: keepW4[1] });
+    }
 
       const plain = pr(mk("2026-09-14T12:30:00Z", "眠い。明日までに資料を作らないと。"));
       ok("BA. 組み立てでない発言には案内を出さない",
