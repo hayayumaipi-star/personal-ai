@@ -5,6 +5,30 @@
   const TZ = "Asia/Tokyo";
   const dk = d => dayKey(new Date(d), TZ);
 
+  /* テスト用の例文。もとはアプリの `SAMPLE` だったが、**アプリは使っていなかった**ので
+     こちらへ引っ越した（v6.4）。画面の「例を入れてみる」は `SAMPLE_TALK` のほう。 */
+  const SAMPLE = `えーと、今日はあんまり寝てない。5時間くらい。ちょっとだるい感じ。
+明日の15時から歯医者の予約が入ってる。
+来週の金曜までに研究計画書を出さないといけない。まだ全然書けてない。たぶん3時間くらいかかると思う。
+田中さんに返信するの忘れてた。今日中にやる。15分くらい。
+今日は11時から12時半までゼミ。
+今年は週2回は走る習慣をつけたい。
+あとスーパーで洗剤買う。`;
+
+  /* **アプリが実際に通る道でテストする**（v6.4）。
+     以前は `ingest()` を呼んでいたが、あれは**アプリからは呼ばれていない関数**だった。
+     テストだけが生きていない道を測っている状態で、決まり7e の穴そのもの。
+     ここは `sendTurn` と同じ順番（原文を保存 → ruleOps → applyOps）を通す。 */
+  async function feed(text, atISO) {
+    const clean = normNote(text);
+    const note = { id: uid(), text: clean, hash: hash(clean + "|" + atISO),
+      capturedAt: atISO, source: "talk", sourceName: null, createdAt: atISO };
+    await putNote(note);
+    const n0 = state.items.length;
+    const res = await applyOps(ruleOps(note), note);
+    return { note, created: state.items.slice(n0), changes: res.changes, asks: res.asks };
+  }
+
   async function run() {
     for (let i = 0; i < 200 && !state.ready; i++) await new Promise(r => setTimeout(r, 20));
     // 素の状態から開始
@@ -42,21 +66,23 @@
     const w5 = parseWhen("明日やる", CAP2, TZ);
     ok("記録日時が1日ずれれば「明日」も1日ずれる", w5 && w5.dayKey !== w1.dayKey, w1.dayKey + " vs " + w5.dayKey);
 
-    /* ---- 2. 取り込み・重複しない ---- */
-    const r1 = await ingest(SAMPLE, CAP, null);
+    /* ---- 2. 読み取り・重複しない ---- */
+    const r1 = await feed(SAMPLE, CAP);
     ok("メモから複数の項目を読み取る", r1.created.length >= 5, r1.created.length + "件");
     const kinds = {}; for (const i of r1.created) kinds[i.kind] = (kinds[i.kind] || 0) + 1;
     ok("タスク・予定・体調・目標を区別する", kinds.task > 0 && kinds.event > 0 && kinds.condition > 0 && kinds.goal > 0, JSON.stringify(kinds));
     ok("読み取り直後はすべて未確認", r1.created.every(i => i.confirmed === false && i.origin === "rule"));
-    ok("根拠（元の文）が全項目に付いている", r1.created.every(i => i.evidence && i.evidence.text && state.notes[0].text.slice(i.evidence.start, i.evidence.end) === i.evidence.text));
+    ok("根拠（元の文）が全項目に付いている", r1.created.every(i => i.evidence && i.evidence.text && r1.note.text.slice(i.evidence.start, i.evidence.end) === i.evidence.text));
 
     const before = state.items.length;
-    const r2 = await ingest(SAMPLE, CAP, null);
-    ok("同じメモを再取込しても重複しない", r2.duplicate === true && state.items.length === before, "項目数 " + before + "→" + state.items.length);
+    const r2 = await feed(SAMPLE, CAP);
+    ok("同じことをもう一度言っても項目が増えない", r2.created.length === 0 && state.items.length === before, "項目数 " + before + "→" + state.items.length);
+    // **黙って捨てない**（決まり5）。ぶつかったことを必ず知らせる
+    ok("ぶつかったことを黙って捨てない", r2.asks.length >= 1, r2.asks.length + "件の知らせ");
 
-    // 本文は同じだが空白違い → 正規化して同じメモと判定
-    const r3 = await ingest(SAMPLE.replace(/\n/g, "\n  "), CAP, null);
-    ok("空白違いの同じメモも重複扱い", r3.duplicate === true && state.items.length === before, "項目数 " + state.items.length);
+    // 本文は同じだが空白違い → 正規化して同じ項目と判定
+    const r3 = await feed(SAMPLE.replace(/\n/g, "\n  "), CAP);
+    ok("空白違いでも項目は増えない", r3.created.length === 0 && state.items.length === before, "項目数 " + state.items.length);
 
     /* ---- 3. 固定予定と重ならない案を作る ---- */
     let plan = planFor(capKey);
@@ -95,11 +121,11 @@
       ok("完了にしたタスクは未配置にも出ない", !plan.unplaced.some(u => u.item.id === tanaka.id));
     }
 
-    /* ---- 5. 完了済みと同じ内容を再取込しても復活しない ---- */
-    const r4 = await ingest("田中さんに返信するの忘れてた。今日中にやる。15分くらい。", CAP, null);
+    /* ---- 5. 完了済みと同じ内容を言い直しても復活しない ---- */
+    const r4 = await feed("田中さんに返信するの忘れてた。今日中にやる。15分くらい。", CAP);
     const revived = r4.created.filter(i => /田中/.test(i.title));
-    ok("完了済みと同じタスクは再取込で復活しない", revived.length === 0 && (r4.skippedList || []).length >= 1,
-       "新規" + revived.length + "件 / 重複スキップ" + ((r4.skippedList || []).length));
+    ok("完了済みと同じタスクは、言い直しても復活しない", revived.length === 0, "新規" + revived.length + "件");
+    ok("復活しなかったことを、黙らずに知らせる", r4.asks.length >= 1, r4.asks.join(" / ") || "知らせ無し");
 
     /* ---- 6. 訂正が以後の提案に反映される ---- */
     const keikaku = state.items.find(i => i.kind === "task" && /研究計画/.test(i.title));
@@ -135,7 +161,11 @@
     state.settings.workStart = "09:00"; state.settings.workEnd = "09:30";
     const tight = planFor(capKey);
     ok("空き時間が足りなければ未配置にする", tight.unplaced.length >= 1, "未配置 " + tight.unplaced.length + "件");
-    ok("未配置に理由が付く", tight.unplaced.every(u => u.reason && /分|埋まって/.test(u.reason)), tight.unplaced.map(u => u.reason)[0]);
+    // 理由の言い方は増える（v6.2b で「帯の外です」「もう過ぎています」が加わった）。
+    // 見張るのは「説明になっているか」で、特定の文面ではない。
+    ok("未配置に理由が付く",
+       tight.unplaced.every(u => u.reason && /分|埋まって|空き|外です|過ぎて/.test(u.reason)),
+       tight.unplaced.map(u => u.reason)[0]);
     ok("空き時間を超える作業枠は作らない", tight.blocks.filter(b => b.type === "flex").every(b => b.e <= 570));
     state.settings.workStart = "09:00"; state.settings.workEnd = "18:00";
 

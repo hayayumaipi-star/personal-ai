@@ -1326,6 +1326,411 @@
         ok("AM. 時刻は切り落とさずに書く",
            r7.asks.some(a => /14:00/.test(a)), JSON.stringify(r7.asks));
 
+        /* AN. 同じものが既にあって足さなかったとき、黙らない（v5.2・実機で報告）。
+           「追加すらされなかった」に見えるのは、ここで何も言わずに捨てていたから。 */
+        reset();
+        const n8 = mkNote("明日までに資料を出す"); await putNote(n8);
+        const op8 = { op: "add", kind: "task", title: "資料を出す", dueDate: tom,
+          duePrecision: "day", quote: "資料を出す" };
+        const r8a = await applyOps([op8], n8);
+        ok("AN. 1回目はふつうに足す", r8a.changes.length === 1, JSON.stringify(r8a.changes));
+        const r8b = await applyOps([op8], n8);
+        ok("AN. 2回目は足さない", r8b.changes.length === 0, JSON.stringify(r8b.changes));
+        ok("AN. 足さなかったことを、黙らずに言う",
+           r8b.asks.some(a => /足さなかった/.test(a) && a.includes("資料を出す")), JSON.stringify(r8b.asks));
+        // 完了済みとぶつかったときは、その状態も書く
+        const d8 = state.items.find(i => i.title === "資料を出す");
+        d8.status = "done"; await putItem(d8);
+        const r8c = await applyOps([op8], n8);
+        ok("AN. 完了済みとぶつかったら、そう書く",
+           r8c.asks.some(a => /完了/.test(a)), JSON.stringify(r8c.asks));
+        // 見出しが取り出せないときも黙らない
+        reset();
+        const n9 = mkNote("うーん"); await putNote(n9);
+        const r9 = await applyOps([{ op: "add", kind: "task", title: "  ", quote: "うーん" }], n9);
+        ok("AN. 見出しが空でも黙って捨てない",
+           r9.changes.length === 0 && r9.asks.length > 0, JSON.stringify(r9.asks));
+
+        /* AO. AIが返した時刻にも、午前・午後の判定を効かせる（v5.3・実機で報告）。
+           22:09 の「11時から12時まで勉強する」が **9/13 11:00**（もう過ぎた朝）になった。
+           ルールは 23:00 と読み、速い返事へのヒントも「夜」を渡していたのに、
+           決まり4b/4c が parseWhen の中にしかなく、AIの dueTime は素通りだった。 */
+        {
+          const LATE = zoned(2026, 9, 13, 22, 9, TZ).toISOString();
+          const late = text => ({ id: uid(), text, hash: "ao" + Math.random(),
+            capturedAt: LATE, source: "talk", createdAt: LATE });
+
+          // 範囲の終わりが 12時 のとき、午後シフトから漏れて13時間になっていた
+          const w = parseWhen("11時から12時まで勉強する", LATE, TZ);
+          ok("AO. 夜の「11時から12時まで」は 23:00 から",
+             !!w && fmtDT(w.start, TZ).endsWith("23:00"), w && fmtDT(w.start, TZ));
+          ok("AO. その終わりは翌日の0:00（翌日の12:00にしない）",
+             !!w && (new Date(w.end) - new Date(w.start)) === 3600000,
+             w && fmtDT(w.end, TZ));
+
+          // AIが12時間ずれた時刻を返しても、ルールを採る
+          reset();
+          const na = late("11時から12時まで勉強する"); await putNote(na);
+          await applyOps([{ op: "add", kind: "event", title: "勉強する", dueDate: "2026-09-14",
+            dueTime: "11:00", duePrecision: "exact", estimateMin: 60, quote: "勉強する" }], na);
+          const ia = state.items.find(i => i.kind === "event");
+          ok("AO. AIの「11:00」を採らず、ルールの 23:00 にする",
+             !!ia && fmtDT(ia.start, TZ) === "9/13 23:00", ia && fmtDT(ia.start, TZ));
+
+          // ルールが翌日へ送ったものを、話した日へ引き戻さない
+          reset();
+          const nb = late("10時から11時まで勉強する"); await putNote(nb);
+          await applyOps([{ op: "add", kind: "event", title: "勉強する", dueDate: "2026-09-14",
+            dueTime: "10:00", duePrecision: "exact", estimateMin: 60, quote: "勉強する" }], nb);
+          const ib = state.items.find(i => i.kind === "event");
+          ok("AO. ルールが翌日にしたものを、今日へ引き戻さない",
+             !!ib && ib.dayKey === "2026-09-14", ib && ib.dayKey);
+
+          // 12時間ずれていないときは、AIの時刻をそのまま使う
+          reset();
+          const nc = late("11時から12時まで勉強する"); await putNote(nc);
+          await applyOps([{ op: "add", kind: "event", title: "勉強する", dueDate: "2026-09-13",
+            dueTime: "23:30", duePrecision: "exact", estimateMin: 30, quote: "勉強する" }], nc);
+          const ic = state.items.find(i => i.kind === "event");
+          ok("AO. ずれが12時間ちょうどでなければ、触らない",
+             !!ic && fmtDT(ic.start, TZ) === "9/13 23:30", ic && fmtDT(ic.start, TZ));
+
+          // 「夜11時から深夜1時まで」は今までどおり日をまたぐ（深夜は +12 しない）
+          const w2 = parseWhen("夜11時から深夜1時までゼミ", LATE, TZ);
+          ok("AO. 「夜11時から深夜1時まで」は2時間のまま",
+             !!w2 && (new Date(w2.end) - new Date(w2.start)) === 7200000,
+             w2 && fmtDT(w2.start, TZ) + "〜" + fmtDT(w2.end, TZ));
+        }
+
+        /* AP. 黙って何も起きない道をふさぐ（v5.4・実機で報告）。
+           「チャットにも予定表が出ず、スケジュールにも追加されない」。 */
+        {
+          const LATE2 = zoned(2026, 9, 13, 22, 20, TZ).toISOString();
+          const mk = text => ({ id: uid(), text, hash: "ap" + Math.random(),
+            capturedAt: LATE2, source: "talk", createdAt: LATE2 });
+
+          // ① 言い直しの判定が2か所に分かれていて、片方だけ狭かった
+          ok("AP. 「〜にして」の言い直しを取りこぼさない",
+             looksRestating("さっきの勉強、23時からにして") === true);
+          ok("AP. 「さっき言った」も言い直し", looksRestating("さっき言ったやつ、30分にして") === true);
+          ok("AP. ふつうの発言は言い直しにしない",
+             looksRestating("23時から24時まで勉強する") === false);
+          reset();
+          const nr = mk("さっきの勉強、23時からにして"); await putNote(nr);
+          const rr2 = await applyOps(ruleOps(nr), nr);
+          ok("AP. 対象を決められなくても、黙って終わらない",
+             rr2.asks.length > 0, JSON.stringify(rr2.asks));
+
+          /* ② AIが「何もしない」を返したら、ルールが読めたものを使う。
+                `if (!ops)` だけだと `[]` は真なので、ルールへ戻らず全部捨てていた。 */
+          const src = String(sendTurn);
+          ok("AP. AIが空の ops を返したときに、ルールへ戻る道がある",
+             /ops\.length/.test(src) && /ruleOps\(note\)/.test(src), "sendTurn に戻り道が無い");
+          reset();
+          const nf = mk("23時から24時まで勉強する"); await putNote(nf);
+          const fallback = [].length ? [] : ruleOps(nf).filter(o => o.op !== "_needs_ai");
+          ok("AP. そのときルールは、ちゃんと読めている", fallback.length > 0,
+             JSON.stringify(ruleOps(nf).map(o => o.op)));
+        }
+
+        /* AQ. AIが時刻を落としたら、ルールの読み取りで埋める（v5.5・実機で報告）。
+           「11時から12時まで勉強する」が **時刻の無いタスク**として追加された。
+           時刻の範囲を言われたら予定にする、が決まり4e。 */
+        {
+          const L3 = zoned(2026, 9, 13, 22, 9, TZ).toISOString();
+          const mk3 = text => ({ id: uid(), text, hash: "aq" + Math.random(),
+            capturedAt: L3, source: "talk", createdAt: L3 });
+
+          reset();
+          const q1 = mk3("11時から12時まで勉強する"); await putNote(q1);
+          await applyOps([{ op: "add", kind: "task", title: "勉強する", quote: "勉強する" }], q1);
+          const e1 = state.items[0];
+          ok("AQ. 時刻の範囲を言っていれば、タスクではなく予定にする",
+             !!e1 && e1.kind === "event", e1 && e1.kind);
+          ok("AQ. その時刻はルールの読み取り（23:00）",
+             !!e1 && fmtDT(e1.start, TZ) === "9/13 23:00", e1 && fmtDT(e1.start, TZ));
+          ok("AQ. 長さも範囲のとおり（1時間）",
+             !!e1 && (new Date(e1.end) - new Date(e1.start)) === 3600000,
+             e1 && fmtDT(e1.end, TZ));
+
+          // 1回の発言に用事が2つあるときは、日時を持ち込まない
+          reset();
+          const q2 = mk3("11時から12時まで勉強する。あと牛乳を買う"); await putNote(q2);
+          await applyOps([{ op: "add", kind: "task", title: "勉強する", quote: "勉強する" },
+                          { op: "add", kind: "task", title: "牛乳を買う", quote: "牛乳" }], q2);
+          ok("AQ. 用事が2件あるときは、日時を他の話題へ持ち込まない",
+             state.items.every(i => !i.start), state.items.map(i => i.title + ":" + (i.start || "-")).join(","));
+
+          // AIがちゃんと時刻を返していれば触らない
+          reset();
+          const q3 = mk3("明日10時に歯医者"); await putNote(q3);
+          await applyOps([{ op: "add", kind: "event", title: "歯医者", dueDate: "2026-09-14",
+            dueTime: "10:00", duePrecision: "exact", quote: "歯医者" }], q3);
+          const e3 = state.items[0];
+          ok("AQ. AIが時刻を返しているときは触らない",
+             !!e3 && fmtDT(e3.start, TZ) === "9/14 10:00", e3 && fmtDT(e3.start, TZ));
+
+          // 時刻を言っていない発言には、時刻を作らない
+          reset();
+          const q4 = mk3("そのうち本棚を片付けたい"); await putNote(q4);
+          await applyOps([{ op: "add", kind: "task", title: "本棚を片付ける", quote: "本棚" }], q4);
+          ok("AQ. 言っていない時刻は作らない", !state.items[0].start && !state.items[0].dayKey,
+             JSON.stringify([state.items[0].start, state.items[0].dayKey]));
+        }
+
+        /* AR. 壊れた設定で、画面ごと落ちないこと（v5.6・調査で発見）。
+           タイムゾーンが不正だと `Intl` が RangeError を投げ、
+           `parts` / `dayKey` / `zoned` が**全部落ちる**。
+           `importJSON` は控えの settings を素通しで保存していたので、
+           一度入ると**開くたびに落ちる状態が残る**。
+           「壊れた1件で画面全体を落とさない」を、項目だけでなく設定にも通す。 */
+        {
+          ok("AR. 設定を検算する関数がある", typeof safeSettings === "function");
+          if (typeof safeSettings === "function") {
+            const bad = t => safeSettings(Object.assign({}, DEFAULTS, t));
+            ok("AR. 使えないタイムゾーンは既定に戻す",
+               bad({ timezone: "Invalid/Zone" }).timezone === DEFAULTS.timezone,
+               bad({ timezone: "Invalid/Zone" }).timezone);
+            ok("AR. 空・数値・null のタイムゾーンも既定に戻す",
+               bad({ timezone: "" }).timezone === DEFAULTS.timezone
+               && bad({ timezone: 123 }).timezone === DEFAULTS.timezone
+               && bad({ timezone: null }).timezone === DEFAULTS.timezone);
+            ok("AR. 使えるタイムゾーンは、そのまま通す",
+               bad({ timezone: "Europe/Paris" }).timezone === "Europe/Paris");
+            ok("AR. 数値でない所要時間は既定に戻す",
+               bad({ defaultEstimate: "abc" }).defaultEstimate === DEFAULTS.defaultEstimate,
+               String(bad({ defaultEstimate: "abc" }).defaultEstimate));
+            ok("AR. 極端な数値は範囲に収める",
+               bad({ defaultEstimate: 99999 }).defaultEstimate <= 240
+               && bad({ breakEveryMin: 0 }).breakEveryMin >= 30
+               && bad({ breakMin: -5 }).breakMin >= 5,
+               JSON.stringify([bad({ defaultEstimate: 99999 }).defaultEstimate,
+                               bad({ breakEveryMin: 0 }).breakEveryMin, bad({ breakMin: -5 }).breakMin]));
+            ok("AR. 知らない見た目は auto に戻す", bad({ theme: "<script>" }).theme === "auto");
+            ok("AR. 壊れた作業時間帯も直す（形だけでなく中身も）",
+               bad({ workStart: "25:99" }).workStart === DEFAULTS.workStart
+               && bad({ workEnd: null }).workEnd === DEFAULTS.workEnd
+               && bad({ workStart: "07:30" }).workStart === "07:30",
+               JSON.stringify([bad({ workStart: "25:99" }).workStart, bad({ workEnd: null }).workEnd]));
+            // 検算を通したあとは、日付の計算が落ちないこと
+            let threw = null;
+            try { dayKey(new Date(), bad({ timezone: "Invalid/Zone" }).timezone); }
+            catch (e) { threw = e.name; }
+            ok("AR. 直したあとは、日付の計算が落ちない", threw === null, String(threw));
+          }
+          // 壊れた設定を保存しようとしても、保存先には入らない
+          if (typeof safeSettings === "function") {
+            const keep = state.settings;
+            await putSettings(Object.assign({}, DEFAULTS, { timezone: "Invalid/Zone" }));
+            let threw2 = null;
+            try { dayKey(new Date(), state.settings.timezone); } catch (e) { threw2 = e.name; }
+            ok("AR. 壊れた設定は保存しない", threw2 === null && state.settings.timezone === DEFAULTS.timezone,
+               String(state.settings.timezone) + " / " + String(threw2));
+            state.settings = keep;
+          }
+        }
+
+        /* AS. 外部ファイル（.ics）は、壊れていると思って読む（v5.6・調査で発見）。
+           他所から来るファイルなのに、テストが1件も無かった。
+           とくに `TZID` は検算せず `zoned()` に渡していたので、
+           **壊れた1件でファイルまるごと読めなくなる**（例外が for を抜ける）。 */
+        {
+          const ics = body => "BEGIN:VCALENDAR" + String.fromCharCode(13,10) + body
+            + String.fromCharCode(13,10) + "END:VCALENDAR";
+          const ev = lines => "BEGIN:VEVENT" + String.fromCharCode(13,10)
+            + lines.join(String.fromCharCode(13,10)) + String.fromCharCode(13,10) + "END:VEVENT";
+          const nl = String.fromCharCode(13,10);
+
+          let got = null, threw = null;
+          try {
+            got = parseICS(ics(ev(["SUMMARY:壊れたほう", "DTSTART;TZID=Invalid/Zone:20260915T093000"]) + nl
+                             + ev(["SUMMARY:ちゃんとしたほう", "DTSTART:20260915T100000Z"])), TZ);
+          } catch (e) { threw = e.name + ": " + String(e.message).slice(0, 40); }
+          ok("AS. 壊れた TZID があっても、例外で止まらない", threw === null, String(threw));
+          ok("AS. 壊れた TZID は、こちらの設定で読む（捨てない）",
+             !!got && got.length === 2
+             && got[0].title === "壊れたほう"
+             && fmtDT(got[0].start, TZ) === fmtDT(zoned(2026, 9, 15, 9, 30, TZ).toISOString(), TZ),
+             got ? JSON.stringify(got.map(x => x.title + "@" + fmtDT(x.start, TZ))) : "（読めない）");
+
+          const safe = t => { try { return parseICS(t, TZ); } catch { return "★例外"; } };
+          ok("AS. 題名の無い予定は捨てる",
+             JSON.stringify(safe(ics(ev(["DTSTART:20260915T100000Z"])))) === "[]");
+          ok("AS. 日時の無い予定は捨てる",
+             JSON.stringify(safe(ics(ev(["SUMMARY:題名だけ"])))) === "[]");
+          ok("AS. 日付の形が違うものは捨てる",
+             JSON.stringify(safe(ics(ev(["SUMMARY:x", "DTSTART:きょう"])))) === "[]");
+          ok("AS. 空・null・数値でも落ちない",
+             JSON.stringify(safe("")) === "[]" && JSON.stringify(safe(null)) === "[]"
+             && JSON.stringify(safe(12345)) === "[]");
+          ok("AS. END:VEVENT が無くても落ちない",
+             JSON.stringify(safe("BEGIN:VEVENT" + nl + "SUMMARY:途中で終わる")) === "[]");
+          // 折り返し（行頭の空白で続く）を戻せること
+          const folded = safe(ics(ev(["SUMMARY:とても長い題" + nl + " 名のつづき", "DTSTART:20260915T100000Z"])));
+          ok("AS. 折り返した行をつなげて読む",
+             Array.isArray(folded) && folded.length === 1 && /つづき/.test(folded[0].title),
+             JSON.stringify(folded));
+        }
+
+        /* AT. 「日付の言葉があったか」の判定が、2か所に分かれていないこと（v5.7）。
+           v5.3 で `applyFields` に同じ式を書いてしまい、アプリは `dateWasSpoken` を
+           呼ばなくなっていた。テストは**生きていない関数**を測っていた。
+           ここでは、両者が同じ答えを出すことを実際の動きで確かめる。 */
+        {
+          const L4 = zoned(2026, 9, 13, 11, 0, TZ).toISOString();
+          const mk4 = text => ({ id: uid(), text, hash: "at" + Math.random(),
+            capturedAt: L4, source: "talk", createdAt: L4 });
+          const cases = ["明日までに資料を出す", "6〜9時の間に30分勉強する",
+                         "そのうち本棚を片付けたい", "来週までに出す", "牛乳を買う",
+                         "今日中に返信する", "9時に歯医者"];
+          let agree = true, detail = [];
+          for (const text of cases) {
+            reset();
+            const n = mk4(text); await putNote(n);
+            const r = await applyOps([{ op: "add", kind: "task", title: "なにか",
+              dueDate: tom, duePrecision: "day", quote: "x" }], n);
+            const pulled = r.asks.some(a => /日付は言っていなかったので/.test(a));
+            const spoken = dateWasSpoken(n, TZ);
+            if (pulled === spoken) { agree = false; }       // 引き戻した＝言っていない、が正しい
+            detail.push(`${text}:${spoken ? "言った" : "言ってない"}/${pulled ? "引き戻した" : "そのまま"}`);
+          }
+          ok("AT. dateWasSpoken と、実際の引き戻しが必ず一致する", agree, detail.join(" , "));
+          ok("AT. 判定は1か所にまとまっている",
+             typeof dateSpokenIn === "function" && /dateSpokenIn/.test(String(applyFields)),
+             "applyFields が自前の式を持っている");
+        }
+
+        /* AU. AIが返す prefer / memo / condition / idea を、直接 applyOps に渡して確かめる
+           （v5.9・4周目の調査）。ここは決まり9「AIの ops を信用しない」の担当なのに、
+           これらの op を**直接渡すテストが1件も無かった**。
+           書いてみたら、`prefer` の値を検算しているのは**新規作成のときだけ**で、
+           既にある希望を更新する道は素通しだった。`noEveningWork` は「分」として
+           計画に効くので、0 が入ると**その日が丸ごと使えなくなる**。 */
+        {
+          const L5 = zoned(2026, 9, 13, 9, 0, TZ).toISOString();
+          const mk5 = text => ({ id: uid(), text, hash: "au" + Math.random(),
+            capturedAt: L5, source: "talk", createdAt: L5 });
+          const pv = () => {
+            const p = state.items.find(i => i.kind === "preference" && i.preferKey === "noEveningWork");
+            return p ? p.preferValue : null;
+          };
+          reset();
+          const n1 = mk5("20時以降は予定を入れないで"); await putNote(n1);
+          await applyOps([{ op: "prefer", key: "noEveningWork", value: 20 * 60,
+            text: "20時以降は入れないで", quote: "20時以降" }], n1);
+          ok("AU. 希望の値は、範囲の中なら そのまま入る", pv() === 20 * 60, String(pv()));
+
+          // 同じ希望をもう一度（更新の道）。範囲外の値を入れさせない
+          await applyOps([{ op: "prefer", key: "noEveningWork", value: 0,
+            text: "夜は入れないで", quote: "夜" }], n1);
+          ok("AU. 更新でも、範囲外の値は入れない",
+             typeof pv() !== "number" || (pv() >= 12 * 60 && pv() <= 23 * 60), String(pv()));
+          const pf1 = prefs(KEY);
+          ok("AU. 計画に渡る値も、範囲の中に収まる",
+             pf1.noEveningWork === null || (pf1.noEveningWork >= 12 * 60 && pf1.noEveningWork <= 23 * 60),
+             String(pf1.noEveningWork));
+
+          await applyOps([{ op: "prefer", key: "noEveningWork", value: "あいうえお",
+            text: "夜は入れないで", quote: "夜" }], n1);
+          ok("AU. 数字でない値も入れない",
+             typeof pv() !== "number" || (pv() >= 12 * 60 && pv() <= 23 * 60), String(pv()));
+
+          // 知らない key は "free" に落ちる（捨てない）
+          reset();
+          const n2 = mk5("いい感じにして"); await putNote(n2);
+          await applyOps([{ op: "prefer", key: "<script>", value: true,
+            text: "いい感じにして", quote: "いい感じ" }], n2);
+          const fp = state.items.find(i => i.kind === "preference");
+          ok("AU. 知らない希望の種類は free にする（捨てない）",
+             !!fp && fp.preferKey === "free", fp && fp.preferKey);
+
+          // memo / condition / idea：空文字は作らない、長すぎるものは切る
+          reset();
+          const n3 = mk5("なにか"); await putNote(n3);
+          await applyOps([{ op: "memo", text: "   ", quote: "x" },
+                          { op: "idea", text: "", quote: "x" },
+                          { op: "condition", text: null, quote: "x" }], n3);
+          ok("AU. 中身が空なら、memo も idea も condition も作らない",
+             state.items.length === 0, JSON.stringify(state.items.map(i => i.kind)));
+
+          reset();
+          const n4 = mk5("なにか"); await putNote(n4);
+          const long = "あ".repeat(2000);
+          await applyOps([{ op: "memo", text: long, quote: "x" },
+                          { op: "idea", text: long, quote: "x" },
+                          { op: "condition", text: long, quote: "x" }], n4);
+          const byKind = k => state.items.find(i => i.kind === k);
+          ok("AU. 長すぎる memo は切る", !!byKind("memo") && byKind("memo").title.length <= 500,
+             byKind("memo") && String(byKind("memo").title.length));
+          ok("AU. 長すぎる idea は切る", !!byKind("idea") && byKind("idea").title.length <= 200,
+             byKind("idea") && String(byKind("idea").title.length));
+          ok("AU. 体調は本人の言葉のまま残し、点数を作らない",
+             !!byKind("condition") && byKind("condition").selfReport.length <= 300
+             && byKind("condition").score === undefined,
+             byKind("condition") && String(byKind("condition").selfReport.length));
+        }
+
+        /* AV. 振り返りは「間違えて押した完了・取り消しを戻せる**唯一の**場所」（決まり6f）なのに、
+           テストでの言及が1か所しか無かった（v5.9・4周目の調査）。往復を固定する。
+           **`completedAt` は本物の「いま」**なので、固定の日ではなく
+           **完了が載る日**で見ること（記録済みの落とし穴）。 */
+        {
+          const today = dayKey(new Date(), TZ);
+          const seed = async (title) => {
+            const it = { id: uid(), noteId: null, kind: "task", title,
+              evidence: { text: "x" }, origin: "rule", confirmed: false, corrected: false,
+              status: "open", estimateMin: 30,
+              createdAt: new Date().toISOString(), updatedAt: "", history: [] };
+            it.dedupeKey = dedupeKey(it); await putItem(it); return it;
+          };
+          reset();
+          const a = await seed("完了を押してみる用事");
+          await act("done", a.id);
+          ok("AV. 完了にすると status が done になる", findItem(a.id).status === "done",
+             findItem(a.id).status);
+          let rv = reviewFor(today);
+          ok("AV. 振り返りに、その日の完了が出る",
+             rv.done.some(i => i.id === a.id), rv.done.map(i => i.title).join(","));
+          await act("undone", a.id);
+          ok("AV. 振り返りから完了を戻せる", findItem(a.id).status === "open",
+             findItem(a.id).status);
+          rv = reviewFor(today);
+          ok("AV. 戻したら、完了の一覧から消える", !rv.done.some(i => i.id === a.id),
+             rv.done.map(i => i.title).join(","));
+
+          const b = await seed("取り消してみる用事");
+          await act("drop", b.id);
+          ok("AV. 取り消すと status が dropped になる", findItem(b.id).status === "dropped",
+             findItem(b.id).status);
+          rv = reviewFor(today);
+          ok("AV. 振り返りに、その日の取り消しが出る",
+             rv.dropped.some(x => x.i.id === b.id), rv.dropped.map(x => x.i.title).join(","));
+          await act("undrop", b.id);
+          ok("AV. 振り返りから取り消しを戻せる", findItem(b.id).status === "open",
+             findItem(b.id).status);
+
+          // 別の日の完了は、その日の振り返りに混ぜない
+          const c = await seed("昨日やった用事");
+          c.status = "done";
+          c.completedAt = new Date(Date.now() - 3 * 86400000).toISOString();
+          await putItem(c);
+          rv = reviewFor(today);
+          ok("AV. 別の日の完了は、今日の振り返りに出さない",
+             !rv.done.some(i => i.id === c.id), rv.done.map(i => i.title).join(","));
+
+          // 体調はその日の申告だけ（決まり3）
+          const cond = { id: uid(), noteId: null, kind: "condition", title: "眠い",
+            selfReport: "あんまり寝ていなくて眠い", reportedAt: new Date().toISOString(),
+            evidence: { text: "眠い" }, origin: "rule", confirmed: false, corrected: false,
+            status: "open", createdAt: new Date().toISOString(), updatedAt: "", history: [] };
+          cond.dedupeKey = dedupeKey(cond); await putItem(cond);
+          rv = reviewFor(today);
+          ok("AV. 体調は本人の言葉のまま、その日のぶんだけ出る",
+             rv.conds.some(i => i.selfReport === "あんまり寝ていなくて眠い")
+             && rv.conds.every(i => i.score === undefined),
+             rv.conds.map(i => i.selfReport).join(","));
+        }
+
         // AIに日付の言葉を書かせない（決まり8の日付版）
         {
           const nq = mkNote("30分勉強する");
@@ -1469,7 +1874,7 @@
       showTab("p-set"); renderSettings();
       const warn = document.querySelector("#dataWarn");
       ok("X. 800件を超えたら、上限が近いと知らせる",
-         !!warn && !warn.hidden && /1000件まで/.test(warn.textContent), warn ? warn.textContent.slice(0, 40) : "欄が無い");
+         !!warn && !warn.hidden && /1,?000件まで/.test(warn.textContent), warn ? warn.textContent.slice(0, 40) : "欄が無い");
       ok("X. 勝手に消さず、書き出しを促す",
          !!warn && /書き出す/.test(warn.textContent) && state.items.length === 820, state.items.length + "件");
 
@@ -1557,6 +1962,347 @@
 
         view.day = today;
       }
+    }
+
+    /* ===== AW. 置けなかった理由と、落とした跡（v6.2・実機で報告） =====
+       「夜6時から9時までの間にお風呂に30分入る」で2つ出た：
+       ① 時間帯がまるごと過ぎているのに「そこに30分の空きがありません」と言っていた
+          （空っぽなのに、予定が詰まっていると読める）
+       ② 見出しが「間にお風呂に 入る」——「までの間に」が落ちず、跡が空白になっていた */
+    {
+      const LINE = "夜6時から9時までの間にお風呂に30分入る";
+      // この群だけ、作業に使える時間帯をアプリの既定（一日じゅう）に戻す。
+      // 09:00〜18:00 のままだと 18:00〜21:00 がまるごと枠外で、別の理由で置けなくなる。
+      const keepW = [state.settings.workStart, state.settings.workEnd];
+      state.settings = Object.assign({}, state.settings, { workStart: "00:00", workEnd: "23:59" });
+      reset();
+      await say(LINE, T(10, 0));
+      const t = state.items.find(i => i.kind === "task");
+      ok("AW. 時間帯つきの用事として拾う", !!t && t.winFrom === 18 * 60 && t.winTo === 21 * 60,
+         t ? t.kind + "/" + t.winFrom + "-" + t.winTo : "拾えていない");
+      ok("AW. 「までの間に」を見出しに残さない", !!t && !/間に/.test(t.title), t && t.title);
+      ok("AW. 落とした跡を空白でつながない", !!t && t.title === "お風呂に入る", t && t.title);
+
+      const reasonAt = m => {
+        const u = planFor(KEY, { nowMin: m }).unplaced.find(x => x.item.id === t.id);
+        return u ? u.reason : "(置けた)";
+      };
+      const placedAt = m => {
+        const b = planFor(KEY, { nowMin: m }).blocks.find(x => x.item && x.item.id === t.id);
+        return b ? b.s : null;
+      };
+      ok("AW. 時間帯の中に置ける", placedAt(10 * 60) === 18 * 60, String(placedAt(10 * 60)));
+      ok("AW. いまが時間帯の中なら、いまから置く", placedAt(19 * 60) === 19 * 60, String(placedAt(19 * 60)));
+      ok("AW. 時間帯が過ぎていたら「過ぎています」と言う",
+         /もう過ぎています/.test(reasonAt(22 * 60)), reasonAt(22 * 60));
+      ok("AW. 過ぎているのを「空きがありません」と言わない",
+         !/空きがありません/.test(reasonAt(22 * 60)), reasonAt(22 * 60));
+      ok("AW. 残りが足りないときは、残りの長さを言う",
+         /空いているのは最大15分/.test(reasonAt(20 * 60 + 45)), reasonAt(20 * 60 + 45));
+
+      // 本当に埋まっているときは、今までどおり「空きがありません」
+      const ev = { id: uid(), noteId: null, kind: "event", title: "会食", fixed: true,
+        origin: "user", confirmed: true, corrected: false, status: "open",
+        evidence: { text: "x" }, start: zoned(2026, 9, 12, 18, 0, TZ).toISOString(),
+        end: zoned(2026, 9, 12, 21, 0, TZ).toISOString(), dayKey: KEY, duePrecision: "exact",
+        createdAt: T(9, 0), updatedAt: "", history: [] };
+      ev.dedupeKey = dedupeKey(ev); await putItem(ev);
+      ok("AW. 本当に埋まっているときは「空きがありません」のまま",
+         /空きがありません/.test(reasonAt(10 * 60)), reasonAt(10 * 60));
+
+      /* **朝7時に言っても同じ文が出ていた**（v6.2b・実機で報告）。
+         18:00〜21:00 は先の話で空っぽなのに「そこに30分の空きがありません」。
+         本当の理由は、その時間帯が**作業に使える帯の外**だったこと。
+         理由が違えば打つ手も変わる（「夜も入れていい」と言えば直る）ので、名指しする。 */
+      {
+        const morn = 7 * 60;
+        await act("drop", ev.id);          // 上で足した会食を外す。ここで見たいのは帯のほう
+        state.settings = Object.assign({}, state.settings, { workStart: "09:00", workEnd: "18:00" });
+        ok("AW. 作業に使える帯の外なら、そう言う",
+           /作業に使える時間帯（09:00〜18:00）の外です/.test(reasonAt(morn)), reasonAt(morn));
+        ok("AW. 帯の外を「空きがありません」と言わない",
+           !/空きがありません/.test(reasonAt(morn)), reasonAt(morn));
+
+        state.settings = Object.assign({}, state.settings, { workStart: "00:00", workEnd: "23:59" });
+        const pr = { id: uid(), noteId: null, kind: "preference", title: "夜は予定を入れないで",
+          preferKey: "noEveningWork", preferValue: 18 * 60, evidence: { text: "x" },
+          origin: "rule", confirmed: false, corrected: false, status: "open",
+          createdAt: T(7, 0), updatedAt: "", history: [] };
+        pr.dedupeKey = dedupeKey(pr); await putItem(pr);
+        ok("AW. 「夜は入れないで」で置けないときは、その希望を名指しする",
+           /夜は予定を入れないで/.test(reasonAt(morn)), reasonAt(morn));
+        await act("drop", pr.id);
+        ok("AW. その希望をやめれば、また置ける", planFor(KEY, { nowMin: morn }).blocks
+           .some(b => b.item && b.item.id === t.id), reasonAt(morn));
+      }
+
+      // 元の文に区切りがあったら、それは残す（くっつけてよいのは、元から続いていた所だけ）
+      const cut = x => cleanTitle(halfWidth(x), parseWhen(halfWidth(x), T(9, 0), TZ));
+      ok("AW. 元からあった空白は残す", cut("レポート 2時間 書く") === "レポート 書く", cut("レポート 2時間 書く"));
+      ok("AW. 元から続いていた所はつなぐ", cut("Zoomで10時に会議") === "Zoomで会議", cut("Zoomで10時に会議"));
+
+      state.settings = Object.assign({}, state.settings, { workStart: keepW[0], workEnd: keepW[1] });
+    }
+
+    /* ===== AX. 1日を組み立てる（v6.5・本人の指示） =====
+       「6時から11時半までの間で勉強を30分かける2回。その間にお風呂とご飯それぞれ30分ずつ使う。
+        他に入れる予定ややった方がいい習慣などを提案してスケジュールを組み立てて。」
+       これで **13枠の予定表が実際に入り、習慣が提案される**ところまでを固定する。 */
+    {
+      const LINE = "生産性の高い1日を過ごすのが目的。6時から11時半までの間で勉強を30分かける2回。"
+        + "その間にお風呂とご飯それぞれ30分ずつ使う。他に入れる予定ややった方がいい習慣などを提案してスケジュールを組み立てて。";
+      reset();
+      const keepW = [state.settings.workStart, state.settings.workEnd];
+      state.settings = Object.assign({}, state.settings, { workStart: "00:00", workEnd: "23:59" });
+      const at = zoned(2026, 9, 12, 17, 0, TZ).toISOString();
+      const note = { id: uid(), text: normNote(LINE), hash: hash(LINE), capturedAt: at,
+        source: "talk", sourceName: null, createdAt: at };
+      await putNote(note);
+
+      const req = parseDayRequest(note, TZ);
+      ok("AX. 組み立ての依頼だと分かる", !!req, req ? "ok" : "拾えていない");
+      ok("AX. 時間帯を 18:00〜23:30 と読む", !!req && req.win[0] === 18 * 60 && req.win[1] === 23 * 60 + 30,
+         req && hhmm(req.win[0]) + "-" + hhmm(req.win[1]));
+      /* **「生産性の高い1日」の「1日」を日付にしない**（作りながら出た）。
+         全文を parseWhen に渡すと 10月1日として拾い、日付も午前/午後もまるごと狂った。 */
+      ok("AX. 「1日」を日付として拾わない", !!req && req.dayKey === KEY, req && req.dayKey);
+      ok("AX. 「30分かける2回」を 30分×2 と読む",
+         !!req && req.wants.some(w => w.title === "勉強をする" && w.min === 30 && w.count === 2),
+         req && JSON.stringify(req.wants));
+      ok("AX. 「お風呂とご飯それぞれ30分ずつ」を2件に分ける",
+         !!req && req.wants.some(w => w.title === "お風呂に入る" && w.min === 30)
+               && req.wants.some(w => w.title === "夕食を食べる" && w.min === 30),
+         req && req.wants.map(w => w.title).join(","));
+      /* **見出しは言い切りにそろえる**（v6.8・実機で「勉強を か ける①」「ご飯それぞ れ」になった）。
+         ご飯は決まり6i で朝昼夕に名前を揃えるので「夕食を食べる」になる。 */
+      ok("AX. 見出しを言い切りの形にする",
+         !!req && req.wants.every(w => /(する|入る|食べる|行く|とる)$/.test(w.title)),
+         req && req.wants.map(w => w.title).join(","));
+      ok("AX. 見出しに助詞を残さない（「勉強を」にしない）",
+         !!req && !req.wants.some(w => /[をにへでがはもの]$/.test(w.title)),
+         req && req.wants.map(w => w.title).join(","));
+
+      const ops = ruleOps(note);
+      ok("AX. 依頼文を目標として保存しない",
+         ops.length === 1 && ops[0].op === "buildday", ops.map(o => o.op).join(","));
+      const res = await applyOps(ops, note);
+
+      const mine = state.items.filter(i => !i.suggested && i.kind === "task");
+      const sug = state.items.filter(i => i.suggested);
+      ok("AX. 言われた4件が入る", mine.length === 4, mine.map(i => i.title).join(","));
+      ok("AX. 提案が足される", sug.length >= 8, sug.length + "件");
+      ok("AX. 提案には「アプリの提案」の印が付く",
+         sug.every(i => /アプリの提案/.test(srcChip(i))), srcChip(sug[0] || {}));
+
+      const pl = planFor(KEY, { nowMin: 17 * 60 });
+      const rows = pl.blocks.filter(b => b.item && b.item.dayKey === KEY)
+        .map(b => hhmm(b.s) + "〜" + hhmm(b.e) + " " + b.item.title);
+      ok("AX. 13枠が予定表に入る", rows.length === 13, rows.length + "枠");
+      ok("AX. 18:00 から始まる", rows[0] === "18:00〜18:10 切り替え・準備", rows[0]);
+      ok("AX. 23:30 に就寝準備で終わる", rows[rows.length - 1] === "23:00〜23:30 就寝準備", rows[rows.length - 1]);
+      ok("AX. 勉強①②が 18:10 と 19:30 に入る",
+         rows.includes("18:10〜18:40 勉強をする①") && rows.includes("19:30〜20:00 勉強をする②"), rows.join(" / "));
+      ok("AX. ご飯は前半、お風呂は身支度の前",
+         rows.indexOf("18:40〜19:10 夕食を食べる") >= 0 && rows.indexOf("21:00〜21:30 お風呂に入る") >= 0, rows.join(" / "));
+      ok("AX. 壊れた見出しを予定表に入れない",
+         rows.every(r => !/\s(か|れ|を|ける|それぞ)\s/.test(r) && !/か ける|それぞ れ/.test(r)), rows.join(" / "));
+      ok("AX. 置けなかったものが出ない", pl.unplaced.length === 0,
+         pl.unplaced.map(u => u.item.title + "→" + u.reason).join(" / "));
+
+      /* **習慣はコードで作らない**（v6.7・本人の指示）。決まった持ち札から選ぶと毎回同じ4つが出る。
+         その都度AIに考えさせ、返事の文の中で1つだけ言ってもらう。
+         だからコード側は**習慣の文を1つも持たない**——ここが再発の見張り。 */
+      ok("AX. 習慣の文をコードが作らない", res.habits === undefined, JSON.stringify(res.habits));
+      ok("AX. まとめて消すための日は返す", res.habitDay === KEY, String(res.habitDay));
+      /* 依頼文そのものを見る。**ソースを丸ごと検索しない**（説明のコメントに当たる）——
+         関数の中身だけを見る、という記録済みの作法に従う。 */
+      const PR = String(buildPrompt);
+      ok("AX. AIへの依頼に「習慣を1つだけ」と書いてある", /習慣の提案」を1つだけ/.test(PR), "");
+      ok("AX. AIに時刻・件数を書かせない", /時刻・分数・件数は書かない/.test(PR), "");
+      ok("AX. 毎回同じことを言わせない", /毎回同じことを言わない/.test(PR), "");
+
+      // 習慣は会話の中の提案でしかない。勝手に目標として保存しない（決まり2）
+      ok("AX. 習慣を勝手に目標として保存しない",
+         state.items.filter(i => i.kind === "goal").length === 0,
+         state.items.filter(i => i.kind === "goal").map(i => i.title).join(","));
+
+      // 同じことをもう一度言っても、二重にならない（決まり5）
+      const n2 = { id: uid(), text: normNote(LINE), hash: hash(LINE + "2"), capturedAt: at,
+        source: "talk", sourceName: null, createdAt: at };
+      await putNote(n2);
+      const cnt = state.items.length;
+      const res2 = await applyOps(ruleOps(n2), n2);
+      ok("AX. もう一度言っても予定は増えない", state.items.length === cnt, cnt + "→" + state.items.length);
+      ok("AX. 増えなかったことを黙らない", res2.asks.some(x => /足していません/.test(x)),
+         res2.asks.join(" / ").replace(/<[^>]+>/g, ""));
+
+      /* **話す時刻で答えが変わる**（v6.6・本人が「夕方6時」と確認したあとに実測）。
+         18:30 に言うと翌日の朝6時になっていた。開始が30分過ぎただけで、23:30 まで
+         5時間使えるのに、丸一日飛んでいた。「今夜こうしよう」は夕方以降に言うので、ここが効く。
+         決まり4b（一点の時刻）は**書き換えない**。日をまたいで飛んだときだけ、今日を見直す。 */
+      {
+        const winAt = (h, mi) => {
+          const at2 = zoned(2026, 9, 12, h, mi, TZ).toISOString();
+          const n3 = { id: uid(), text: normNote(LINE), capturedAt: at2, createdAt: at2 };
+          const r = parseDayRequest(n3, TZ);
+          return r ? r.dayKey + " " + hhmm(r.win[0]) + "-" + hhmm(r.win[1]) : "組み立てない";
+        };
+        ok("AX. 朝に言っても今日の夕方", winAt(8, 0) === KEY + " 18:00-23:30", winAt(8, 0));
+        // 18:30 に言えば「今日の夕方のまま・いまから」。翌日の朝へ飛ばさないことが要点
+        ok("AX. 18時を過ぎても翌日へ飛ばさない", winAt(18, 30) === KEY + " 18:30-23:30", winAt(18, 30));
+        ok("AX. 始まっていたら、いまから組み立てる", winAt(20, 0) === KEY + " 20:00-23:30", winAt(20, 0));
+        // 残りが「言われたぶん」に足りないなら、無理に今日へ寄せない
+        ok("AX. 残りが足りなければ今日へ寄せない", winAt(22, 0) === NEXT + " 06:00-11:30", winAt(22, 0));
+
+        // 20時に言っても、就寝準備は 23:30 に終わる（提案のほうを落として調整する）
+        reset();
+        const at3 = zoned(2026, 9, 12, 20, 0, TZ).toISOString();
+        const n4 = { id: uid(), text: normNote(LINE), hash: hash(LINE + "20"), capturedAt: at3,
+          source: "talk", sourceName: null, createdAt: at3 };
+        await putNote(n4);
+        const r4 = await applyOps(ruleOps(n4), n4);
+        const pl2 = planFor(KEY, { nowMin: 20 * 60 });
+        const rows2 = pl2.blocks.filter(b => b.item).map(b => hhmm(b.s) + "〜" + hhmm(b.e) + " " + b.item.title);
+        ok("AX. 遅れても就寝準備は 23:30 に終わる",
+           rows2[rows2.length - 1] === "22:55〜23:30 就寝準備", rows2[rows2.length - 1]);
+        ok("AX. 遅れても言われた4件は落とさない",
+           state.items.filter(i => !i.suggested && i.kind === "task").length === 4,
+           state.items.filter(i => !i.suggested).map(i => i.title).join(","));
+        ok("AX. 過ぎた時間に置こうとしない", pl2.unplaced.length === 0,
+           pl2.unplaced.map(u => u.item.title + "→" + u.reason).join(" / "));
+        ok("AX. 落とした提案を黙らない", r4.asks.some(x => /入れませんでした/.test(x)),
+           r4.asks.join(" / "));
+        ok("AX. 頭を切ったことを1文で言う",
+           r4.asks.filter(x => /組み立てました/.test(x)).length === 1,
+           r4.asks.filter(x => /組み立てました/.test(x)).join(" / "));
+      }
+
+      /* **句点が無い形**（実機はこれだった）。1文にまとまると、依頼の文を飛ばす所で
+         活動を1つも拾えず、組み立てごと消えていた。長さが2つ以上あるときは切ってから読む。 */
+      {
+        const one = (t) => {
+          const at4 = zoned(2026, 9, 12, 17, 0, TZ).toISOString();
+          const r = parseDayRequest({ id: uid(), text: normNote(t), capturedAt: at4, createdAt: at4 }, TZ);
+          return r ? r.wants.map(w => w.title + "/" + w.min + "x" + w.count).join(" ") : "組み立てない";
+        };
+        const noDot = "6時から11時半までの間で勉強を30分かける2回 その間にお風呂とご飯それぞれ30分ずつ使う 他に入れる予定や習慣を提案して組み立てて";
+        ok("AX. 句点が無くても組み立てる",
+           one(noDot) === "勉強をする/30x2 お風呂に入る/30x1 夕食を食べる/30x1", one(noDot));
+        // 長さが2つ以上あるときは、先に出た長さを他の活動へ持ち込まない
+        const two = "18時から23時半の間で読書を20分、散歩を30分。他も提案して組み立てて。";
+        ok("AX. 長さを他の活動に持ち込まない",
+           one(two) === "読書をする/20x1 散歩する/30x1", one(two));
+
+        // 時間帯が読めないときは黙らない（決まり5 と同じ理屈）
+        const at5 = zoned(2026, 9, 12, 17, 0, TZ).toISOString();
+        const n5 = { id: uid(), text: normNote("9時から12時の間で資料づくりを45分かける2回。提案して組み立てて。"),
+          hash: hash("x9"), capturedAt: at5, source: "talk", sourceName: null, createdAt: at5 };
+        await putNote(n5);
+        const r5 = await applyOps(ruleOps(n5), n5);
+        ok("AX. 組み立てられなかったことを黙らない",
+           r5.asks.some(x => /読み取れませんでした/.test(x)), r5.asks.join(" / ") || "知らせ無し");
+      }
+
+      /* **朝の組み立て**（v6.9・測って見つけた）。持ち札は夜を前提に作ってあったので、
+         朝6時〜11時半で組むと**就寝準備・リラックス・身支度が日中に並んで**いた。
+         夜かどうかは**窓の終わりが21時以降か**で決める（言葉ではなく時刻で決める）。 */
+      {
+        reset();
+        const MORN = "朝6時から11時半までの間で勉強を30分かける2回 その間にご飯と散歩それぞれ30分ずつ使う 他に入れる予定や習慣を提案して組み立てて";
+        const at6 = zoned(2026, 9, 12, 5, 0, TZ).toISOString();
+        const n6 = { id: uid(), text: normNote(MORN), hash: hash("m1"), capturedAt: at6,
+          source: "talk", sourceName: null, createdAt: at6 };
+        await putNote(n6);
+        await applyOps(ruleOps(n6), n6);
+        const pm = planFor(KEY, { nowMin: 5 * 60 });
+        const t6 = pm.blocks.filter(b => b.item).map(b => b.item.title);
+        ok("AX. 朝の組み立てに就寝準備を入れない", !t6.includes("就寝準備"), t6.join(" / "));
+        ok("AX. 朝にリラックス・身支度を入れない",
+           !t6.includes("リラックス") && !t6.includes("身支度・明日の準備"), t6.join(" / "));
+        ok("AX. 朝は「今日の計画を立てる」を始めのほうに置く",
+           t6.indexOf("今日の計画を立てる") >= 0 && t6.indexOf("今日の計画を立てる") <= 2, t6.join(" / "));
+        /* **食事の名前は「置かれる枠の時刻」で決める**。話した時刻で決めると、
+           夜に「明日の朝のご飯」と言ったとき「食事をとる」になった（実測）。 */
+        ok("AX. 朝の枠のご飯は朝食になる", t6.includes("朝食を食べる"), t6.join(" / "));
+
+        reset();
+        const NIGHTSAY = "明日の朝6時から11時半までの間でご飯を30分使う 他も提案して組み立てて";
+        const at7 = zoned(2026, 9, 12, 22, 0, TZ).toISOString();
+        const n7 = { id: uid(), text: normNote(NIGHTSAY), hash: hash("m2"), capturedAt: at7,
+          source: "talk", sourceName: null, createdAt: at7 };
+        await putNote(n7);
+        await applyOps(ruleOps(n7), n7);
+        ok("AX. 夜に言った「明日の朝のご飯」も朝食になる",
+           state.items.some(i => i.title === "朝食を食べる"),
+           state.items.filter(i => !i.suggested).map(i => i.title).join(","));
+        /* **日付を言われていたら、今日へ寄せない**（v7.0・朝を測って見つけた）。
+           v6.6 の寄せの門が `dk > spokeDay` だけだったので、22時に
+           「明日の朝6時から11時半まで」と言うと**今日の22:00〜23:30 に組み立てて**いた。 */
+        ok("AX. 「明日」と言われたら今日へ寄せない",
+           state.items.some(i => i.dayKey === NEXT) && !state.items.some(i => i.dayKey === KEY),
+           [...new Set(state.items.map(i => i.dayKey))].join(","));
+
+        // 余りで「自由・予備時間」を膨らませすぎない（残りは空きとして見える）
+        ok("AX. 自由・予備時間を膨らませすぎない",
+           pm.blocks.every(b => !b.item || b.item.title !== "自由・予備時間" || (b.e - b.s) <= 90),
+           pm.blocks.filter(b => b.item && b.item.title === "自由・予備時間").map(b => (b.e - b.s) + "分").join(","));
+      }
+
+      state.settings = Object.assign({}, state.settings, { workStart: keepW[0], workEnd: keepW[1] });
+    }
+
+    /* ===== AY. 合わない提案を外す・戻す（v7.1） =====
+       持ち札は9つ固定なので、暮らしに合わないものが毎回出る。
+       「片付けは提案しないで」で外れ、「片付けもまた提案して」で戻ること。
+       **片道だけ作らない**——戻せないと、外した人が詰む。 */
+    {
+      reset();
+      const keepW2 = [state.settings.workStart, state.settings.workEnd];
+      state.settings = Object.assign({}, state.settings, { workStart: "00:00", workEnd: "23:59" });
+      const at = zoned(2026, 9, 12, 17, 0, TZ).toISOString();
+      const talk = async (t) => {
+        const n = { id: uid(), text: normNote(t), hash: hash(t + Math.random()), capturedAt: at,
+          source: "talk", sourceName: null, createdAt: at };
+        await putNote(n); return await applyOps(ruleOps(n), n);
+      };
+      const LINE2 = "6時から11時半までの間で勉強を30分かける2回 その間にお風呂とご飯それぞれ30分ずつ使う 他に入れる予定や習慣を提案して組み立てて";
+      const titles = () => planFor(KEY, { nowMin: 17 * 60 }).blocks.filter(b => b.item).map(b => b.item.title);
+
+      let r = await talk("片付けは提案しないで。リラックスも要らない。");
+      ok("AY. 「提案しないで」を希望として受け取る",
+         prefs(KEY).noSuggest.join(",") === "tidy,relax", prefs(KEY).noSuggest.join(","));
+      /* **要望を用事にしない**（決まり0）。これが無いと
+         「タスクを追加：片付けは提案しないで」が予定表に並ぶ（実測）。 */
+      ok("AY. 要望の文からタスクを作らない",
+         !state.items.some(i => i.kind === "task"),
+         state.items.filter(i => i.kind === "task").map(i => i.title).join(","));
+      ok("AY. 2つ言っても、片方が消えない", prefs(KEY).noSuggest.length === 2,
+         prefs(KEY).noSuggest.join(","));
+
+      await talk(LINE2);
+      ok("AY. 外した提案は組み立てに入らない",
+         !titles().some(t => /片付け|リラックス/.test(t)), titles().join(" / "));
+      ok("AY. ほかの提案は今までどおり入る",
+         titles().includes("就寝準備") && titles().includes("休憩"), titles().join(" / "));
+
+      state.items = state.items.filter(i => i.kind === "preference");   // 予定だけ消して組み直す
+      r = await talk("片付けもまた提案して。");
+      ok("AY. 「また提案して」で戻せる", prefs(KEY).noSuggest.join(",") === "relax",
+         prefs(KEY).noSuggest.join(","));
+      ok("AY. 戻したことを変えたことに出す",
+         r.changes.some(c => /また提案する/.test(c)), r.changes.join(" / "));
+      await talk(LINE2 + "（2回目）");
+      ok("AY. 戻したら、また入る", titles().some(t => /片付け/.test(t)), titles().join(" / "));
+
+      r = await talk("片付けもまた提案して。");
+      ok("AY. もともと外していないなら、そう言う",
+         r.asks.some(x => /もともと外していません/.test(x)), r.asks.join(" / "));
+      /* 「提案して」という言葉だけで「組み立てられなかった」と言わない——
+         時刻を言っているときだけ（実測でここが出ていた）。 */
+      ok("AY. 時刻が無いのに組み立て失敗を言わない",
+         !r.asks.some(x => /読み取れませんでした/.test(x)), r.asks.join(" / "));
+
+      state.settings = Object.assign({}, state.settings, { workStart: keepW2[0], workEnd: keepW2[1] });
     }
 
     const fails = R.filter(x => x.startsWith("FAIL"));

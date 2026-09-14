@@ -301,6 +301,33 @@
       await click("#btnExport"); await wait(300);
       if (!/書き出しました|コピーして/.test($$("#expOut").textContent)) throw new Error("書き出しの反応が無い");
     });
+    /* 1件消す道も、消せたか確かめてから言うこと（v5.6）。
+       `dbTrouble` は呼んでいたが、**先に手元から消して**「消しました」と言っていた。
+       保存先に残っているのに画面からは消えるので、開き直すと戻ってくる。 */
+    await step("原文を消せないときは「消しました」と言わない", async () => {
+      const db = await window.claude.use("db");
+      const origDoc = db.doc;
+      db.doc = function (p) {
+        const r = origDoc.call(db, p);
+        r.delete = () => Promise.reject({ code: "permission_denied", message: "テスト用に失敗させた" });
+        return r;
+      };
+      lastError = null;
+      const before = state.notes.length;
+      try {
+        const b = firstAct("#p-set", "delnote");
+        if (!b) throw new Error("「この原文を消す」が無い");
+        await click(b);
+        if (!has("#cfYes")) throw new Error("確認シートが出ない");
+        await click("#cfYes");
+        if (!await waitFor(() => !has("#cfYes"), 6000)) throw new Error("シートが閉じない");
+        await wait(250);
+        if (state.notes.length !== before) throw new Error("保存先から消せていないのに、手元だけ消した");
+      } finally { db.doc = origDoc; }
+      if (!lastError) throw new Error("不具合として記録されない");
+      lastError = null;
+    });
+
     await step("原文を開いて1件消す", async () => {
       const b = firstAct("#p-set", "delnote");
       if (!b) throw new Error("「この原文を消す」が無い");
@@ -346,6 +373,162 @@
       if ($$("#errCard").hidden) throw new Error("設定タブに不具合欄が出ない");
       if (!/permission_denied/.test($$("#errText").value)) throw new Error("伝えられる中身になっていない");
       lastError = null; syncKind = "ok"; setSync("ok"); renderSettings();
+    });
+
+    /* 「古い記録を整理する」も、消せたかどうかを確かめてから言うこと（v5.6）。
+       「全部消す」は v4.8 で直したのに、こちらは `catch {}` で握りつぶし、
+       **先に手元を空にしてから**保存先を触り、無条件に「整理しました」と言っていた。
+       押した人には消えたように見えて、開き直すと全部戻ってくる。
+       それまでのテストは `#btnTidy` が**在るか**しか見ていなかった。 */
+    async function seedOldDone(tag) {
+      const long = 200 * 86400000;
+      const old = new Date(Date.now() - long).toISOString();
+      const it = {
+        id: "tidy-" + tag, noteId: null, kind: "task", title: "ずっと前に終えた用事" + tag,
+        evidence: { text: "x" }, origin: "user", confirmed: true, corrected: false,
+        status: "done", completedAt: old, createdAt: old, updatedAt: old, history: []
+      };
+      it.dedupeKey = dedupeKey(it);
+      await putItem(it);
+      return it;
+    }
+
+    await step("整理で保存先から消せないときは「整理しました」と言わない", async () => {
+      const it = await seedOldDone("a");
+      const db = await window.claude.use("db");
+      const origDoc = db.doc;
+      db.doc = function (p) {
+        const r = origDoc.call(db, p);
+        r.delete = () => Promise.reject({ code: "permission_denied", message: "テスト用に失敗させた" });
+        return r;
+      };
+      lastError = null;
+      try {
+        await click('nav.tabs [data-tab="p-set"]');
+        await click("#btnTidy");
+        if (!has("#cfYes")) throw new Error("確認シートが出ない");
+        await click("#cfYes");
+        if (!await waitFor(() => !has("#cfYes"), 6000)) throw new Error("シートが閉じない");
+        await wait(300);
+        if (!findItem(it.id)) throw new Error("保存先から消せていないのに、手元だけ空にした");
+      } finally { db.doc = origDoc; }
+      if (!lastError) throw new Error("不具合として記録されない");
+      lastError = null;
+    });
+
+    await step("整理（消せるときは、保存先からも消える）", async () => {
+      const it = findItem("tidy-a") || await seedOldDone("a");
+      const db = await window.claude.use("db");
+      await click('nav.tabs [data-tab="p-set"]');
+      await click("#btnTidy");
+      if (!has("#cfYes")) throw new Error("確認シートが出ない");
+      await click("#cfYes");
+      if (!await waitFor(() => !findItem(it.id), 6000)) throw new Error("手元から消えない");
+      const left = (await db.collection("items").get()).docs.filter(d => d.id === it.id).length;
+      if (left) throw new Error("保存先に残っている");
+    });
+
+    /* 資料を消す道にも、同じ穴があった（v5.7・2周目の調査で発見）。
+       消す道は4つだと思っていたが、`delDoc`（資料）を入れて**5つ**だった。
+       `act()` は確認シートの返事を待つので、**await で呼ぶと止まる**。押しっぱなしにして待つ。 */
+    async function docdelAndConfirm(id) {
+      const p = act("docdel", id);                       // await しない（確認待ちで止まるため）
+      if (!await waitFor(() => has("#cfYes"), 4000)) throw new Error("確認シートが出ない");
+      await click("#cfYes");
+      await p;
+    }
+    await step("資料を消せないときは「消しました」と言わない", async () => {
+      const d = { id: "doc-x", title: "検査用の資料", text: "なかみ", hash: "h-doc-x",
+                  chars: 3, truncated: false, source: "paste", sourceName: null,
+                  aiRead: false, createdAt: new Date().toISOString() };
+      await putDoc(d);
+      const db = await window.claude.use("db");
+      const origDoc = db.doc;
+      db.doc = function (p) {
+        const r = origDoc.call(db, p);
+        r.delete = () => Promise.reject({ code: "permission_denied", message: "テスト用に失敗させた" });
+        return r;
+      };
+      lastError = null;
+      try {
+        await docdelAndConfirm(d.id);
+        if (!state.docs.some(x => x.id === d.id))
+          throw new Error("保存先から消せていないのに、手元だけ消した");
+      } finally { db.doc = origDoc; }
+      if (!lastError) throw new Error("不具合として記録されない");
+      lastError = null;
+      // 後始末：ちゃんと消せる状態で消しておく
+      await docdelAndConfirm(d.id);
+      if (state.docs.some(x => x.id === d.id)) throw new Error("消せるはずのものが消えない");
+    });
+
+    /* 3周目の調査で、`act()` の23の操作のうち **3つが一度も叩かれていなかった**
+       （`blk` / `confirm` / `docai`）。ここでは前の2つを覆う。 */
+    await step("「確認済みにする」が効く（決まり2の中核）", async () => {
+      await click('nav.tabs [data-tab="p-day"]');
+      const t = state.items.find(i => i.status === "open" && !i.confirmed && i.kind !== "profile");
+      if (!t) { R.push("（未確認の項目が無いので省略）"); return; }
+      const before = (t.history || []).length;
+      await act("confirm", t.id);
+      const after = findItem(t.id);
+      if (!after.confirmed) throw new Error("確認済みにならない");
+      if ((after.history || []).length !== before + 1) throw new Error("履歴に残らない");
+      renderDay();
+      const html = $$("#dayOut").innerHTML + $$("#meOut").innerHTML;
+      if (!/確認済み/.test(html)) throw new Error("画面に「確認済み」の印が出ない");
+    });
+
+    await step("予定の枠を開いて、たたむ", async () => {
+      await click('nav.tabs [data-tab="p-day"]');
+      const head = document.querySelector('#dayOut .tlrow [data-act="blk"]');
+      if (!head) { R.push("（今日の予定表に枠が無いので省略）"); return; }
+      const row = head.closest(".tlrow");
+      const wasOpen = row.classList.contains("open");
+      await click(head);
+      if (row.classList.contains("open") === wasOpen) throw new Error("開閉が切り替わらない");
+      if (head.getAttribute("aria-expanded") !== String(!wasOpen))
+        throw new Error("aria-expanded が合っていない: " + head.getAttribute("aria-expanded"));
+      await click(head);
+      if (row.classList.contains("open") !== wasOpen) throw new Error("元に戻らない");
+    });
+
+    /* 毎分の見張りが、何も変わっていないのに描き直さないこと（v4.2）。
+       描き直すと `.tlrow.open`（本人が開いた枠）が勝手に閉じる。 */
+    await step("何も変わらなければ、描き直しの合図も変わらない", async () => {
+      const a = runningKey(), b = runningKey();
+      if (a !== b) throw new Error(`同じ条件で違う値が出る: ${a} / ${b}`);
+      if (typeof a !== "string") throw new Error("文字列が返らない: " + typeof a);
+    });
+
+    /* 「AIにも読ませる」は**全文を外へ送る**操作なのに、確認が無かった（v5.8・3周目の調査）。
+       保存直後の経路にだけ確認が付いていて、資料カードのボタンには無い。
+       `runDocAI` にはテストも1件も無かった。 */
+    await step("「AIにも読ませる」は、送る前に必ず確認を出す", async () => {
+      const d = { id: "doc-ai", title: "検査用の長い資料", text: "人前で発表するのは昔から苦手です。".repeat(40),
+                  hash: "h-doc-ai", chars: 40 * 17, truncated: false, source: "paste",
+                  sourceName: null, aiRead: false, createdAt: new Date().toISOString() };
+      await putDoc(d);
+      const p1 = act("docai", d.id);                       // await しない（確認待ちで止まる）
+      if (!await waitFor(() => has("#cfYes"), 4000)) throw new Error("確認シートが出ない（黙って送っている）");
+      const body = $$(".sheet .inner").textContent;
+      if (!/回に分けて/.test(body)) throw new Error("何回送るかを言っていない: " + body.slice(0, 80));
+      if (!/利用枠/.test(body)) throw new Error("誰の枠を使うかを言っていない");
+      await click("#cfNo");
+      await p1;
+      if (state.docs.find(x => x.id === d.id).aiRead) throw new Error("やめたのに送っている");
+
+      const p2 = act("docai", d.id);
+      if (!await waitFor(() => has("#cfYes"), 4000)) throw new Error("2回目の確認が出ない");
+      await click("#cfYes");
+      await p2;
+      if (!await waitFor(() => state.docs.find(x => x.id === d.id).aiRead, 6000))
+        throw new Error("読ませたのに、読んだ印が付かない");
+    });
+
+    await step("見つからない資料をAIに読ませようとしても、黙って終わらない", async () => {
+      const n = (R.filter(x => /^PASS|^FAIL/.test(x)) || []).length;
+      await runDocAI("no-such-doc");                        // 例外を投げず、黙りもしないこと
+      if (!/見つかりません/.test($$("#toast").textContent || "")) throw new Error("理由が出ない");
     });
 
     /* ===== 再読み込みしても残るか（凍結データからの復帰） ===== */
@@ -404,6 +587,98 @@
       if (!$$("#meOut").innerHTML.trim()) throw new Error("わたしのことタブが空白");
       await click('nav.tabs [data-tab="p-chat"]');
       if (!$$("#chatOut").innerHTML.trim()) throw new Error("話すタブが空白");
+    });
+    /* .ics の取り込みは、本物のカレンダーだと**何年ぶんも**入っている。
+       足す前に件数を出し、「この先1年ぶんだけ」という逃げ道があること、
+       そして**しぼったら本当にしぼられている**ことを確かめる。 */
+    await step(".ics の取り込み：この先1年ぶんだけを選べる", async () => {
+      const tz = state.settings.timezone, P = parts(new Date(), tz);
+      const st = (y, mo, d) => `${y}${String(mo).padStart(2, "0")}${String(d).padStart(2, "0")}T100000Z`;
+      const ev = (t, v) => ["BEGIN:VEVENT", "SUMMARY:" + t, "DTSTART:" + v, "END:VEVENT"].join("\r\n");
+      const text = ["BEGIN:VCALENDAR",
+        ev("ずっと前の会議", st(P.y - 2, 5, 10)),
+        ev("来月の面談", st(P.y, P.mo, P.d).replace(/T.*/, "T100000Z")),
+        ev("2年先の式典", st(P.y + 2, P.mo, P.d)),
+        "END:VCALENDAR"].join("\r\n");
+      const before = state.items.length;
+      const pr = importICS(text, "test.ics");
+      if (!await waitFor(() => has("#cfYes"), 3000)) throw new Error("確認シートが出ない");
+      if (!has("#cfAlt")) throw new Error("「この先1年ぶんだけ」の道が出ない");
+      if (!/1年ぶんだけ（1件）/.test($$("#cfAlt").textContent)) throw new Error("しぼったときの件数が出ない: " + $$("#cfAlt").textContent);
+      await click("#cfAlt"); await pr; await wait(200);
+      const added = state.items.length - before;
+      if (added !== 1) throw new Error("しぼったのに " + added + "件 入った");
+      if (state.items.some(i => i.title === "ずっと前の会議" || i.title === "2年先の式典"))
+        throw new Error("しぼった範囲の外まで入っている");
+      if (!/足していません/.test($$("#expOut").textContent)) throw new Error("残りを足していないことを言わない");
+    });
+    await step(".ics の取り込み：上限を超えるときは、足す前に言う", async () => {
+      const tz = state.settings.timezone, P = parts(new Date(), tz);
+      const ev = (t, v) => ["BEGIN:VEVENT", "SUMMARY:" + t, "DTSTART:" + v, "END:VEVENT"].join("\r\n");
+      const text = ["BEGIN:VCALENDAR",
+        ev("上限ためし", `${P.y + 1}0301T100000Z`), "END:VCALENDAR"].join("\r\n");
+      const keep = state.notes;
+      state.notes = new Array(READ_LIMIT).fill(0).map((_, i) => ({ id: "x" + i }));   // 保存はしない。数えるところだけ演じる
+      const before = state.items.length;
+      try {
+        const pr = importICS(text, "big.ics");
+        if (!await waitFor(() => has("#cfYes"), 3000)) throw new Error("確認シートが出ない");
+        const body = $$("#sheetHost").textContent;
+        if (!/超えます/.test(body)) throw new Error("上限を超えることを言わない: " + body);
+        if (!/画面に出なくなります/.test(body)) throw new Error("超えると何が起きるかを言わない");
+        await click("#cfNo"); await pr; await wait(120);
+      } finally { state.notes = keep; }
+      if (state.items.length !== before) throw new Error("やめたのに入っている");
+    });
+    /* 作業に使える時間帯が狭いまま保存されていると、その外に何も置けない。
+       設定欄は外してあるので、**押して直せること**をここで確かめる（v6.3・実機で報告）。 */
+    await step("作業に使える時間帯が狭いと知らせ、押すと一日じゅうに戻る", async () => {
+      await putSettings(Object.assign({}, state.settings, { workStart: "05:00", workEnd: "11:00" }));
+      await click('nav.tabs [data-tab="p-set"]');
+      const w = $$("#windowWarn");
+      if (!w || w.hidden) throw new Error("狭いことを知らせない");
+      if (!/05:00〜11:00/.test(w.textContent)) throw new Error("いまの値を出さない: " + w.textContent);
+      if (!/作業に使える時間帯：05:00〜11:00/.test($$("#dataState").textContent))
+        throw new Error("データ欄にも出ていない: " + $$("#dataState").textContent);
+      await click("#btnWholeDay");
+      if (state.settings.workStart !== "00:00" || state.settings.workEnd !== "23:59")
+        throw new Error("押しても戻らない: " + state.settings.workStart + "〜" + state.settings.workEnd);
+      // **保存先まで読み直して確かめる**（画面だけ変わって保存できていない、を防ぐ）
+      const db = await window.claude.use("db");
+      const got = await db.doc("meta/settings").get();
+      if (!got.exists || got.data().workEnd !== "23:59")
+        throw new Error("保存先に残っていない: " + (got.exists ? got.data().workEnd : "無し"));
+      if (!$$("#windowWarn").hidden) throw new Error("戻したのに知らせが残る");
+    });
+    /* 1日の組み立て（v6.5）。**AIがオンの本番と同じ条件**で、
+       発言 → 13枠が予定表に入る → 習慣を取り入れる → 提案だけ全部消す、まで実際に押す。 */
+    await step("「1日を組み立てて」で、予定表に入る（AIオンのまま）", async () => {
+      await putSettings(Object.assign({}, state.settings, { workStart: "00:00", workEnd: "23:59" }));
+      await click('nav.tabs [data-tab="p-chat"]');
+      type("#say", "6時から11時半までの間で勉強を30分かける2回。その間にお風呂とご飯それぞれ30分ずつ使う。"
+        + "他に入れる予定ややった方がいい習慣などを提案してスケジュールを組み立てて。");
+      await click("#btnSend");
+      if (!await waitFor(() => state.items.filter(i => i.suggested).length >= 8, 8000))
+        throw new Error("提案が入らない（AIオンだとコードの組み立てが消えている）："
+          + state.items.length + "件 / 提案" + state.items.filter(i => i.suggested).length + "件");
+      if (state.items.filter(i => !i.suggested && i.kind === "task").length < 4)
+        throw new Error("本人が言った4件が入っていない");
+      // **習慣のための欄は作らない**（v6.7・本人の指示）。提案はAIの返事の文の中だけ
+      if (document.querySelector('#chatOut [data-act="habit"]'))
+        throw new Error("習慣の欄が残っている（返事の文の中だけにする）");
+      if (/このような習慣はどうですか/.test($$("#chatOut").textContent))
+        throw new Error("コードが習慣の見出しを出している");
+    });
+    await step("「提案した予定を全部消す」で、提案だけ消える", async () => {
+      const b = document.querySelector('#chatOut [data-act="clearsug"]');
+      if (!b) throw new Error("まとめて消す道が無い");
+      const mine = state.items.filter(i => !i.suggested && i.kind === "task").length;
+      const pr = act("clearsug", b.dataset.id);
+      if (!await waitFor(() => has("#cfYes"), 3000)) throw new Error("確認シートが出ない");
+      await click("#cfYes"); await pr; await wait(200);
+      if (state.items.some(i => i.suggested && i.status === "open")) throw new Error("提案が残っている");
+      if (state.items.filter(i => !i.suggested && i.kind === "task" && i.status === "open").length !== mine)
+        throw new Error("本人が言った予定まで消した");
     });
     await step("空の状態から、また話しかけられる", async () => {
       type("#say", "明日の11時に打ち合わせ。");

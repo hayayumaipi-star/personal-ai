@@ -104,7 +104,6 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 .chip.src-rule{border-color:var(--line-strong);color:var(--ink-2)}
 /* 文字は --warn ではなく --warn-ink。明るいときに --warn × --warn-soft だと 4.24 しか出ない */
 .chip.src-ai{border-style:dashed;border-color:var(--warn);color:var(--warn-ink);background:var(--warn-soft)}
-.chip.k-task{color:var(--ink-2)}
 .chip.st-done{background:var(--done-soft);border-color:var(--done);color:var(--done)}
 /* 取り消しの印は控えめでよいが、読めなくては意味がない（--ink-3 だと 2.98 しか出ない） */
 .chip.st-drop{background:var(--surface-2);color:var(--ink-2)}
@@ -206,7 +205,6 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 .note{border-radius:8px;padding:9px 11px;font-size:12.5px;line-height:1.7}
 .note.warn{background:var(--warn-soft);border:1px solid var(--warn);color:var(--warn)}
 .note.info{background:var(--surface-2);border:1px solid var(--line);color:var(--ink-2)}
-.note.good{background:var(--done-soft);border:1px solid var(--done);color:var(--done)}
 .note.bad{background:var(--alert-soft);border:1px solid var(--alert);color:var(--alert)}
 .note strong{font-weight:700}
 
@@ -225,7 +223,6 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--surface);
   border-top:1px solid var(--line);padding:5px 6px calc(5px + env(safe-area-inset-bottom,0px));
   display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
-nav.tabs.three{grid-template-columns:repeat(3,1fr)}
 nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px;border-radius:8px;
   font-family:var(--f-disp);font-size:10.5px;font-weight:500;color:var(--ink-3);min-height:46px;justify-content:center}
 nav.tabs button .ic{font-size:16px;line-height:1.1}
@@ -260,7 +257,6 @@ body.sheetopen{overflow:hidden}
 #toast[hidden]{display:none!important}
 .sheet h3{font-size:16px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
-.tablewrap{overflow-x:auto}
 
 .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--ink-2);align-items:center}
 .legend i{display:inline-block;width:16px;height:0;border-top-width:4px;margin-right:4px;vertical-align:middle}
@@ -357,7 +353,6 @@ body.talking .wrap{padding-bottom:190px}
 .blk.brk{background:var(--surface-2);border:1px solid var(--line);border-left:4px solid var(--line-strong)}
 .blk.buf{background:transparent;border:1px dashed var(--line);border-left:4px dashed var(--line-strong)}
 .blk.brk .bttl,.blk.buf .bttl{color:var(--ink-2);font-weight:500}
-.onlynext{display:flex;flex-direction:column;gap:10px}
 details.allplan{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:9px 11px}
 details.allplan>summary{cursor:pointer;font-family:var(--f-disp);font-size:13px;font-weight:500;list-style:none}
 details.allplan>summary::-webkit-details-marker{display:none}
@@ -525,6 +520,11 @@ details.unconf>summary{color:var(--warn)}
         <strong>その人自身のページとして公開</strong>してもらってください。データもAIの枠も完全に分かれます。<br>
         端末の中の控え（localStorage）は、その端末の中だけに残ります。</p>
       <div class="note warn" id="dataWarn" hidden></div>
+      <!-- 作業に使える時間帯が狭いまま保存されている人の逃げ道（v6.3・実機で報告）。
+           設定欄は v3.9 で外したので、古い値のままだと**画面から直す道が無かった**。
+           実機で 05:00〜11:00 のまま残っていて、11時より後に何も置けなくなっていた。
+           入力欄は戻さない。戻すのは「一日じゅうに戻す」の1手だけ。 -->
+      <div class="note warn" id="windowWarn" hidden></div>
       <div class="row">
         <button class="btn" id="btnExport">書き出す（JSON）</button>
         <button class="btn" id="btnImport">読み込む（JSON）</button>
@@ -605,14 +605,6 @@ details.unconf>summary{color:var(--warn)}
 const SAMPLE_TALK = `おはよう。昨日寝たのがたぶん1時半くらいで、今日起きたのが8時。ちょっと眠い。朝ごはんはまだ食べてない。今日はあんまり予定を詰めすぎないでほしい。
 昨日言ってた資料を作らないと。明日までに相手に送るやつ。1時間くらいでできると思ってたけど、調べることもあるからもうちょっとかかるかも。できれば午前中に進めたい。
 あと、友達にAIの構想を送ろうと思ってたんだった。これは今日絶対じゃないけど、忘れないようにしておいて。`;
-
-const SAMPLE = `えーと、今日はあんまり寝てない。5時間くらい。ちょっとだるい感じ。
-明日の15時から歯医者の予約が入ってる。
-来週の金曜までに研究計画書を出さないといけない。まだ全然書けてない。たぶん3時間くらいかかると思う。
-田中さんに返信するの忘れてた。今日中にやる。15分くらい。
-今日は11時から12時半までゼミ。
-今年は週2回は走る習慣をつけたい。
-あとスーパーで洗剤買う。`;
 
 /* ---------- small utils ---------- */
 const $ = s => document.querySelector(s);
@@ -867,8 +859,12 @@ function parseWhen(rawText, baseISO, tz) {
       const sMs = new Date(res.start).getTime();
       let endAt = zoned(ky, km, kd, h2, m2, tz);
       if (endAt.getTime() <= sMs) {
+        /* `h2 + 12` が **24**（＝翌日の0:00）になる場合も許すこと（v5.3・実機で報告）。
+           `<= 23` で切っていたので、夜に「11時から12時まで」と言うと終わりだけ
+           午後シフトから漏れ、**翌日の12:00＝13時間**の枠になっていた。
+           `zoned` は 24時をそのまま翌日0:00として扱う。 */
         const pm = zoned(ky, km, kd, h2 + 12, m2, tz);
-        endAt = (h2 + 12 <= 23 && pm.getTime() > sMs) ? pm : zoned(ky, km, kd + 1, h2, m2, tz);
+        endAt = (h2 + 12 <= 24 && pm.getTime() > sMs) ? pm : zoned(ky, km, kd + 1, h2, m2, tz);
       }
       res.end = endAt.toISOString();
       res.precision = "exact"; res.hasTime = true;
@@ -1096,7 +1092,7 @@ const CUT = " ";
 /* 日付のあとに続く言葉（「来週あたり」「今週中に」）と、そのあとの助詞まで落とす。
    「14時からの打ち合わせ」のように助詞が2つ続くので、最後の「の」も見る。 */
 const RE_CUT_PARTICLE = new RegExp(
-  CUT + "[\\s、,]*(?:あたり|ごろ|頃)?[\\s、,]*(?:の間に|の間で|のあいだに|間に|中までに|中まで|中に|までに|まで|から|は|が|に|を|で|の|と|も)?の?", "g");
+  CUT + "[\\s、,]*(?:あたり|ごろ|頃)?[\\s、,]*(?:までの間に|までのあいだに|までの間で|の間に|の間で|のあいだに|間に|中までに|中まで|中に|までに|まで|から|は|が|に|を|で|の|と|も)?の?", "g");
 /* くり返しの言い方（v4.3）。これを落とさないと、見出しが「毎週 ゼミ」のまま残り、
    1回きりの予定なのか毎週なのか、画面から読み取れなくなる。 */
 const RE_REPEAT_WORD = /(毎週\s*(?:の)?\s*[日月火水木金土]曜?日?|毎月\s*(?:の)?\s*\d{1,2}\s*日|隔週(?:で)?|毎週|毎月|毎日|まいにち|毎朝|毎晩|毎夜|平日(?:は|に|毎日)?)/g;
@@ -1114,7 +1110,14 @@ function cleanTitle(s, when) {
   t = t.replace(new RegExp(AMPM + "\\s*\\d{1,2}\\s*[:：時](?!間)\\s*\\d{0,2}\\s*分?半?", "g"), CUT);
   t = t.replace(/(\d+\s*時間\s*半?(\d+\s*分)?|\d+\s*分)(くらい|ほど|程度)?/g, CUT);
   t = deModal(t);
-  t = t.replace(RE_CUT_PARTICLE, " ");
+  /* **落とした跡を、空白でつながない**（v6.2・実機で報告）。
+     「お風呂に30分入る」の所要時間を落とすと「お風呂に 入る」になっていた。
+     元の文に区切りが無かったのだから、見出しにも区切りは要らない。
+     ただし **英数字が隣にいるときは空白を残す**——「AM9時に集合」で語がくっつくのを防ぐため。
+     元の文に空白があったときも残る（空白は ASCII なので、下の判定で「隣は英数字」になる）。 */
+  const jp = c => !!c && !/[\x00-\x7F]/.test(c);
+  t = t.replace(RE_CUT_PARTICLE, (m, off, str) =>
+    (jp(str[off - 1]) && jp(str[off + m.length])) ? "" : " ");
   t = t.split(CUT).join(" ");
   // 時刻を消したあとに、ぽつんと残る AM / PM（「AM9時に集合」→「AM 集合」だった）
   t = t.replace(/(^|\s)[AaPp][Mm](?=\s|$)/g, " ");
@@ -1515,6 +1518,12 @@ const AI_CHUNK = 6000;            // AIに一度に読ませる文字数
    画面は「6回に分けて送ります」としか言わないので、本人には気づけない。
    ここを定数で別々に持つと、また離れる。片方から出すこと。 */
 const AI_MAX_CHUNKS = Math.ceil(DOC_MAX_CHARS / AI_CHUNK);
+/* 1回に読み込める件数の上限（保存先の仕様）と、知らせ始める件数。
+   **同じ数字が4か所に散っていた**（読み込みの `limit` 2か所・設定タブの知らせ・その文面）。
+   決まりの「同じ定数を2か所に置かない」そのものなので、ここから配る。
+   これは**保存**の上限ではない——超えたぶんは保存されていて、**画面に出なくなる**だけ。 */
+const READ_LIMIT = 1000;          // 1回の読み込みで取れる上限
+const READ_WARN = 800;            // ここを超えたら設定タブで知らせる
 /* 1回の発言の上限（v4.3）。ここだけ上限が無く、10万文字を貼ると画面が20秒止まり、
    保存先の1ドキュメント上限（256KiB）も超えて書き込みが落ちていた。
    長い文章は「わたしのこと」の資料として入れるのが正しい道。 */
@@ -1553,7 +1562,7 @@ function applyTheme(t) {
 /* 「今日は詰めないで」はその日だけの希望。「しばらくそうして」はずっとの希望。
    混ぜると、一日の気分が永久のルールになってしまう。 */
 function prefs(forDay) {
-  const out = { nextOnly: false, buffer: false, noEveningWork: null, lightDay: false, free: [] };
+  const out = { nextOnly: false, buffer: false, noEveningWork: null, lightDay: false, noSuggest: [], free: [] };
   const day = forDay || dayKey(new Date(), state.settings.timezone);
   for (const p of liveItems().filter(i => i.kind === "preference")) {
     if (p.scopeDay && p.scopeDay !== day) continue;     // その日限りの希望は、その日にだけ効く
@@ -1561,7 +1570,8 @@ function prefs(forDay) {
     else if (p.preferKey === "buffer") out.buffer = p.preferValue !== false;
     // 「夜までずっと作業したくない」＝ 終了を早めるだけでなく、
     //   残り時間を別の作業で埋めない。急がないものは今日に置かない。
-    else if (p.preferKey === "noEveningWork") { out.noEveningWork = typeof p.preferValue === "number" ? p.preferValue : 18 * 60; out.lightDay = true; }
+    else if (p.preferKey === "noEveningWork") { out.noEveningWork = typeof p.preferValue === "number" ? p.preferValue : EVENING_DEFAULT_MIN; out.lightDay = true; }
+    else if (p.preferKey === "noSuggest") { if (typeof p.preferValue === "string") out.noSuggest.push(p.preferValue); }
     else out.free.push(p);
   }
   return out;
@@ -1597,9 +1607,13 @@ async function putDoc(d) {
   lsWrite();
   if (DB) { try { await DB.doc("docs/" + d.id).set(d); } catch (e) { dbTrouble(e); } }
 }
+/* 資料を消す。**消せたときだけ true**（v5.7）。ここにも同じ穴が残っていた——
+   先に手元から消して、呼んだ側が無条件に「資料を消しました」と言っていた。
+   消す道は4つだと思っていたが、これを入れて**5つ**あった。 */
 async function delDoc(id) {
+  if (!await deleteFromStore("docs/" + id)) return false;
   state.docs = state.docs.filter(x => x.id !== id); lsWrite();
-  if (DB) { try { await DB.doc("docs/" + id).delete(); } catch (e) { dbTrouble(e); } }
+  return true;
 }
 
 /* 会話は日ごとに1ドキュメントへまとめる（1件1ドキュメントにすると保存上限に当たるため） */
@@ -1644,8 +1658,9 @@ async function putItem(it) {
   lsWrite();
   if (DB) { try { await DB.doc("items/" + it.id).set(it); } catch (e) { dbTrouble(e); } }
 }
-async function putItems(list) { for (const it of list) await putItem(it); }
-async function putSettings(s) {
+async function putSettings(raw) {
+  // 書く前にも検算する。壊れた値を**保存先に入れない**のが、いちばん確実な防ぎ方
+  const s = safeSettings(raw);
   s.updatedAt = new Date().toISOString(); state.settings = s; lsWrite();
   if (DB) {
     try {
@@ -1697,6 +1712,16 @@ async function wipeCollection(name) {
    「保存できたつもり」と同じ穴なので、`lastError` に残して、変わった瞬間に一度だけ知らせる。
    **知らせるのは ok → local に変わった1回だけ。** `wipeCollection` のように
    1回の操作で何十回も呼ばれる場所があるので、毎回トーストを出すと画面が埋まる。 */
+/* 保存先から1件消す。**消せたときだけ true**（v5.6）。
+   消す道は tidy / 原文を消す / 項目を完全に消す / 全部消す の4つあり、
+   同じ穴が別々に開いていた（実際、v4.8 で直したのは「全部消す」だけだった）。
+   手元から消すのは、これが true を返してから。
+   **名前は `delDoc`（資料を消す）と間違えないこと。**こちらは保存先の1文書を消すだけ。 */
+async function deleteFromStore(path) {
+  if (!DB) return true;                        // 保存先が無いときは、手元だけで完結する
+  try { await DB.doc(path).delete(); return true; }
+  catch (e) { dbTrouble(e); return false; }    // 理由は設定タブの「最後に起きた不具合」に残る
+}
 function dbTrouble(e) {
   const c = e && e.code;
   const msg = c === "quota_exceeded" ? "保存できる件数の上限です。古い記録を消してください。"
@@ -1729,6 +1754,38 @@ if (typeof window !== "undefined") {
 
 /* 設定欄を外したので、前の既定（09:00–18:00）のまま保存されている人を一日じゅうに移す。
    自分で別の値を入れていた人（その欄があった頃）は、そのまま尊重する。 */
+/* **保存された設定は、必ず壊れると思って読む**（v5.6・調査で発見）。
+   タイムゾーンが不正だと `Intl` が RangeError を投げ、`parts` / `dayKey` / `zoned` が
+   **全部落ちる**。そして `importJSON` は控えの settings を素通しで保存していたので、
+   一度入ると**開くたびに落ちる状態が残る**（画面が白いので、消す操作にもたどり着けない）。
+   「壊れた1件で画面全体を落とさない」を、項目だけでなく**設定にも**通す。
+   直すのは黙ってでよい——ここは本人の入力ではなく、ファイルや保存先から来た値。 */
+function usableTz(t) {
+  if (typeof t !== "string" || !t) return false;
+  try { new Intl.DateTimeFormat("en-US", { timeZone: t }); return true; } catch { return false; }
+}
+function safeSettings(s) {
+  const o = Object.assign({}, DEFAULTS, s && typeof s === "object" ? s : {});
+  const num = (v, lo, hi, def) => {
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? clamp(Math.round(n), lo, hi) : def;
+  };
+  if (!usableTz(o.timezone)) o.timezone = DEFAULTS.timezone;
+  o.defaultEstimate = num(o.defaultEstimate, 5, 240, DEFAULTS.defaultEstimate);
+  o.breakEveryMin = num(o.breakEveryMin, 30, 240, DEFAULTS.breakEveryMin);
+  o.breakMin = num(o.breakMin, 5, 30, DEFAULTS.breakMin);
+  if (!["auto", "light", "dark"].includes(o.theme)) o.theme = DEFAULTS.theme;
+  /* `isTime` は形しか見ない（"25:99" も通る）ので、ここでは中身まで確かめる。 */
+  const okClock = t => {
+    if (!isTime(t)) return false;              // 形は `isTime` が見る（同じ正規表現を2か所に書かない）
+    const [h, m] = t.split(":").map(Number);   // `isTime` は形しか見ないので、中身はここで確かめる
+    return h >= 0 && h <= 23 && m >= 0 && m <= 59;
+  };
+  if (!okClock(o.workStart)) o.workStart = DEFAULTS.workStart;
+  if (!okClock(o.workEnd)) o.workEnd = DEFAULTS.workEnd;
+  if (typeof o.useAI !== "boolean") delete o.useAI;        // 未設定はオン（既定）のまま
+  return o;
+}
 function migrateWindow(s) {
   if (s.workStart === OLD_WINDOW.workStart && s.workEnd === OLD_WINDOW.workEnd) {
     s.workStart = DEFAULTS.workStart; s.workEnd = DEFAULTS.workEnd;
@@ -1738,7 +1795,7 @@ function migrateWindow(s) {
 
 async function boot() {
   const cached = lsRead();
-  state.settings = migrateWindow(Object.assign({}, DEFAULTS, (cached && cached.settings) || {}));
+  state.settings = migrateWindow(safeSettings((cached && cached.settings) || {}));
   applyTheme(state.settings.theme);      // 端末の控えから、まず即座に当てる（ちらつかせない）
   state.notes = (cached && cached.notes) || [];
   state.items = (cached && cached.items) || [];
@@ -1757,14 +1814,14 @@ async function boot() {
   DB = db; state.backend = "db"; setSync("ok");
   try {
     const s = await DB.doc("meta/settings").get();
-    if (s.exists) { state.settings = migrateWindow(Object.assign({}, DEFAULTS, thaw(s.data()))); applyTheme(state.settings.theme); }
+    if (s.exists) { state.settings = migrateWindow(safeSettings(thaw(s.data()))); applyTheme(state.settings.theme); }
     /* **必ず新しい順に取ること**（v4.0）。`limit` の上限は1000で、
        並び順を指定しないと **ドキュメントidの昇順**になる。id は `Date.now()` から作るので、
        それは「いちばん古い1000件」を意味する。1000件を超えた日から、
        **最近の記録がまるごと読み込まれなくなる**（保存はされているのに画面から消える）。 */
     const [ns, is, ts, ds] = await Promise.all([
-      DB.collection("notes").orderBy("createdAt", "desc").limit(1000).get(),
-      DB.collection("items").orderBy("createdAt", "desc").limit(1000).get(),
+      DB.collection("notes").orderBy("createdAt", "desc").limit(READ_LIMIT).get(),
+      DB.collection("items").orderBy("createdAt", "desc").limit(READ_LIMIT).get(),
       DB.collection("turns").orderBy("day", "desc").limit(400).get(),
       DB.collection("docs").orderBy("createdAt", "desc").limit(200).get()
     ]);
@@ -1789,26 +1846,274 @@ function normNote(t) {
     .join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-async function ingest(text, capturedAt, sourceName) {
-  const clean = normNote(text);
-  const h = hash(clean);
-  const existing = state.notes.find(n => n.hash === h);
-  if (existing) {
-    return { duplicate: true, note: existing, created: [], skipped: state.items.filter(i => i.noteId === existing.id).length };
-  }
-  const note = { id: uid(), text: clean, hash: h, capturedAt, source: sourceName ? "file" : "paste", sourceName: sourceName || null, createdAt: new Date().toISOString() };
-  await putNote(note);
+/* =======================================================================
+   1日を組み立てる（v6.5・本人の指示）
+   「6時から11時半までの間で勉強を30分かける2回。その間にお風呂とご飯それぞれ
+   30分ずつ使う。他に入れる予定ややった方がいい習慣などを提案して組み立てて。」
+   —— これを受け取って、**言われたものを言われた長さで置き、空いた所に提案を足す**。
+   決まり8は崩さない：**時刻も並びもコードが決める。AIは文章だけ。**
+   提案は**こちらが足したもの**なので `suggested:true` を立て、印を出し、1手で全部消せる。
+   ======================================================================= */
+const RE_BUILD_DAY = /(組み立て|組みたて|くみたて|組んで)|((スケジュール|予定|一日|1日|日程).{0,8}(作って|つくって|立てて|考えて))|提案して/;
+const RE_DUR_TIMES = /(\d{1,3})\s*分\s*(?:かける|×|x|X|\*|＊)\s*(\d{1,2})\s*回?/;
+const RE_TIMES = /(\d{1,2})\s*回/;
+const RE_DAY_RANGE = new RegExp(
+  "(午前|午後|朝|昼|夕方|夜|晩|深夜|夜中)?\\s*\\d{1,2}\\s*時\\s*(?:\\d{1,2}\\s*分|半)?\\s*(?:から|〜|～|-|–)\\s*"
+  + "(午前|午後|朝|昼|夕方|夜|晩|深夜|夜中)?\\s*\\d{1,2}\\s*時\\s*(?:\\d{1,2}\\s*分|半)?\\s*(?:まで)?\\s*(?:の)?\\s*(?:間|あいだ)?\\s*[でに]?", "g");
 
-  const found = extractByRule(note, state.settings);
-  const created = [], skipped = [];
-  for (const it of found) {
-    // 完了済み・取り消し済みも含めて突き合わせる → 再提案しない
-    const dup = state.items.find(x => x.dedupeKey === it.dedupeKey);
-    if (dup) { skipped.push({ item: it, because: dup }); continue; }
-    created.push(it);
+/* 提案の持ち札。**これで全部**——ここに無いものは提案しない（勝手に増やさない）。
+   `w` は並べる順の重み。`drop` は入りきらないときに**先に落とす順**（大きいほど先に落ちる）。
+   `need` が満たされないものは最初から出さない（勉強が無いのに「切り替え・準備」は要らない）。 */
+const DAY_FILL = [
+  { key: "prep",   title: "切り替え・準備",       min: 10, w: 5,  drop: 5, need: "focus", why: "やる範囲を決めて、通知を切る" },
+  { key: "tidy",   title: "片付け・軽い運動",     min: 20, w: 25, drop: 6, need: "meal",  why: "食器を片付けて、散歩かストレッチ" },
+  { key: "break",  title: "休憩",                 min: 15, w: 35, drop: 4, need: "focus2", why: "席を離れてひと息" },
+  { key: "main",   title: "大事な用事を1つ",       min: 45, w: 40, drop: 7, need: null,   why: "制作・家事・手続きなど。終わりの条件を決める" },
+  { key: "ready",  title: "身支度・明日の準備",   min: 20, w: 55, drop: 3, need: "bath",  why: "髪を乾かす、服や持ち物を用意する", night: true },
+  { key: "spare",  title: "自由・予備時間",       min: 30, w: 60, drop: 9, need: null,   why: "趣味や、遅れた予定の調整" },
+  { key: "review", title: "振り返り・明日の計画", min: 10, w: 70, drop: 2, need: null,   why: "できたことと、明日の最優先を1つずつ書く",
+    dayTitle: "今日の計画を立てる", dayWhy: "今日いちばん大事なことを1つ決める", dayW: 7 },
+  { key: "relax",  title: "リラックス",           min: 30, w: 75, drop: 8, need: null,   why: "読書や音楽など、区切りをつけやすいもの", night: true },
+  { key: "bed",    title: "就寝準備",             min: 30, w: 90, drop: 1, need: null,   why: "歯磨き、トイレ、照明を落とす", night: true }
+];
+/* **合わない提案を外せるようにする**（v7.1）。持ち札は9つ固定なので、
+   暮らしに合わないものが毎回出る（一人暮らしでない人の「片付け」など）。
+   「片付けは提案しないで」と言えば外れ、「片付けも提案して」で戻る。
+   **勝手に減らさない**——外すかどうかは本人が決める（決まり10「勝手にしぼらない」と同じ）。 */
+const SUGGEST_WORDS = [
+  [/(切り替え|準備だけ|事前準備)/, "prep"], [/(片付け|かたづけ|軽い運動)/, "tidy"],
+  [/(休憩|きゅうけい)/, "break"], [/(大事な用事|大きな用事|メインの用事)/, "main"],
+  [/(身支度|明日の準備)/, "ready"], [/(自由|予備)/, "spare"],
+  [/(振り返り|ふりかえり|今日の計画)/, "review"], [/(リラックス|くつろ)/, "relax"],
+  [/(就寝|寝る準備|寝支度)/, "bed"]
+];
+const RE_NO_SUGGEST = /(要らな|いらな|入れないで|提案しないで|提案しなくて|なくていい|無くていい|不要|やめて)/;
+const RE_YES_SUGGEST = /(も提案して|また提案して|入れていい|入れて欲しい|入れてほしい|戻して)/;
+function suggestKeyIn(sentence) {
+  const t = halfWidth(sentence);
+  for (const [re, key] of SUGGEST_WORDS) if (re.test(t)) return key;
+  return null;
+}
+
+/* 本人が言った活動を、一日のどのあたりに置くか。
+   **順番はこちらが決めてよい**（「組み立てて」と言われているので）。ただし理由が言えること：
+   集中は前半、食事は中盤、入浴は身支度の前。ここに無い言葉は「大事な用事」の後ろに置く。 */
+const RE_FOCUS = /(勉強|学習|課題|作業|仕事|レポート|研究|練習|読書)/;
+const RE_BATHY = /(風呂|入浴|シャワー)/;
+function wantWeight(title, nth) {
+  if (RE_FOCUS.test(title)) return 10 + nth * 20;        // 勉強①=10 / 勉強②=30
+  if (RE_MEAL.test(title)) return 20 + nth * 20;
+  if (RE_BATHY.test(title)) return 50 + nth;
+  return 45 + nth;
+}
+
+/* 発言から「何を・何分・何回」を取り出す。**言われていない数は作らない。** */
+/* 一日の組み立てで拾う活動の語。**ここに無いものは、厳しい門をもう一度通す。**
+   `wantsIn` が助詞を削って作る見出しは、文の区切りが無いと簡単に壊れる
+   （実機で「勉強を か ける①」「ご飯それぞ れ」になった）。**まず名前で拾う。** */
+const DAY_ACTS = [
+  [/(勉強|学習|課題|宿題)/, "勉強をする"], [/(研究)/, "研究をする"], [/(練習)/, "練習をする"],
+  [/(読書|本を読)/, "読書をする"], [/(作業|仕事|レポート)/, null],
+  [/(風呂|入浴|シャワー)/, "お風呂に入る"],
+  [/(散歩|ウォーキング)/, "散歩する"], [/(運動|筋トレ|ストレッチ|ヨガ)/, null],
+  [/(掃除|片付け|洗濯)/, null], [/(買い物|買物)/, "買い物に行く"]
+];
+/* 見出しを**言い切りの形**にそろえる（v6.8・本人の指摘）。
+   「勉強」だけだと予定表で読みにくい。**言い換えではなく語尾をそろえるだけ**なので、
+   中身の語は変わらず `dedupeKey` も `matchOpenTask` も揺れない（決まり7cb と同じ理屈）。
+   **AIにやらせない理由も同じ**——AIは同じ発言でも日によって違う見出しを返すので、
+   `dedupeKey` が揺れて同じ用事が二重に入る。 */
+function actTitle(word, atISO, tz) {
+  const w = String(word || "").trim();
+  if (!w) return "";
+  const meal = mealTitle(w + "を食べる", atISO, tz);        // ご飯・朝昼夕は決まり6i で名前を揃える
+  if (meal) return meal;
+  for (const [re, made] of DAY_ACTS) if (re.test(w)) return made || (w + "をする");
+  if (RE_VERB_END.test(w)) return w;                       // もう言い切りなら触らない
+  return w + "をする";
+}
+
+function wantsIn(sentence, atISO, tz) {
+  let s = halfWidth(sentence), min = null, count = 1;
+  const m = s.match(RE_DUR_TIMES);
+  if (m) { min = +m[1]; count = +m[2]; s = s.replace(m[0], " "); }
+  else {
+    min = parseDuration(s);
+    const c = s.match(RE_TIMES);
+    if (c) { count = clamp(+c[1], 1, 8); s = s.replace(c[0], " "); }
+    s = s.replace(/\d{1,3}\s*分\s*(くらい|ほど|程度)?/g, " ").replace(/\d{1,2}\s*時間\s*半?/g, " ");
   }
-  await putItems(created);
-  return { duplicate: false, note, created, skippedList: skipped };
+  s = s.replace(RE_DAY_RANGE, " ")
+       .replace(/その\s*(間|あいだ)\s*[にで]?/g, " ")
+       .replace(/(それぞれ|ずつ|各|合計|ぜんぶ|全部)/g, " ")
+       .replace(/(使う|使いたい|とる|取る|やる|する|入る|入りたい|食べる|かける|確保)[たい]*。?\s*$/, " ");
+  const out = [], seen = {};
+  const add = (title, n, mealWord) => {
+    if (!title || seen[title]) return;
+    seen[title] = 1; out.push({ title, min: min || null, count: n, mealWord: mealWord || null });
+  };
+  /* ① **知っている活動の語を、名前で拾う。** 助詞を削る前に見るので、区切りが無くても壊れない。 */
+  for (const part of s.split(/[とや、,・\s]/)) {
+    for (const [re] of DAY_ACTS) {
+      const hit = part.match(re);
+      if (hit) { add(actTitle(hit[1], atISO, tz), count); break; }
+    }
+    const meal = part.match(/(朝ごはん|朝ご飯|朝食|昼ごはん|昼ご飯|昼食|お昼|ランチ|夜ごはん|夜ご飯|夕飯|夕食|晩ごはん|晩ご飯|ご飯|ごはん|食事)/);
+    /* **食事の名前は「置かれる枠の時刻」で決める**（v6.9・朝を測って見つけた）。
+       ここで決めると**話した時刻**が基準になり、夜に「明日の朝のご飯」と言うと
+       「食事をとる」になった（実測）。仮の名前を置いて、枠が決まってから直す。 */
+    if (meal) add(actTitle(meal[1], atISO, tz), 1, meal[1]);
+  }
+  if (out.length) return out;
+  /* ② 知らない言葉のときだけ、助詞を削って拾う。**壊れた形は捨てる**——
+     空白が混ざったもの・動詞のかけらが残ったものを予定表に入れない（決まり5「捨てるなら、言う」は
+     ここでは効かない。そもそも1件も作らず、組み立て自体を見送る）。 */
+  for (let part of s.split(/[とや、,・]/)) {
+    part = cleanTitle(part.trim(), null)
+      .replace(/^[をにではがも\s]+/, "")
+      .replace(/[をにへでがはもの]$/, "")
+      .trim();
+    if (part.length < 2 || part.length > 14) continue;
+    if (/\s/.test(part)) continue;                                  // 空白が残っているのは壊れている
+    if (/(かけ|使|ずつ|それぞれ|ください|ほしい|提案|組み立)/.test(part)) continue;
+    if (/^(これ|それ|あれ|もの|こと|時間|予定|習慣|スケジュール)$/.test(part)) continue;
+    add(actTitle(part, atISO, tz), count);
+  }
+  return out;
+}
+
+/* 発言ぜんぶを読んで、組み立ての依頼として成立するかを返す。
+   **時間帯が読めなければ組み立てない**（どこへ置くか分からないものを置かない）。 */
+function parseDayRequest(note, tz) {
+  const text = halfWidth(note.text);
+  if (!RE_BUILD_DAY.test(text)) return null;
+  /* **時間帯は、範囲を言っている文からだけ読む**（v6.5・作りながら見つけた）。
+     全文を `parseWhen` に渡すと、「生産性の高い**1日**を過ごす」の「1日」を
+     **10月1日**として拾い、日付も午前/午後の判定もまるごと狂った（実測）。
+     決まり「1行に複数の話題があるとき、日時を他の話題に持ち込まない」と同じ理屈。 */
+  let w = null;
+  const wants = [];
+  const sents = [];
+  for (const l of splitLines(text)) for (const st of l.sentences) sents.push(st.text);
+  /* **長さが2つ以上ある文は、読点で切ってから読む**（v6.8）。
+     「読書を20分、散歩を30分」を1つとして読むと、**先に出た20分が両方に付く**（実測）。 */
+  const pieces = t => ((t.match(/\d{1,3}\s*分/g) || []).length >= 2
+    ? t.split(/[、,]|\s+|(?=その\s*(間|あいだ)に)/).filter(Boolean) : [t]);
+  for (const st of sents) {
+    if (!w) { const x = parseWhen(st, note.capturedAt, tz); if (x && x.between) w = x; }
+    if (RE_BUILD_DAY.test(st)) continue;                // 「提案して」の文からは活動を拾わない
+    for (const pc of pieces(st)) for (const x of wantsIn(pc, note.capturedAt, tz)) wants.push(x);
+  }
+  /* **句点が無いと、全部が1文になる**（v6.8・実機の形）。上の `continue` で
+     その1文を飛ばすと、活動を1つも拾えず**組み立てごと消える**（実測）。
+     1件も拾えなかったときだけ、依頼の言葉を削ってからもう一度読む。 */
+  if (!wants.length) {
+    for (const st of sents) {
+      const bare = st.replace(/(他に入れる予定|やった方がいい習慣|習慣|など)/g, " ")
+        .replace(RE_BUILD_DAY, " ");
+      for (const pc of pieces(bare)) for (const x of wantsIn(pc, note.capturedAt, tz)) wants.push(x);
+    }
+  }
+  if (!w || !w.between || !wants.length) return null;
+  let win = [w.between.from, w.between.to], dk = dayKey(new Date(w.start), tz), movedFrom = null;
+  /* **範囲は、終わりが過ぎていなければ「これから来る」**（v6.6・本人が「夕方6時」と確認した後に実測）。
+     決まり4b は**一点の時刻**を「いちばん近いこれから来るほう」に寄せる。
+     ところが **18:30 に「6時から11時半までの間で」と言うと翌日の朝6時**になっていた。
+     開始は30分過ぎただけで、23:30 までまだ5時間使える——**飛ぶ必要がない。**
+     「今夜こうしよう」と思うのは夕方以降なので、ここがいちばん効く。
+     **4b は書き換えない**（あれは一点の時刻の話で、U群が12例で固定している）。
+     ここで見るのは「日をまたいで飛んだときだけ、話した日に同じ窓が残っていないか」。 */
+  const spokeDay = dayKey(new Date(note.capturedAt), tz);
+  /* **日付を言われていたら、今日へ寄せない**（v7.0・朝を測って見つけた）。
+     v6.6 の寄せは「日付を言っていないのに翌日へ飛んだ」を直すためのもの。
+     ところが門が `dk > spokeDay` だけだったので、
+     **「明日の朝6時から11時半まで」を22時に言うと、今日の22:00〜23:30 に組み立てて**いた（実測）。
+     本人が「明日」と言っているのだから動かしてはいけない（決まり4b「言われていたら触らない」）。
+     判定は既にある `dateSpokenIn` を使う——**同じ判定を2か所に書かない**（決まり7e）。 */
+  if (dk > spokeDay && !dateSpokenIn(w)) {
+    const nowMin = minOfDay(note.capturedAt, tz);
+    const needMin = wants.reduce((a, x) => a + (x.min || 0) * (x.count || 1), 0);
+    const cands = [win, [win[0] + 720, win[1] + 720], [win[0] - 720, win[1] - 720]]
+      .filter(c => c[0] >= 0 && c[1] <= 1440 && c[1] > c[0])
+      // **言われたぶんが入るだけ残っている**ものだけ。残り30分の窓へ5時間half を押し込まない
+      .filter(c => c[1] > nowMin && c[1] - Math.max(c[0], nowMin) >= needMin)
+      .sort((a, b) => Math.abs(a[0] - nowMin) - Math.abs(b[0] - nowMin));
+    if (cands.length) { movedFrom = [dk, win]; win = cands[0]; dk = spokeDay; }
+  }
+  /* **もう始まっている範囲は、いまから組み立てる**（v6.6）。
+     20時に「6時から11時半までの間で」と言われて 18:00 から並べると、
+     18:00〜20:00 のぶんが**まるごと「過ぎています」**になる（`planFor` は過ぎた所に置かない）。
+     欲しいのは「残りの時間で、どう過ごすか」。頭を**いま**へ寄せて、5分刻みに丸める。 */
+  let startedAt = null;
+  if (dk === dayKey(new Date(note.capturedAt), tz)) {
+    const nowMin = minOfDay(note.capturedAt, tz);
+    if (nowMin > win[0]) { startedAt = win[0]; win = [Math.ceil(nowMin / 5) * 5, win[1]]; }
+  }
+  if (win[1] - win[0] < 15) return null;        // 残りが15分を切るなら、組み立てるより言い直してもらう
+  return { win, wants, dayKey: dk, movedFrom, startedAt };
+}
+
+/* 並べる。**入りきらなければ提案から落とす**（本人が言ったものは落とさない）。
+   余った時間は「自由・予備時間」に足す——余りを黙って消さない。 */
+function buildDayPlan(req, st) {
+  const [from, to] = req.win;
+  const rows = [];
+  const seen = {};
+  for (const wnt of req.wants) {
+    const n = Math.max(1, Math.min(8, wnt.count || 1));
+    for (let i = 0; i < n; i++) {
+      const nth = (seen[wnt.title] = (seen[wnt.title] || 0));
+      seen[wnt.title]++;
+      rows.push({ title: n > 1 ? `${wnt.title}${"①②③④⑤⑥⑦⑧"[i]}` : wnt.title,
+        min: clamp(wnt.min || st.defaultEstimate, 5, 480), w: wantWeight(wnt.title, nth),
+        mealWord: wnt.mealWord || null, mine: true });
+    }
+  }
+  const kinds = {
+    focus: rows.some(r => RE_FOCUS.test(r.title)),
+    focus2: rows.filter(r => RE_FOCUS.test(r.title)).length >= 2,
+    meal: rows.some(r => RE_MEAL.test(r.title)),
+    bath: rows.some(r => RE_BATHY.test(r.title))
+  };
+  /* **朝の組み立てに「就寝準備」を入れない**（v6.9・朝を測って見つけた）。
+     持ち札は夜を前提に作ってあった。朝6時〜11時半で組むと
+     **就寝準備・リラックス・身支度が日中に並ぶ**（実測）。
+     夜かどうかは**窓の終わりが21時以降か**で決める（言葉ではなく時刻で決める）。
+     「区切り」だけは朝にも要るので、文言を入れ替える（振り返り → 今日の計画を立てる）。 */
+  const isNight = to >= 21 * 60;
+  // 「◯◯は提案しないで」と言われた札は出さない（v7.1）
+  const off = prefs(req.dayKey).noSuggest;
+  const fill = DAY_FILL.filter(f => (!f.need || kinds[f.need]) && (!f.night || isNight) && !off.includes(f.key))
+    // 朝の「計画」は**始めに**置く。夜の「振り返り」と同じ重みだと終わりに来る（実測）
+    .map(f => ({ title: (!isNight && f.dayTitle) ? f.dayTitle : f.title, min: f.min,
+      w: (!isNight && f.dayW != null) ? f.dayW : f.w,
+      why: (!isNight && f.dayWhy) ? f.dayWhy : f.why, drop: f.drop, key: f.key, mine: false }));
+
+  const room = to - from;
+  const mineMin = rows.reduce((a, r) => a + r.min, 0);
+  let picked = fill.slice(), dropped = [];
+  const total = () => mineMin + picked.reduce((a, f) => a + f.min, 0);
+  // 入りきらないぶんは、決めた順に提案から落とす（本人が言ったものには触らない）
+  while (total() > room && picked.length) {
+    picked.sort((a, b) => b.drop - a.drop);
+    dropped.push(picked.shift().title);
+  }
+  const short = Math.max(0, mineMin - room);          // 本人のぶんだけで溢れている量
+  // 余りは「自由・予備時間」に足す。無ければ最後の提案を延ばす
+  /* 余りは「自由・予備時間」に足す。**ただし膨らませすぎない**（v6.9）。
+     朝の組み立てで 1時間50分の「自由・予備時間」になった（実測）。
+     入りきらなかったぶんは**空きとして残す**——`planFor` が空き時間として描くので、
+     黙って消したことにはならない。 */
+  let left = room - total();
+  if (left > 0 && picked.length) {
+    const sp = picked.find(f => f.key === "spare") || picked[picked.length - 1];
+    const take = Math.max(0, Math.min(left, 90 - sp.min));
+    sp.min += take; left -= take;
+  }
+  const all = rows.concat(picked).sort((a, b) => a.w - b.w);
+  let at = from;
+  for (const r of all) { r.s = at; r.e = at + r.min; at += r.min; }
+  return { rows: all, dropped, short, left, win: req.win };
 }
 
 /* =======================================================================
@@ -2083,10 +2388,32 @@ function planFor(key, opts) {
     if (!put) {
       const biggest = cursor.reduce((m, iv) => Math.max(m, iv[1] - iv[0]), 0);
       const late = nowMin >= 0 && nowMin >= winE;
+      /* **「埋まっている」と「もう過ぎている」を取り違えない**（v6.2・実機で報告）。
+         20:45 に「18時から21時の間にお風呂に30分」と言うと、その時間帯は**空っぽ**なのに
+         「そこに30分の空きがありません」と出ていた。予定が詰まっていると読めてしまう。
+         理由は3つに分ける：①時間帯がまるごと過ぎている ②残りが足りない ③本当に埋まっている。 */
+      const winPast = !!win && nowMin >= 0 && nowMin >= win[1];
+      /* **「作業に使える帯の外」を「空きがない」と言わない**（v6.2b・実機で報告）。
+         朝7時に「夜6時から9時までの間に30分」と言われて、18:00〜21:00 は空っぽなのに
+         「そこに30分の空きがありません」と出ていた。本当の理由は、その時間帯が
+         **作業に使える帯（`workStart`〜`workEnd`、「夜は入れないで」で縮んだぶんを含む）の外**
+         だったこと。理由が違えば、本人の打つ手も変わる（「夜も入れていい」と言えば直る）。 */
+      const winOutside = !!win && Math.min(win[1], winE) - Math.max(win[0], winS) <= 0;
+      const winFree = win
+        ? cursor.reduce((m, iv) => Math.max(m, Math.min(iv[1], win[1]) - Math.max(iv[0], win[0])), 0)
+        : 0;
       unplaced.push({
         item: t, need,
         reason: win
-          ? `${winName}にと言っていましたが、そこに${durJa(need)}の空きがありません`
+          ? winPast
+            ? `${winName}にと言っていましたが、その時間はもう過ぎています`
+            : winOutside && winCapped
+            ? `${winName}にと言っていましたが、「夜は予定を入れないで」と言っていたので${hhmm(winE)}より後には置いていません`
+            : winOutside
+            ? `${winName}にと言っていましたが、作業に使える時間帯（${hhmm(winS)}〜${hhmm(winE)}）の外です`
+            : winFree > 0
+            ? `${winName}にと言っていましたが、空いているのは最大${durJa(winFree)}です`
+            : `${winName}にと言っていましたが、そこに${durJa(need)}の空きがありません`
           : late
           ? `今日の作業時間（${hhmm(winS)}〜${hhmm(winE)}）は過ぎています`
           : biggest <= 0
@@ -2160,6 +2487,9 @@ function nextAction(plan, nowOverride) {
 /* どこから来た情報かを、必ず見えるようにする。
    「本人が決めたこと」と「読み取ったままのこと」を混ぜないための唯一の手掛かり。 */
 function srcChip(it) {
+  /* **アプリが提案して入れたものは、そう言う**（v6.5）。本人が言ったものと混ぜない。
+     訂正すれば「本人が訂正」に変わる——そのときはもう提案ではない。 */
+  if (it.suggested && !it.corrected && it.origin !== "user") return `<span class="chip src-ai">アプリの提案</span>`;
   if (it.corrected || it.origin === "user") return `<span class="chip src-user">本人が訂正</span>`;
   if (it.confirmed) return `<span class="chip src-user">確認済み</span>`;
   if (it.origin === "ai") return `<span class="chip src-ai">AIが読み取ったまま</span>`;
@@ -2533,8 +2863,12 @@ function turnHTML(t) {
       <span class="stamp">${stamp}${t.noteId ? ` · <button class="btn sm srcbtn" data-act="shownote" data-id="${t.noteId}">原文</button>` : ""}</span></div>`;
   }
   // 変えたことが無いときは、わざわざ「変えていません」と出さない（返事に書いてある）
+  /* 組み立てた回だけ、**「変えたこと」の下に1つだけ**まとめて消す道を出す（v6.7）。
+     提案のための欄は作らない（本人の指示）。いま行った変更に付く操作なので、ここに置く。 */
   const changes = (t.changes || []).length
-    ? `<div class="changes"><span class="eyebrow">変えたこと</span>${t.changes.map(c => `<div>・${esc(c)}</div>`).join("")}</div>` : "";
+    ? `<div class="changes"><span class="eyebrow">変えたこと</span>${t.changes.map(c => `<div>・${esc(c)}</div>`).join("")}`
+      + (t.habitDay ? `<div style="margin-top:8px"><button class="btn sm" data-act="clearsug" data-id="${esc(t.habitDay)}">提案した予定を全部消す</button></div>` : "")
+      + `</div>` : "";
   const sn = t.plan;
   const nextLine = sn && sn.next
     ? `<div class="next"><span class="eyebrow">${sn.isToday === false ? "その日の最初" : "次にすること"}</span><div class="nt">${esc(sn.next.t)}</div>
@@ -2748,19 +3082,45 @@ function renderSettings() {
   $("#breakLen") && ($("#breakLen").value = s.breakMin == null ? 10 : s.breakMin);
   $("#theme") && ($("#theme").value = s.theme || "auto");
   const turnCount = Object.values(state.turns).reduce((n, l) => n + l.length, 0);
-  $("#dataState").textContent = `会話 ${turnCount}件 ／ 原文 ${state.notes.length}件 ／ 項目 ${state.items.length}件 ／ 保存先：${state.backend === "db" ? "claude.ai（あなたの記録）＋この端末" : "この端末のみ"}`;
+  /* **作業に使える時間帯を、読めるところに1行だけ出す**（v6.2b・実機で報告）。
+     設定欄は v3.9 で外した（本人の指示）ので、ここは**入力欄ではなく事実の表示**。
+     出す理由：この帯の外だと予定が置けず、`planFor` の理由文がこの数字を名指しする。
+     数字が画面のどこにも出ていないと、理由を読んでも確かめようがない。 */
+  $("#dataState").textContent = `会話 ${turnCount}件 ／ 原文 ${state.notes.length}件 ／ 項目 ${state.items.length}件`
+    + ` ／ 作業に使える時間帯：${s.workStart}〜${s.workEnd}`
+    + ` ／ 保存先：${state.backend === "db" ? "claude.ai（あなたの記録）＋この端末" : "この端末のみ"}`;
+  /* **狭いまま保存されている帯からの逃げ道**（v6.3・実機で報告）。
+     設定欄は外してあるので、古い値が残っていると**画面から直す道が無い**。
+     実機で 05:00〜11:00 のまま残り、11時より後に一切置けなくなっていた。
+     **勝手に書き換えない**（本人が決めたのかもしれない）。道だけ出して、押すかは本人が決める。 */
+  const wWarn = $("#windowWarn");
+  if (wWarn) {
+    const narrow = s.workStart !== DEFAULTS.workStart || s.workEnd !== DEFAULTS.workEnd;
+    wWarn.hidden = !narrow;
+    if (narrow) wWarn.innerHTML = `<strong>作業に使える時間帯が ${esc(s.workStart)}〜${esc(s.workEnd)} になっています。</strong>
+      この外には作業を置けないので、外の時間を指定すると「作業に使える時間帯の外です」と出ます。
+      （設定欄は無くしたので、昔のままの値が残っていることがあります）<br>
+      <button class="btn sm" id="btnWholeDay" style="margin-top:8px">一日じゅう使えるようにする（${DEFAULTS.workStart}〜${DEFAULTS.workEnd}）</button>`;
+    // innerHTML を書き直すたびにボタンは新しくなるので、ここで毎回つなぐ
+    if (narrow) $("#btnWholeDay").addEventListener("click", async () => {
+      await putSettings(Object.assign({}, state.settings,
+        { workStart: DEFAULTS.workStart, workEnd: DEFAULTS.workEnd }));
+      renderAll();
+      toast(`作業に使える時間帯を ${DEFAULTS.workStart}〜${DEFAULTS.workEnd} にしました`);
+    });
+  }
   /* 1回に読み込める上限は1000件。近づいたら黙って欠け始める前に知らせる。
      消すのは本人の判断。勝手に古い記録を捨てない。 */
   const near = $("#dataWarn");
   if (near) {
     const n = Math.max(state.notes.length, state.items.length);
-    near.hidden = n < 800 && !lsFailed;
+    near.hidden = n < READ_WARN && !lsFailed;
     if (lsFailed) near.innerHTML = `<strong>この端末に控えを保存できませんでした（${esc(lsFailed)}）。</strong>` +
       (state.backend === "db"
         ? "記録は claude.ai 側に保存されているので消えていませんが、この端末の控えは古いままです。「全部消す」の前に必ず書き出してください。"
         : "<strong>claude.ai にも繋がっていないので、いま話したことは残りません。</strong>ページを開き直すか、書き出して退避してください。");
-    else if (n >= 800) near.innerHTML = `<strong>記録が ${n.toLocaleString()} 件になりました。</strong>
-      1回に読み込めるのは<strong>1000件まで</strong>です。超えたぶんは保存されていますが、画面には出なくなります。
+    else if (n >= READ_WARN) near.innerHTML = `<strong>記録が ${n.toLocaleString()} 件になりました。</strong>
+      1回に読み込めるのは<strong>${READ_LIMIT.toLocaleString()}件まで</strong>です。超えたぶんは保存されていますが、画面には出なくなります。
       <strong>「書き出す（JSON）」で控えを取ってから</strong>、古い記録の整理を考えてください。`;
   }
   $("#useAI").checked = s.useAI !== false;
@@ -2997,6 +3357,21 @@ function note(it, what) { it.history = (it.history || []).concat({ at: new Date(
 
 async function act(a, id, el) {
   const tz = state.settings.timezone;
+  /* **提案した予定は、1手で全部消せること**（v6.5）。こちらが足したものなので、
+     1件ずつ消させない。本人が言ったものには触らない。 */
+  if (a === "clearsug") {
+    const hit = state.items.filter(i => i.suggested && i.dayKey === id && i.status === "open");
+    if (!hit.length) { toast("消す提案がありません"); return; }
+    const yes = await askConfirm({ title: "提案した予定を消しますか？",
+      body: `アプリが提案して入れた <strong>${hit.length}件</strong>を消します。<br>あなたが言った予定は残します。`,
+      yes: `${hit.length}件を消す`, danger: true });
+    if (!yes) return;
+    for (const i of hit) { i.status = "dropped"; i.updatedAt = new Date().toISOString();
+      i.history = (i.history || []).concat({ at: i.updatedAt, by: "user", what: "提案をまとめて取り消した" });
+      await putItem(i); }
+    renderAll(); toast(`提案した${hit.length}件を消しました`);
+    return;
+  }
   if (a === "addmanual") {
     const t = $("#mT").value.trim(); if (!t) return;
     const kind = $("#mK").value, d = $("#mD").value, h = $("#mH").value || "09:00", e = +$("#mE").value || 60;
@@ -3040,7 +3415,12 @@ async function act(a, id, el) {
       <div class="foot"><button class="btn pri" data-close style="margin-left:auto">閉じる</button></div>`);
     return;
   }
-  if (a === "docai") { await runDocAI(id); return; }
+  if (a === "docai") {                       // 全文を送る前に、必ず確認を出す（v5.8）
+    const d = state.docs.find(x => x.id === id);
+    if (!d) { toast("この資料は見つかりませんでした"); return; }
+    if (await confirmDocAI(d, "資料そのものと、ルールで読み取ったもの")) await runDocAI(id);
+    return;
+  }
   if (a === "docdel") {
     const d = state.docs.find(x => x.id === id);
     if (!d) { toast("この資料は見つかりませんでした"); return; }
@@ -3052,7 +3432,11 @@ async function act(a, id, el) {
       yes: "資料を消す", danger: true
     });
     if (!yes) return;
-    await delDoc(id); toast("資料を消しました"); renderAll(); return;
+    if (!await delDoc(id)) {
+      renderSettings(); toast("保存先から消せませんでした。設定の「最後に起きた不具合」を見てください");
+      return;
+    }
+    toast("資料を消しました"); renderAll(); return;
   }
   if (a === "shownote") {
     const n = state.notes.find(x => x.id === id);
@@ -3076,8 +3460,11 @@ async function act(a, id, el) {
       yes: "原文を消す", danger: true
     });
     if (!yes) return;
+    if (!await deleteFromStore("notes/" + id)) {     // 消せていないなら手元も消さない（戻ってくるため）
+      renderSettings(); toast("保存先から消せませんでした。設定の「最後に起きた不具合」を見てください");
+      return;
+    }
     state.notes = state.notes.filter(x => x.id !== id); lsWrite();
-    if (DB) { try { await DB.doc("notes/" + id).delete(); } catch (e) { dbTrouble(e); } }
     toast("原文を消しました");
     renderAll();
     return;
@@ -3117,8 +3504,12 @@ async function act(a, id, el) {
       yes: "完全に消す", danger: true
     });
     if (!yes) return;
+    if (!await deleteFromStore("items/" + it.id)) {  // 消せていないなら手元も消さない
+      closeSheet(); renderSettings();
+      toast("保存先から消せませんでした。設定の「最後に起きた不具合」を見てください");
+      return;
+    }
     state.items = state.items.filter(x => x.id !== it.id); lsWrite();
-    if (DB) { try { await DB.doc("items/" + it.id).delete(); } catch (e) { dbTrouble(e); } }
     closeSheet(); toast(`完全に消しました：${it.title}`); renderAll(); return;
   }
   else if (a === "defer") {
@@ -3188,16 +3579,20 @@ async function act(a, id, el) {
 
 /* サンドボックス内では window.confirm が表示されず false になる。
    確認は必ずこのページ内のシートで行う。ブラウザのダイアログを使わない。 */
-function askConfirm({ title, body, yes, danger }) {
+/* `alt` を渡すと3つ目の道が出る（返り値は `"alt"`）。**渡さなければ今までどおり** true/false。
+   「全部足す／一部だけ足す／やめる」のように、**やめる以外の逃げ道**が要るときだけ使う。 */
+function askConfirm({ title, body, yes, danger, alt }) {
   return new Promise(resolve => {
     let done = false;
     const finish = v => { if (done) return; done = true; closeSheet(); resolve(v); };
     openSheet(`<h3>${esc(title)}</h3><p class="hint">${body}</p>
       <div class="foot">
         <button class="btn ${danger ? "danger" : "pri"} wide" id="cfYes">${esc(yes)}</button>
+        ${alt ? `<button class="btn" id="cfAlt">${esc(alt)}</button>` : ""}
         <button class="btn" id="cfNo" style="margin-left:auto">やめる</button>
       </div>`);
     $("#cfYes").addEventListener("click", () => finish(true));
+    if (alt) $("#cfAlt").addEventListener("click", () => finish("alt"));
     $("#cfNo").addEventListener("click", () => finish(false));
     $("#sheetHost .sheet").addEventListener("click", e => { if (e.target === e.currentTarget) finish(false); });
   });
@@ -3209,7 +3604,12 @@ function askConfirm({ title, body, yes, danger }) {
    ops はすべて検証してから適用する。AIの言い値では書き換えない。
    ======================================================================= */
 const OPS = ["add", "update", "done", "defer", "drop", "prefer", "memo", "condition", "profile", "progress", "idea"];
-const PREF_KEYS = ["nextOnly", "buffer", "noEveningWork", "free"];
+const PREF_KEYS = ["nextOnly", "buffer", "noEveningWork", "noSuggest", "free"];
+/* 「夜は予定を入れないで」の既定＝18:00（分）。**3か所に同じ数字が散っていた**（v6.0・5周目）。
+   ルールが作る値・検算のフォールバック・`prefs` の読み取り、その全部でこれを使う。
+   **`WINDOWS.afternoon` の `18 * 60` とは別物**——あちらは「午後の終わり」で、意味が違う。
+   同じ数字でも意味が違うものは、まとめてはいけない。 */
+const EVENING_DEFAULT_MIN = 18 * 60;
 const isDate = s => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 const isTime = s => typeof s === "string" && /^\d{1,2}:\d{2}$/.test(s);
 const num = (v, lo, hi) => (typeof v === "number" && isFinite(v)) ? clamp(Math.round(v), lo, hi) : null;
@@ -3234,6 +3634,10 @@ const RE_KEEP = /(見返せる|見返し|残しておき|残しておいて|あ�
 /* 家にあるもの・食材の話。あとで「何を食べよう」と聞かれたときに参照する。 */
 const RE_PANTRY = /(冷蔵庫|家にある|うちにある|家にあった|残ってる|残っている|ストック|買っておいた|買ってある)/;
 const RE_RESTATE = /(じゃなくて|ではなく|やっぱり|やっぱ|に変更|変えて|あと\s*\d+\s*(分|時間)|もう少しかか|もうちょっとかか|思ったより|かかってる|かかりそう|延ばして|後ろに|遅らせ)/;
+/* 言い直しかどうかの判定は **1か所にまとめる**（v5.4）。
+   ルールの中に同じ判定が2つあり、幅が違っていたので取りこぼした。 */
+const looksRestating = t => RE_RESTATE.test(t)
+  || /にして[。、]?$|に変えて|じゃなくて|ではなく|さっきの|さっき言った/.test(t);
 
 /* --- 発言の意図を分ける。全部をタスクにしないための入口 --- */
 // 質問・相談。タスクを作らず、いまの状態から答える。
@@ -3282,11 +3686,30 @@ function matchOpenTask(text) {
 
 function ruleOps(note) {
   const ops = [], text = halfWidth(note.text), raw = note.text, q = raw.slice(0, 60);
+  /* **「組み立てて」は用事でも目標でもない**（v6.5）。ふつうの読み取りへ流すと、
+     依頼文が `goal` として保存され、活動は「その間にお風呂とご飯それぞれずつ使う」の
+     ような1件のゴミ見出しになる（実測）。専用の道で受ける。 */
+  const dayReq = parseDayRequest(note, state.settings.timezone);
+  if (dayReq) return [{ op: "buildday", req: dayReq, quote: q }];
+  /* **頼まれたのに組み立てられなかったことを、黙らない**（v6.8・決まり5 と同じ理屈）。
+     「9時から12時の間で」を17時に言うと 21:00〜翌0:00 と読めてしまい、時間帯が決まらない。
+     何も言わないと、依頼文が目標として保存されるだけで**組み立てられなかったことが分からない**。 */
+  if (RE_BUILD_DAY.test(text) && /\d{1,2}\s*時/.test(text)) ops.push({ op: "buildfail" });
   // 「明日の打ち合わせ、14時にして」は言い直し。ルールでは対象を決められないが、
   // だからといって新しい予定を作ってはいけない（同じ用事が二重になる）。
-  const restating = RE_RESTATE.test(text) || /にして[。、]?$|に変えて|じゃなくて|ではなく/.test(text);
+  const restating = looksRestating(text);
   let needsAi = false;
+  /* **「片付けは提案しないで」は用事ではない**（v7.1・決まり0「AIへの要望は用事にしない」）。
+     先に拾っておいて、その文から作られた項目は捨てる。
+     これをしないと「タスクを追加：片付けは提案しないで」が予定表に並ぶ（実測）。 */
+  const wishSents = [];
+  for (const l of splitLines(text)) for (const st of l.sentences) {
+    if (suggestKeyIn(st.text) && (RE_NO_SUGGEST.test(st.text) || RE_YES_SUGGEST.test(st.text)))
+      wishSents.push(st.text);
+  }
+  const inWish = t => wishSents.some(sx => sx.includes(t) || t.includes(sx));
   for (const it of extractByRule(note, state.settings)) {
+    if (it.evidence && inWish(it.evidence.text)) continue;
     if (it.kind === "condition") { ops.push({ op: "condition", text: it.selfReport, quote: it.evidence.text }); continue; }
     const twin = restating && state.items.find(x =>
       x.status === "open" && x.kind === it.kind && sameTopic(x.title, it.title));
@@ -3354,16 +3777,32 @@ function ruleOps(note) {
   const scope = oneDay ? dayKey(new Date(note.capturedAt), state.settings.timezone) : null;
   if (RE_NEXTONLY.test(text)) ops.push({ op: "prefer", key: "nextOnly", value: true, scopeDay: scope, text: "次にやることを一つだけ見せてほしい", quote: q });
   if (RE_BUFFER.test(text)) ops.push({ op: "prefer", key: "buffer", value: true, scopeDay: scope, text: "予定を詰めすぎず、余裕を持たせてほしい", quote: q });
-  if (RE_NOEVENING.test(text)) ops.push({ op: "prefer", key: "noEveningWork", value: 18 * 60, scopeDay: scope, text: "夜は作業を入れないでほしい", quote: q });
+  if (RE_NOEVENING.test(text)) ops.push({ op: "prefer", key: "noEveningWork", value: EVENING_DEFAULT_MIN, scopeDay: scope, text: "夜は作業を入れないでほしい", quote: q });
+  /* 「片付けは提案しないで」「片付けも提案して」（v7.1）。**文ごとに**見る——
+     1回の発言で2つ外すことがあるし、他の話題を巻き込まないため。 */
+  for (const sx of sents) {
+    const k = suggestKeyIn(sx); if (!k) continue;
+    const ja = (DAY_FILL.find(f => f.key === k) || {}).title || k;
+    if (RE_YES_SUGGEST.test(sx)) ops.push({ op: "unsuggest", key: k, ja, quote: sx.slice(0, 60) });
+    else if (RE_NO_SUGGEST.test(sx)) ops.push({ op: "prefer", key: "noSuggest", value: k, scopeDay: null,
+      text: `「${ja}」は提案しないでほしい`, quote: sx.slice(0, 60) });
+  }
   if (RE_KEEP.test(text)) ops.push({ op: "memo", text: raw.slice(0, 200), quote: q });
   // 言い直し・見積もり直しは、ルールだけでは「どれのことか」を決められない。黙って無視せず伝える。
   // ただし、その発話から実際に何か作れているなら言い直しではないので黙っている。
-  if (RE_RESTATE.test(text) && !ops.some(o => ["done", "update", "add"].includes(o.op))) ops.push({ op: "_needs_ai" });
+  /* **上の `restating` と同じ幅で見ること**（v5.4・実機で報告）。
+     ここだけ `RE_RESTATE` の狭いほうを使っていたので、
+     「さっきの勉強、23時からにして」が **どこにも引っかからず、まるごと黙って消えた**
+     （ops 0件・変更0件・知らせ0件）。判定が2か所に分かれると、必ず片方だけ直す。 */
+  if (looksRestating(text) && !ops.some(o => ["done", "update", "add"].includes(o.op))) ops.push({ op: "_needs_ai" });
   return ops;
 }
 
 async function applyOps(rawOps, note) {
   const tz = state.settings.timezone, changes = [], asks = [], days = [], kinds = [];
+  let habitDay = null;                              // 組み立てた日（まとめて消す道に渡す）
+  // 用事が1件だけのときに限り、ルールが読んだ日時をAIの項目へ足してよい（v5.5）
+  const soleAdd = (Array.isArray(rawOps) ? rawOps : []).filter(o => o && o.op === "add").length === 1;
   const touch = k => { if (k && days.indexOf(k) < 0) days.push(k); };
   for (const o of (Array.isArray(rawOps) ? rawOps : [])) {
     if (!o || typeof o !== "object") continue;
@@ -3390,14 +3829,16 @@ async function applyOps(rawOps, note) {
            これは言い換えではない——時刻や所要時間や語尾をそろえるだけで、
            中身の語は変わらないので `dedupeKey` も照合も揺れない（決まり7cb）。 */
         const title = typeof o.title === "string" ? cleanTitle(o.title.trim(), null).slice(0, 80) : "";
-        if (!title) continue;
+        /* 見出しが空になったら黙って捨てない（v5.2・実機で報告）。
+           画面には何も出ないので、本人からは「送れていない」ようにしか見えない。 */
+        if (!title) { asks.push("いまの話から用事の名前を取り出せませんでした。「スケジュール」タブの「＋ 自分で足す」から入れてください。"); continue; }
         it = {
           id: uid(), noteId: note.id, kind, title,
           evidence: evidenceOf(note, o.quote),
           origin: "ai", corrected: false, confirmed: false, status: "open",
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: []
         };
-        pulledBack = applyFields(it, o, tz, note);
+        pulledBack = applyFields(it, o, tz, note, { soleAdd });
       }
       // AIが「ご飯食べに行こうかな」のような言い方で返してきても、食事は名前を揃える
       const mt = mealTitle(it.title, note.capturedAt, tz) || mealTitle(o.quote || "", note.capturedAt, tz);
@@ -3406,7 +3847,13 @@ async function applyOps(rawOps, note) {
         if (it.estimateMin == null) it.estimateMin = 30;
       }
       it.dedupeKey = dedupeKey(it);
-      if (state.items.some(x => x.dedupeKey === it.dedupeKey)) continue;   // 完了・取消も含めて突き合わせる
+      /* 同じものを二重に作らない（決まり5）。ただし **黙って捨てない**（v5.2・実機で報告）。
+         `changes` にも `asks` にも何も入らないので、画面はまったく変わらず、
+         本人からは「**追加すらされなかった**」ようにしか見えない。
+         突き合わせは完了・取り消し済みも含めるので、**前に終わらせたものと同じ名前**でも
+         ここに落ちる。何とぶつかったのかを言って、足す道も示すこと。 */
+      const dup = state.items.find(x => x.dedupeKey === it.dedupeKey);
+      if (dup) { asks.push(dupeAsk(dup, tz)); continue; }
       const twin = findSimilar(it);
       if (twin) { await mergeInto(twin, it, changes, tz); continue; }      // 言い換えちがいの二重登録を防ぐ
       await putItem(it);
@@ -3469,16 +3916,29 @@ async function applyOps(rawOps, note) {
       const text = typeof o.text === "string" && o.text.trim() ? o.text.trim().slice(0, 120) : String(o.quote || "").slice(0, 120);
       if (!text) continue;
       const scopeDay = isDate(o.scopeDay) ? o.scopeDay : null;
+      /* 値の検算は**1か所**（v5.9・4周目の調査で発見）。
+         新しく作るときだけ検算していて、**既にある希望を更新する道は素通し**だった。
+         `noEveningWork` は「分」として `planFor` に効くので、`0` が入ると
+         **その日が丸ごと使えなくなる**（実測でそうなった）。決まり9そのもの。 */
+      const value = key === "noEveningWork"
+        ? (num(o.value, 12 * 60, 23 * 60) || EVENING_DEFAULT_MIN)   // 12:00〜23:00 に収める
+        : key === "noSuggest"
+        ? (DAY_FILL.some(f => f.key === o.value) ? o.value : null)  // 持ち札の名前以外は受け取らない
+        : (o.value !== false);
+      if (key === "noSuggest" && !value) { asks.push("どの提案を外すのか分かりませんでした。"); continue; }
+      /* `noSuggest` は**1件ずつ別の希望**なので、値まで見て突き合わせる（v7.1）。
+         key だけで見ると、2つ目を言ったときに1つ目が上書きされて消える。 */
       const existing = liveItems().find(i => i.kind === "preference" && i.preferKey === key && key !== "free"
-        && (i.scopeDay || null) === scopeDay);
-      if (existing) { existing.preferValue = o.value; existing.title = text; existing.updatedAt = new Date().toISOString(); note2(existing, "言い直しで更新"); await putItem(existing); }
+        && (i.scopeDay || null) === scopeDay
+        && (key !== "noSuggest" || i.preferValue === value));
+      if (existing) { existing.preferValue = value; existing.title = text; existing.updatedAt = new Date().toISOString(); note2(existing, "言い直しで更新"); await putItem(existing); }
       else {
         await putItem({
           id: uid(), noteId: note.id, kind: "preference", title: text, preferKey: key, scopeDay,
-          preferValue: key === "noEveningWork" ? (num(o.value, 12 * 60, 23 * 60) || 18 * 60) : (o.value !== false),
+          preferValue: value,
           evidence: evidenceOf(note, o.quote), origin: "user", corrected: false, confirmed: true, status: "open",
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: [],
-          dedupeKey: "pref|" + key + "|" + (scopeDay || "always")
+          dedupeKey: "pref|" + key + (key === "noSuggest" ? "|" + value : "") + "|" + (scopeDay || "always")
         });
       }
       changes.push(scopeDay ? `今日の出し方：${text}` : `これからの出し方：${text}`);
@@ -3545,7 +4005,7 @@ async function applyOps(rawOps, note) {
     }
     kinds.push(o.op);
   }
-  return { changes, asks: [...new Set(asks)], days, kinds };
+  return { changes, asks: [...new Set(asks)], days, kinds, habitDay };
 }
 
 /* AIが日付を付けてきたとき、その発言に**日付の言葉**が本当にあったかを確かめる。
@@ -3553,26 +4013,60 @@ async function applyOps(rawOps, note) {
    ここが `!!parseWhen(...)` だったため、「6〜9時の間に30分勉強する」に時刻があるだけで
    「日付を言った」と判定され、AIが足した「明日」がそのまま通っていた。
    本人は今日のつもりだったのに、明日の予定になった。 */
+/* 「日付の言葉があったか」の判定は **1か所**（決まり7e・v5.7）。
+   v5.3 で `applyFields` に同じ式を書いてしまい、アプリは `dateWasSpoken` を
+   呼ばなくなっていた。**テストだけが生きている関数を測っている**状態で、
+   片方を直してももう片方が変わらない。今日それで何度も壊した。 */
+const dateSpokenIn = w => !!(w && !w.timeOnly);
 function dateWasSpoken(note, tz) {
   if (!note || !note.text) return true;
   const w = parseWhen(note.text, note.capturedAt || new Date().toISOString(), tz);
-  return !!(w && !w.timeOnly);
+  return dateSpokenIn(w);
 }
 
 /* 戻り値は「**AIが付けた日付を引き戻したか**」（v5.1）。
    引き戻したことを黙っていると、**予定表は今日なのに返事だけ「明日」**になる。
    v4.7 で日付を直したぶん、文章とのズレはむしろ起きやすくなった（実機で報告）。
    呼んだ側は、これが true なら `asks` に一言添えること。 */
-function applyFields(it, o, tz, note) {
+function applyFields(it, o, tz, note, opts) {
   let pulledBack = false;
-  if (isDate(o.dueDate) && note && !dateWasSpoken(note, tz)) {
+  /* 同じ発言を、ルールでも読んでおく。AIの読み違いを見つけるための「もう一つの目」。 */
+  const rw = (note && note.text)
+    ? parseWhen(note.text, note.capturedAt || new Date().toISOString(), tz) : null;
+
+  /* **時刻を言っているのにAIが落としたら、ルールの読み取りで埋める**（v5.5・実機で報告）。
+     「11時から12時まで勉強する」が **時刻の無いタスク**になった。
+     時刻の範囲を言われたら予定（event）にする、が決まり4e。タスクにすると
+     所要時間だけが残り、`planFor` が空いている場所へ勝手に置く（言った時刻に置かれない）。
+     **足すのは、そのAIが `add` を1件しか返していないときだけ。**
+     1回の発言に用事が複数あるとき（「11時から勉強。あと牛乳を買う」）、
+     関係ない方にまで同じ時刻を付けてしまうため（決まり「1行に複数の話題があるとき、
+     日時と所要時間を他の話題に持ち込まない」と同じ理屈）。 */
+  /* **「6時から9時の間に30分」は除く**（決まり6k）。あれは予定ではなく「置いてよい時間帯」で、
+     固定の予定にすると3時間まるごとふさぐ。時間帯は AI の `window` が受け取る。 */
+  if (opts && opts.soleAdd && rw && rw.hasTime && rw.start && !rw.between && !isTime(o.dueTime)) {
+    o = Object.assign({}, o, {
+      dueDate: dayKey(new Date(rw.start), tz),
+      dueTime: hhmm(minOfDay(rw.start, tz)),
+      duePrecision: "exact"
+    });
+    if (rw.end) {                                  // 範囲を言っている＝固定の予定
+      it.kind = "event";
+      o.estimateMin = clamp(Math.round((new Date(rw.end) - new Date(rw.start)) / 60000), 5, 600);
+    }
+  }
+  if (isDate(o.dueDate) && note && !dateSpokenIn(rw)) {
     pulledBack = true;
     /* 本人は日付を言っていない。**AIが足した日付は採らない**（v4.7）。
        - 言い直しなら、いまの日付を保つ（「14時にして」で今日へ動かさない）
        - 時刻だけ言われたなら、**話した日**（ルールで読んだときと同じ）
        - どちらも無ければ日付なし。「そのうち」を明日の期限にしない */
-    const w = parseWhen(note.text, note.capturedAt || new Date().toISOString(), tz);
-    const spoken = (w && w.hasTime) ? dayKey(new Date(note.capturedAt || Date.now()), tz) : null;
+    /* 時刻を言っているなら、**ルールが決めた日**を使う（v5.3）。
+       話した日をそのまま使うと、決まり4b が翌日へ送った分（22時の「10時から」＝翌朝）
+       まで今日へ引き戻して、もう過ぎた時刻に置いてしまう。 */
+    const w = rw;
+    const spoken = (w && w.hasTime && (w.start || w.iso))
+      ? dayKey(new Date(w.start || w.iso), tz) : null;
     const day = it.dayKey || spoken || null;
     o = Object.assign({}, o, {
       dueDate: day,
@@ -3586,6 +4080,18 @@ function applyFields(it, o, tz, note) {
   const curDur = (it.kind === "event" && it.start && it.end)
     ? Math.max(5, Math.round((new Date(it.end) - new Date(it.start)) / 60000)) : null;
   let clock = isTime(o.dueTime) ? o.dueTime : null;
+  /* **12時間ちょうどのズレは、ルールを採る**（v5.3・実機で報告）。
+     決まり4b/4c（午前とも午後とも言われていない時刻）は `parseWhen` の中にしかなく、
+     AIが返す `dueTime` には一切かかっていなかった。22:09 の「11時から12時まで勉強する」が
+     **9/13 11:00**（もう過ぎた朝）になった。ルールは 23:00 と読み、
+     速い返事へのヒントも「夜」を渡していたのに、AIの時刻がそのまま通った。
+     12時間ぴったりのズレは、午前/午後の取り違え以外にはほとんど起きない。
+     決まり8「時刻はコードが作る」に揃える。 */
+  if (clock && rw && rw.hasTime && (rw.start || rw.iso)) {
+    const ruleMin = minOfDay(rw.start || rw.iso, tz);
+    const aiMin = (+clock.slice(0, 2)) * 60 + (+clock.slice(3, 5));
+    if (Math.abs(ruleMin - aiMin) === 720) { clock = hhmm(ruleMin); it.dateInferred = true; }
+  }
   if (!clock && it.kind === "event" && it.start && !it.timeUnknown) {
     const p = parts(new Date(it.start), tz); clock = pad2(p.h) + ":" + pad2(p.mi);   // 日付だけ動かす
   }
@@ -3632,6 +4138,15 @@ function applyFields(it, o, tz, note) {
     }
   }
   return pulledBack;
+}
+/* 同じものが既にあって足さなかったとき、何とぶつかったのかを言う（v5.2）。
+   完了・取り消し済みとぶつかることもあるので、その状態も書く。 */
+function dupeAsk(dup, tz) {
+  const when = describeWhen(dup, tz);
+  const state_ja = dup.status === "done" ? "もう完了にしてある"
+    : dup.status === "dropped" ? "取り消してある" : "もう入っている";
+  return `「${dup.title}」${when}が${state_ja}ので、足さなかったよ。`
+    + `別のものなら「スケジュール」タブの「＋ 自分で足す」から入れてね。`;
 }
 /* 日付を引き戻したことを、**こちらの言葉で**伝える（v5.1）。
    AIの文章は書き換えない（決まり7c と同じ理屈で、触ると別の壊れ方をする）。
@@ -3829,6 +4344,22 @@ estimateMin は 30 のように返してください（開始時刻を決めな�
 「30分勉強する」ではなく「勉強する」、「勉強しようかな」ではなく「勉強する」。
 **日付の言葉（今日・明日・◯日・曜日など）が無いときは、dueDate を null にしてください。**
 時刻だけ言われたものは、**話したその日**のことです。勝手に「明日」にしないこと。
+**「1日を組み立てて」「スケジュールを作って」「他に入れる予定を提案して」と頼まれたときは、
+ops を返さないでください。**組み立てはコードが行い、時刻も並びもコードが決めます（決まり8）。
+**時刻・枠の数を文章に書かないこと。**画面に出る予定表と食い違います。
+そのうえで、**返事の最後に「習慣の提案」を1つだけ**書いてください。
+- **1つだけ。** 2つ以上は書かない。箇条書きにしない。
+- 「〜のはどうですか？」のように、**やってみないかと誘う形**にする。
+- **その人の話に合わせて、その都度考える。**毎回同じことを言わない。
+- **目指すのは「暮らしがよくなること・幸福度が上がること」**。
+  作業の段取りや効率の話ばかりにしない。次のようなものを選ぶ：
+  よく眠れる／気持ちが軽くなる／体が楽になる／人とのつながりが増える／
+  自分を責めずに済む／小さな達成に気づける／自然や外の空気に触れる／
+  好きなことに使う時間が残る。
+- **今日やる用事そのものではなく、続けると効く小さな習慣**にする。
+- **がんばりを増やす提案にしない。** 増やすより「やめる・減らす・許す」でもよい。
+- **時刻・分数・件数は書かない**（予定表と食い違うため）。
+- 押して登録するボタンは出ません。気に入ったら本人が言葉で返します。
 【作業に使える時間帯】${hhmm(cx.winS)}〜${hhmm(cx.winE)}
 【いまの予定案】${cx.plan}
 【本人が前に言った「こうしてほしい」】${cx.pf.length ? cx.pf.join(" / ") : "（まだありません）"}
@@ -4140,7 +4671,26 @@ async function sendTurn(text) {
     try { const r = await aiTurn(note); ops = r.ops; reply = r.reply; usedAI = true; }
     catch (e) { err = AI_ERR[e && e.code] || ("AI接続エラー: " + (e.message || "不明") + " のためルールで読み取りました。"); }
   }
+  /* **AIが「何もしない」を返しても、ルールが読めたものは捨てない**（v5.4・実機で報告）。
+     ここは `if (!ops)` だけだったので、AIが失敗したときにしかルールへ戻らなかった。
+     AIが成功して **空の ops** を返すと `[]` は真なので、ルールが正しく読めていても
+     まるごと捨てられ、**画面には何も出ない**（「追加すらされなかった」の正体）。
+     決まり7「ルール抽出だけで成立すること」は、ここで破れていた。
+     AIがオンのときに `_needs_ai`（AIをオンにして、の案内）を混ぜても意味が無いので外す。 */
   if (!ops) ops = ruleOps(note);
+  else if (!ops.length) {
+    const ro = ruleOps(note).filter(o => o.op !== "_needs_ai");
+    if (ro.length) { ops = ro; usedAI = false; }
+  }
+  /* **1日の組み立ては、AIがオンでもコードがやる**（v6.5）。
+     決まり8「時刻と予定表はコードが作る」の一番大事な場面がここ。
+     決まり7 の戻りは「AIが空を返したとき」だけなので、**AIが何か返した瞬間に
+     組み立てが丸ごと消える**（作った直後に気づいた。AIオンの実機では動かなかった）。
+     依頼文はプロンプトでも禁じてあるが、**禁じただけで守られたと思わない**（決まり9）。 */
+  if (parseDayRequest(note, tz)) {
+    const ro = ruleOps(note).filter(o => o.op === "buildday");
+    if (ro.length) ops = ro;
+  }
   const quickText = quick ? await quick : "";
 
   // 5. 適用してから、予定を計算し直す
@@ -4201,6 +4751,7 @@ async function sendTurn(text) {
   await pushTurn({
     id: uid(), role: "assistant", text: reply, at: new Date().toISOString(),
     changes, plan: sn, ai: usedAI, error: err,
+    habitDay: applied.habitDay || null,
     showTable: shouldShowTable(ctx)     // 毎回は出さない
   });
   renderChat(true); renderDay(); renderMe(); renderNotes(); renderSettings();
@@ -4509,7 +5060,7 @@ $("#dNext").addEventListener("click", () => { view.day = dayKey(new Date(keyToDa
 $("#dToday").addEventListener("click", () => { view.day = dayKey(new Date(), state.settings.timezone); renderDay(); });
 $("#dPick").addEventListener("change", () => {
   const v = $("#dPick").value;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) { view.day = v; renderDay(); }
+  if (isDate(v)) { view.day = v; renderDay(); }
 });
 /* 設定は触ったその場で保存する（v3.9）。保存ボタンは置かない。
    押し忘れると、直したつもりの設定が効いていない状態になる。
@@ -4637,7 +5188,7 @@ async function importJSON(text, name) {
   const items = arr("items").filter(i => i && i.id && i.kind && !haveItem.has(i.id) && !(i.dedupeKey && haveKey.has(i.dedupeKey)));
   const docs = arr("docs").filter(x => x && x.id && x.text && !haveDoc.has(x.id) && !haveDocH.has(x.hash));
   const turns = (d.turns && typeof d.turns === "object" && !Array.isArray(d.turns)) ? d.turns : {};
-  const days = Object.keys(turns).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k) && Array.isArray(turns[k]));
+  const days = Object.keys(turns).filter(k => isDate(k) && Array.isArray(turns[k]));
   const hasSettings = d.settings && typeof d.settings === "object";
   if (!notes.length && !items.length && !docs.length && !days.length) {
     out.innerHTML = '<p class="hint">足せるものがありませんでした（すでに全部入っています）。</p>'; return;
@@ -4662,7 +5213,7 @@ async function importJSON(text, name) {
     state.turns[k] = list; lsWrite();
     if (DB) { try { await DB.doc("turns/" + k).set({ day: k, list }); } catch (e) { dbTrouble(e); } }
   }
-  if (hasSettings) { await putSettings(migrateWindow(Object.assign({}, DEFAULTS, thaw(d.settings)))); applyTheme(state.settings.theme); }
+  if (hasSettings) { await putSettings(migrateWindow(safeSettings(thaw(d.settings)))); applyTheme(state.settings.theme); }
   renderAll();
   out.innerHTML = `<p class="hint">読み込みました：原文 ${notes.length}件 ／ 項目 ${items.length}件 ／ 資料 ${docs.length}件 ／ 会話 ${days.length}日分。</p>`;
   toast("控えを読み込みました");
@@ -4701,10 +5252,16 @@ function parseICS(text, tz) {
     const [, y, mo, d, h, mi, , z] = m;
     if (h == null) return { iso: zoned(+y, +mo, +d, 0, 0, tz).toISOString(), allDay: true };
     if (z) return { iso: new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi)).toISOString(), allDay: false };
+    /* `TZID` は**外から来た文字列**。使えないものを `zoned` に渡すと `Intl` が
+       RangeError を投げ、**その1件どころかファイルまるごと読めなくなる**（v5.6・調査で発見）。
+       使えなければ、こちらの設定のタイムゾーンで読む（捨てるより残すほうが良い）。 */
     const zid = (String(param || "").match(/TZID=([^;:]+)/) || [])[1];
-    return { iso: zoned(+y, +mo, +d, +h, +mi, zid || tz).toISOString(), allDay: false };
+    const zone = usableTz(zid) ? zid : tz;
+    return { iso: zoned(+y, +mo, +d, +h, +mi, zone).toISOString(), allDay: false };
   };
+  /* **壊れた1件で全部を落とさない。** 1行ずつ守り、読めない行は飛ばす。 */
   for (const raw of lines) {
+   try {
     const line = raw.trim();
     if (line === "BEGIN:VEVENT") { cur = {}; continue; }
     if (line === "END:VEVENT") { if (cur && cur.start && cur.title) out.push(cur); cur = null; continue; }
@@ -4717,6 +5274,7 @@ function parseICS(text, tz) {
     else if (name === "DTSTART") { const w = when(val, key); if (w) { cur.start = w.iso; cur.allDay = w.allDay; } }
     else if (name === "DTEND") { const w = when(val, key); if (w) cur.end = w.iso; }
     else if (name === "RRULE") cur.rrule = val;
+   } catch { /* この行は読めない。次へ進む（ファイル全体は捨てない） */ }
   }
   return out;
 }
@@ -4750,18 +5308,37 @@ async function importICS(text, name) {
   };
   const cand = found.map(mk).filter(it => !state.items.some(x => x.dedupeKey === it.dedupeKey));
   if (!cand.length) { $("#expOut").innerHTML = '<p class="hint">すべて既に入っていました。</p>'; return; }
+  /* **件数の上限を、足す前に言う**。本物のカレンダーの書き出しには何年ぶんも入っていて、
+     数千件が一度に入ることがある。読み込めるのは `READ_LIMIT` 件までなので、
+     超えたぶんは**保存はされるのに画面から消える**——いちばん気づきにくい壊れ方になる。
+     だから「足りるかどうか」を先に数えて出し、**この先1年ぶんだけ**という逃げ道を用意する。
+     勝手にしぼらない。しぼるかどうかは本人が決める。 */
+  const todayKey = dayKey(new Date(), tz);
+  const tp = parts(new Date(), tz);
+  const yearKey = dayKey(zoned(tp.y + 1, tp.mo, tp.d, 0, 0, tz), tz);
+  const near = cand.filter(it => it.dayKey >= todayKey && it.dayKey <= yearKey);
+  const have = Math.max(state.notes.length, state.items.length);
+  const over = have + cand.length > READ_LIMIT;
+  const canNarrow = near.length > 0 && near.length < cand.length;
   const yes = await askConfirm({
     title: "カレンダーの予定を足しますか？",
-    body: `${esc(name || "選んだファイル")}から <strong>${cand.length}件</strong>の予定を足します（重なっているものは除きました）。<br>
+    body: `${esc(name || "選んだファイル")}から <strong>${cand.length.toLocaleString()}件</strong>の予定を足します（重なっているものは除きました）。<br>
       ${rep ? `<strong>くり返しの予定 ${rep}件は、最初の1回だけ</strong>入ります。<br>` : ""}
+      ${over ? `<strong>いまの記録 ${have.toLocaleString()}件と合わせると ${(have + cand.length).toLocaleString()}件になり、
+        1回に読み込める ${READ_LIMIT.toLocaleString()}件を超えます。</strong>
+        超えたぶんは保存されていますが、<strong>画面に出なくなります</strong>。<br>` : ""}
+      ${canNarrow ? `いまより前の予定や、1年より先の予定が ${(cand.length - near.length).toLocaleString()}件あります。<br>` : ""}
       いまの記録は消しません。`,
-    yes: "足す"
+    yes: "全部足す",
+    alt: canNarrow ? `この先1年ぶんだけ（${near.length.toLocaleString()}件）` : null
   });
   if (!yes) return;
-  for (const it of cand) await putItem(it);
+  const add = yes === "alt" ? near : cand;
+  for (const it of add) await putItem(it);
   renderAll();
-  $("#expOut").innerHTML = `<p class="hint">${cand.length}件を足しました。</p>`;
-  toast(`カレンダーから${cand.length}件を足しました`);
+  const tail = yes === "alt" ? `（この先1年ぶんだけ。残り ${(cand.length - near.length).toLocaleString()}件は足していません）` : "";
+  $("#expOut").innerHTML = `<p class="hint">${add.length.toLocaleString()}件を足しました。${tail}</p>`;
+  toast(`カレンダーから${add.length.toLocaleString()}件を足しました`);
 }
 
 $("#btnWipe").addEventListener("click", async () => {
@@ -4828,11 +5405,36 @@ $("#btnTidy").addEventListener("click", async () => {
     yes: "古い記録を消す", danger: true
   });
   if (!yes) return;
-  for (const i of items) { state.items = state.items.filter(x => x.id !== i.id); if (DB) { try { await DB.doc("items/" + i.id).delete(); } catch {} } }
-  for (const n of notes) { state.notes = state.notes.filter(x => x.id !== n.id); if (DB) { try { await DB.doc("notes/" + n.id).delete(); } catch {} } }
-  for (const k of turnDays) { delete state.turns[k]; if (DB) { try { await DB.doc("turns/" + k).delete(); } catch {} } }
-  lsWrite(); renderAll();
-  toast(`${items.length + notes.length + turnDays.length}件を整理しました`);
+  /* **消せたかどうかを確かめてから言う**（v5.6）。「全部消す」で直したのと同じ穴が、
+     ここにはそのまま残っていた（v4.8 の壊れ方の型を参照）。
+     直す前はこうだった——**先に手元から消し**、失敗を `catch {}` で握りつぶし、
+     無条件に「整理しました」と言う。保存先が書き込みを拒む状態（リンクから開いた画面など）だと、
+     画面からは消えるのに保存先には残り、**開き直すと全部戻ってくる**。
+     見ているのは「delete を何回呼べたか」ではなく、**1件ずつの成否**。
+     そして **消せなかったものは、手元からも消さない**。 */
+  const del = deleteFromStore;                        // 消し方は1か所にまとめてある
+  const goneItems = [], goneNotes = [], goneDays = [];
+  let failed = 0;
+  for (const i of items) { if (await del("items/" + i.id)) goneItems.push(i.id); else failed++; }
+  for (const n of notes) { if (await del("notes/" + n.id)) goneNotes.push(n.id); else failed++; }
+  for (const k of turnDays) { if (await del("turns/" + k)) goneDays.push(k); else failed++; }
+
+  const goneI = new Set(goneItems), goneN = new Set(goneNotes);
+  state.items = state.items.filter(x => !goneI.has(x.id));
+  state.notes = state.notes.filter(x => !goneN.has(x.id));
+  for (const k of goneDays) delete state.turns[k];
+  lsWrite(); renderAll(); renderSettings();
+
+  const done = goneItems.length + goneNotes.length + goneDays.length;
+  if (failed) {
+    $("#expOut").innerHTML = `<div class="note bad"><strong>保存先から消せなかったものがあります。</strong>
+      ${done}件は消しましたが、<strong>${failed}件は残っています</strong>。
+      その${failed}件は手元からも消していません（消したことにすると、開き直したときに戻ってきます）。<br>
+      理由は下の「最後に起きた不具合」に出ています。</div>`;
+    toast(`${failed}件を保存先から消せませんでした`);
+  } else {
+    toast(`${done}件を整理しました`);
+  }
 });
 
 /* 記録をさがす（v4.3）。タブは増やさない。原文と項目を、ここから一度に見る。 */
