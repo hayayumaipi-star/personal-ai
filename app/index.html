@@ -103,7 +103,6 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 .chip.src-rule{border-color:var(--line-strong);color:var(--ink-2)}
 /* 文字は --warn ではなく --warn-ink。明るいときに --warn × --warn-soft だと 4.24 しか出ない */
 .chip.src-ai{border-style:dashed;border-color:var(--warn);color:var(--warn-ink);background:var(--warn-soft)}
-.chip.k-task{color:var(--ink-2)}
 .chip.st-done{background:var(--done-soft);border-color:var(--done);color:var(--done)}
 /* 取り消しの印は控えめでよいが、読めなくては意味がない（--ink-3 だと 2.98 しか出ない） */
 .chip.st-drop{background:var(--surface-2);color:var(--ink-2)}
@@ -205,7 +204,6 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 .note{border-radius:8px;padding:9px 11px;font-size:12.5px;line-height:1.7}
 .note.warn{background:var(--warn-soft);border:1px solid var(--warn);color:var(--warn)}
 .note.info{background:var(--surface-2);border:1px solid var(--line);color:var(--ink-2)}
-.note.good{background:var(--done-soft);border:1px solid var(--done);color:var(--done)}
 .note.bad{background:var(--alert-soft);border:1px solid var(--alert);color:var(--alert)}
 .note strong{font-weight:700}
 
@@ -224,7 +222,6 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--surface);
   border-top:1px solid var(--line);padding:5px 6px calc(5px + env(safe-area-inset-bottom,0px));
   display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
-nav.tabs.three{grid-template-columns:repeat(3,1fr)}
 nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px;border-radius:8px;
   font-family:var(--f-disp);font-size:10.5px;font-weight:500;color:var(--ink-3);min-height:46px;justify-content:center}
 nav.tabs button .ic{font-size:16px;line-height:1.1}
@@ -259,7 +256,6 @@ body.sheetopen{overflow:hidden}
 #toast[hidden]{display:none!important}
 .sheet h3{font-size:16px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
-.tablewrap{overflow-x:auto}
 
 .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--ink-2);align-items:center}
 .legend i{display:inline-block;width:16px;height:0;border-top-width:4px;margin-right:4px;vertical-align:middle}
@@ -356,7 +352,6 @@ body.talking .wrap{padding-bottom:190px}
 .blk.brk{background:var(--surface-2);border:1px solid var(--line);border-left:4px solid var(--line-strong)}
 .blk.buf{background:transparent;border:1px dashed var(--line);border-left:4px dashed var(--line-strong)}
 .blk.brk .bttl,.blk.buf .bttl{color:var(--ink-2);font-weight:500}
-.onlynext{display:flex;flex-direction:column;gap:10px}
 details.allplan{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:9px 11px}
 details.allplan>summary{cursor:pointer;font-family:var(--f-disp);font-size:13px;font-weight:500;list-style:none}
 details.allplan>summary::-webkit-details-marker{display:none}
@@ -591,14 +586,6 @@ details.unconf>summary{color:var(--warn)}
 const SAMPLE_TALK = `おはよう。昨日寝たのがたぶん1時半くらいで、今日起きたのが8時。ちょっと眠い。朝ごはんはまだ食べてない。今日はあんまり予定を詰めすぎないでほしい。
 昨日言ってた資料を作らないと。明日までに相手に送るやつ。1時間くらいでできると思ってたけど、調べることもあるからもうちょっとかかるかも。できれば午前中に進めたい。
 あと、友達にAIの構想を送ろうと思ってたんだった。これは今日絶対じゃないけど、忘れないようにしておいて。`;
-
-const SAMPLE = `えーと、今日はあんまり寝てない。5時間くらい。ちょっとだるい感じ。
-明日の15時から歯医者の予約が入ってる。
-来週の金曜までに研究計画書を出さないといけない。まだ全然書けてない。たぶん3時間くらいかかると思う。
-田中さんに返信するの忘れてた。今日中にやる。15分くらい。
-今日は11時から12時半までゼミ。
-今年は週2回は走る習慣をつけたい。
-あとスーパーで洗剤買う。`;
 
 /* ---------- small utils ---------- */
 const $ = s => document.querySelector(s);
@@ -1625,7 +1612,6 @@ async function putItem(it) {
   lsWrite();
   if (DB) { try { await DB.doc("items/" + it.id).set(it); } catch (e) { dbTrouble(e); } }
 }
-async function putItems(list) { for (const it of list) await putItem(it); }
 async function putSettings(raw) {
   // 書く前にも検算する。壊れた値を**保存先に入れない**のが、いちばん確実な防ぎ方
   const s = safeSettings(raw);
@@ -1806,28 +1792,6 @@ function normNote(t) {
   return t.replace(/\r\n/g, "\n").split("\n")
     .map(l => l.replace(/[ \t　]+/g, " ").trim())
     .join("\n").replace(/\n{3,}/g, "\n\n").trim();
-}
-
-async function ingest(text, capturedAt, sourceName) {
-  const clean = normNote(text);
-  const h = hash(clean);
-  const existing = state.notes.find(n => n.hash === h);
-  if (existing) {
-    return { duplicate: true, note: existing, created: [], skipped: state.items.filter(i => i.noteId === existing.id).length };
-  }
-  const note = { id: uid(), text: clean, hash: h, capturedAt, source: sourceName ? "file" : "paste", sourceName: sourceName || null, createdAt: new Date().toISOString() };
-  await putNote(note);
-
-  const found = extractByRule(note, state.settings);
-  const created = [], skipped = [];
-  for (const it of found) {
-    // 完了済み・取り消し済みも含めて突き合わせる → 再提案しない
-    const dup = state.items.find(x => x.dedupeKey === it.dedupeKey);
-    if (dup) { skipped.push({ item: it, because: dup }); continue; }
-    created.push(it);
-  }
-  await putItems(created);
-  return { duplicate: false, note, created, skippedList: skipped };
 }
 
 /* =======================================================================
