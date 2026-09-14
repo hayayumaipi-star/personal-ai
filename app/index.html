@@ -3955,7 +3955,7 @@ async function callAI(prompt, isJson, options) {
     if (p === "gemini") {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${key}`;
       const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 4096 } };
-      /* if (isJson) payload.generationConfig.responseMimeType = "application/json"; // Remove this to prevent 400 Bad Request on some models */
+      if (isJson) payload.generationConfig.responseMimeType = "application/json";
       const fetchOpts = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) };
       if (options && options.signal) fetchOpts.signal = options.signal;
       let res;
