@@ -2203,6 +2203,51 @@
            r5.asks.some(x => /読み取れませんでした/.test(x)), r5.asks.join(" / ") || "知らせ無し");
       }
 
+      /* **朝の組み立て**（v6.9・測って見つけた）。持ち札は夜を前提に作ってあったので、
+         朝6時〜11時半で組むと**就寝準備・リラックス・身支度が日中に並んで**いた。
+         夜かどうかは**窓の終わりが21時以降か**で決める（言葉ではなく時刻で決める）。 */
+      {
+        reset();
+        const MORN = "朝6時から11時半までの間で勉強を30分かける2回 その間にご飯と散歩それぞれ30分ずつ使う 他に入れる予定や習慣を提案して組み立てて";
+        const at6 = zoned(2026, 9, 12, 5, 0, TZ).toISOString();
+        const n6 = { id: uid(), text: normNote(MORN), hash: hash("m1"), capturedAt: at6,
+          source: "talk", sourceName: null, createdAt: at6 };
+        await putNote(n6);
+        await applyOps(ruleOps(n6), n6);
+        const pm = planFor(KEY, { nowMin: 5 * 60 });
+        const t6 = pm.blocks.filter(b => b.item).map(b => b.item.title);
+        ok("AX. 朝の組み立てに就寝準備を入れない", !t6.includes("就寝準備"), t6.join(" / "));
+        ok("AX. 朝にリラックス・身支度を入れない",
+           !t6.includes("リラックス") && !t6.includes("身支度・明日の準備"), t6.join(" / "));
+        ok("AX. 朝は「今日の計画を立てる」を始めのほうに置く",
+           t6.indexOf("今日の計画を立てる") >= 0 && t6.indexOf("今日の計画を立てる") <= 2, t6.join(" / "));
+        /* **食事の名前は「置かれる枠の時刻」で決める**。話した時刻で決めると、
+           夜に「明日の朝のご飯」と言ったとき「食事をとる」になった（実測）。 */
+        ok("AX. 朝の枠のご飯は朝食になる", t6.includes("朝食を食べる"), t6.join(" / "));
+
+        reset();
+        const NIGHTSAY = "明日の朝6時から11時半までの間でご飯を30分使う 他も提案して組み立てて";
+        const at7 = zoned(2026, 9, 12, 22, 0, TZ).toISOString();
+        const n7 = { id: uid(), text: normNote(NIGHTSAY), hash: hash("m2"), capturedAt: at7,
+          source: "talk", sourceName: null, createdAt: at7 };
+        await putNote(n7);
+        await applyOps(ruleOps(n7), n7);
+        ok("AX. 夜に言った「明日の朝のご飯」も朝食になる",
+           state.items.some(i => i.title === "朝食を食べる"),
+           state.items.filter(i => !i.suggested).map(i => i.title).join(","));
+        /* **日付を言われていたら、今日へ寄せない**（v7.0・朝を測って見つけた）。
+           v6.6 の寄せの門が `dk > spokeDay` だけだったので、22時に
+           「明日の朝6時から11時半まで」と言うと**今日の22:00〜23:30 に組み立てて**いた。 */
+        ok("AX. 「明日」と言われたら今日へ寄せない",
+           state.items.some(i => i.dayKey === NEXT) && !state.items.some(i => i.dayKey === KEY),
+           [...new Set(state.items.map(i => i.dayKey))].join(","));
+
+        // 余りで「自由・予備時間」を膨らませすぎない（残りは空きとして見える）
+        ok("AX. 自由・予備時間を膨らませすぎない",
+           pm.blocks.every(b => !b.item || b.item.title !== "自由・予備時間" || (b.e - b.s) <= 90),
+           pm.blocks.filter(b => b.item && b.item.title === "自由・予備時間").map(b => (b.e - b.s) + "分").join(","));
+      }
+
       state.settings = Object.assign({}, state.settings, { workStart: keepW[0], workEnd: keepW[1] });
     }
 

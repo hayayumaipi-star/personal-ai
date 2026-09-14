@@ -1817,11 +1817,12 @@ const DAY_FILL = [
   { key: "tidy",   title: "片付け・軽い運動",     min: 20, w: 25, drop: 6, need: "meal",  why: "食器を片付けて、散歩かストレッチ" },
   { key: "break",  title: "休憩",                 min: 15, w: 35, drop: 4, need: "focus2", why: "席を離れてひと息" },
   { key: "main",   title: "大事な用事を1つ",       min: 45, w: 40, drop: 7, need: null,   why: "制作・家事・手続きなど。終わりの条件を決める" },
-  { key: "ready",  title: "身支度・明日の準備",   min: 20, w: 55, drop: 3, need: "bath",  why: "髪を乾かす、服や持ち物を用意する" },
+  { key: "ready",  title: "身支度・明日の準備",   min: 20, w: 55, drop: 3, need: "bath",  why: "髪を乾かす、服や持ち物を用意する", night: true },
   { key: "spare",  title: "自由・予備時間",       min: 30, w: 60, drop: 9, need: null,   why: "趣味や、遅れた予定の調整" },
-  { key: "review", title: "振り返り・明日の計画", min: 10, w: 70, drop: 2, need: null,   why: "できたことと、明日の最優先を1つずつ書く" },
-  { key: "relax",  title: "リラックス",           min: 30, w: 75, drop: 8, need: null,   why: "読書や音楽など、区切りをつけやすいもの" },
-  { key: "bed",    title: "就寝準備",             min: 30, w: 90, drop: 1, need: null,   why: "歯磨き、トイレ、照明を落とす" }
+  { key: "review", title: "振り返り・明日の計画", min: 10, w: 70, drop: 2, need: null,   why: "できたことと、明日の最優先を1つずつ書く",
+    dayTitle: "今日の計画を立てる", dayWhy: "今日いちばん大事なことを1つ決める", dayW: 7 },
+  { key: "relax",  title: "リラックス",           min: 30, w: 75, drop: 8, need: null,   why: "読書や音楽など、区切りをつけやすいもの", night: true },
+  { key: "bed",    title: "就寝準備",             min: 30, w: 90, drop: 1, need: null,   why: "歯磨き、トイレ、照明を落とす", night: true }
 ];
 /* 本人が言った活動を、一日のどのあたりに置くか。
    **順番はこちらが決めてよい**（「組み立てて」と言われているので）。ただし理由が言えること：
@@ -1876,9 +1877,9 @@ function wantsIn(sentence, atISO, tz) {
        .replace(/(それぞれ|ずつ|各|合計|ぜんぶ|全部)/g, " ")
        .replace(/(使う|使いたい|とる|取る|やる|する|入る|入りたい|食べる|かける|確保)[たい]*。?\s*$/, " ");
   const out = [], seen = {};
-  const add = (title, n) => {
+  const add = (title, n, mealWord) => {
     if (!title || seen[title]) return;
-    seen[title] = 1; out.push({ title, min: min || null, count: n });
+    seen[title] = 1; out.push({ title, min: min || null, count: n, mealWord: mealWord || null });
   };
   /* ① **知っている活動の語を、名前で拾う。** 助詞を削る前に見るので、区切りが無くても壊れない。 */
   for (const part of s.split(/[とや、,・\s]/)) {
@@ -1887,7 +1888,10 @@ function wantsIn(sentence, atISO, tz) {
       if (hit) { add(actTitle(hit[1], atISO, tz), count); break; }
     }
     const meal = part.match(/(朝ごはん|朝ご飯|朝食|昼ごはん|昼ご飯|昼食|お昼|ランチ|夜ごはん|夜ご飯|夕飯|夕食|晩ごはん|晩ご飯|ご飯|ごはん|食事)/);
-    if (meal) add(actTitle(meal[1], atISO, tz), 1);
+    /* **食事の名前は「置かれる枠の時刻」で決める**（v6.9・朝を測って見つけた）。
+       ここで決めると**話した時刻**が基準になり、夜に「明日の朝のご飯」と言うと
+       「食事をとる」になった（実測）。仮の名前を置いて、枠が決まってから直す。 */
+    if (meal) add(actTitle(meal[1], atISO, tz), 1, meal[1]);
   }
   if (out.length) return out;
   /* ② 知らない言葉のときだけ、助詞を削って拾う。**壊れた形は捨てる**——
@@ -1949,7 +1953,13 @@ function parseDayRequest(note, tz) {
      **4b は書き換えない**（あれは一点の時刻の話で、U群が12例で固定している）。
      ここで見るのは「日をまたいで飛んだときだけ、話した日に同じ窓が残っていないか」。 */
   const spokeDay = dayKey(new Date(note.capturedAt), tz);
-  if (dk > spokeDay) {
+  /* **日付を言われていたら、今日へ寄せない**（v7.0・朝を測って見つけた）。
+     v6.6 の寄せは「日付を言っていないのに翌日へ飛んだ」を直すためのもの。
+     ところが門が `dk > spokeDay` だけだったので、
+     **「明日の朝6時から11時半まで」を22時に言うと、今日の22:00〜23:30 に組み立てて**いた（実測）。
+     本人が「明日」と言っているのだから動かしてはいけない（決まり4b「言われていたら触らない」）。
+     判定は既にある `dateSpokenIn` を使う——**同じ判定を2か所に書かない**（決まり7e）。 */
+  if (dk > spokeDay && !dateSpokenIn(w)) {
     const nowMin = minOfDay(note.capturedAt, tz);
     const needMin = wants.reduce((a, x) => a + (x.min || 0) * (x.count || 1), 0);
     const cands = [win, [win[0] + 720, win[1] + 720], [win[0] - 720, win[1] - 720]]
@@ -1984,7 +1994,8 @@ function buildDayPlan(req, st) {
       const nth = (seen[wnt.title] = (seen[wnt.title] || 0));
       seen[wnt.title]++;
       rows.push({ title: n > 1 ? `${wnt.title}${"①②③④⑤⑥⑦⑧"[i]}` : wnt.title,
-        min: clamp(wnt.min || st.defaultEstimate, 5, 480), w: wantWeight(wnt.title, nth), mine: true });
+        min: clamp(wnt.min || st.defaultEstimate, 5, 480), w: wantWeight(wnt.title, nth),
+        mealWord: wnt.mealWord || null, mine: true });
     }
   }
   const kinds = {
@@ -1993,8 +2004,17 @@ function buildDayPlan(req, st) {
     meal: rows.some(r => RE_MEAL.test(r.title)),
     bath: rows.some(r => RE_BATHY.test(r.title))
   };
-  const fill = DAY_FILL.filter(f => !f.need || kinds[f.need])
-    .map(f => ({ title: f.title, min: f.min, w: f.w, why: f.why, drop: f.drop, key: f.key, mine: false }));
+  /* **朝の組み立てに「就寝準備」を入れない**（v6.9・朝を測って見つけた）。
+     持ち札は夜を前提に作ってあった。朝6時〜11時半で組むと
+     **就寝準備・リラックス・身支度が日中に並ぶ**（実測）。
+     夜かどうかは**窓の終わりが21時以降か**で決める（言葉ではなく時刻で決める）。
+     「区切り」だけは朝にも要るので、文言を入れ替える（振り返り → 今日の計画を立てる）。 */
+  const isNight = to >= 21 * 60;
+  const fill = DAY_FILL.filter(f => (!f.need || kinds[f.need]) && (!f.night || isNight))
+    // 朝の「計画」は**始めに**置く。夜の「振り返り」と同じ重みだと終わりに来る（実測）
+    .map(f => ({ title: (!isNight && f.dayTitle) ? f.dayTitle : f.title, min: f.min,
+      w: (!isNight && f.dayW != null) ? f.dayW : f.w,
+      why: (!isNight && f.dayWhy) ? f.dayWhy : f.why, drop: f.drop, key: f.key, mine: false }));
 
   const room = to - from;
   const mineMin = rows.reduce((a, r) => a + r.min, 0);
@@ -2007,10 +2027,15 @@ function buildDayPlan(req, st) {
   }
   const short = Math.max(0, mineMin - room);          // 本人のぶんだけで溢れている量
   // 余りは「自由・予備時間」に足す。無ければ最後の提案を延ばす
+  /* 余りは「自由・予備時間」に足す。**ただし膨らませすぎない**（v6.9）。
+     朝の組み立てで 1時間50分の「自由・予備時間」になった（実測）。
+     入りきらなかったぶんは**空きとして残す**——`planFor` が空き時間として描くので、
+     黙って消したことにはならない。 */
   let left = room - total();
   if (left > 0 && picked.length) {
     const sp = picked.find(f => f.key === "spare") || picked[picked.length - 1];
-    sp.min += left; left = 0;
+    const take = Math.max(0, Math.min(left, 90 - sp.min));
+    sp.min += take; left -= take;
   }
   const all = rows.concat(picked).sort((a, b) => a.w - b.w);
   let at = from;
@@ -3647,8 +3672,11 @@ async function applyOps(rawOps, note) {
       const made = [], dupes = [];
       for (const r of plan.rows) {
         const at = new Date(zoned(ky, km, kd, 0, 0, tz).getTime() + r.s * 60000);
+        // 食事は、置かれた枠の時刻で朝食／昼食／夕食を決め直す（決まり6i・v6.9）
+        const title = r.mealWord
+          ? (mealTitle(r.mealWord + "を食べる", at.toISOString(), tz) || r.title) : r.title;
         const it = {
-          id: uid(), noteId: note ? note.id : null, kind: "task", title: r.title,
+          id: uid(), noteId: note ? note.id : null, kind: "task", title,
           evidence: { text: (o.quote || req.wants.map(w => w.title).join("・")), start: 0, end: 0 },
           origin: "rule", confirmed: false, corrected: false, status: "open",
           dayKey: req.dayKey, duePrecision: "exact", due: at.toISOString(),
