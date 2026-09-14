@@ -2102,21 +2102,21 @@
       ok("AX. 置けなかったものが出ない", pl.unplaced.length === 0,
          pl.unplaced.map(u => u.item.title + "→" + u.reason).join(" / "));
 
-      /* 習慣は `asks` ではなく専用の欄で返す（`asks` は返事の文に混ぜて esc されるため、
-         ボタンが文字列として出てしまう。画面に本当に出るかは walkthrough が押して確かめる）。 */
-      ok("AX. 習慣を、返事の文とは別に返す", res.habits.length >= 3, res.habits.length + "件");
-      ok("AX. 勉強前に決める習慣を出す",
-         LAST_HABITS.some(h => /何を終えるか/.test(h)), LAST_HABITS.join(" / "));
-      ok("AX. 就寝をずらさない習慣を、実際の時刻で出す",
-         LAST_HABITS.some(h => /23:30の就寝は後ろにずらさない/.test(h)), LAST_HABITS.join(" / "));
-      ok("AX. まとめて消すための日を返す", res.habitDay === KEY, String(res.habitDay));
+      /* **習慣はコードで作らない**（v6.7・本人の指示）。決まった持ち札から選ぶと毎回同じ4つが出る。
+         その都度AIに考えさせ、返事の文の中で1つだけ言ってもらう。
+         だからコード側は**習慣の文を1つも持たない**——ここが再発の見張り。 */
+      ok("AX. 習慣の文をコードが作らない", res.habits === undefined, JSON.stringify(res.habits));
+      ok("AX. まとめて消すための日は返す", res.habitDay === KEY, String(res.habitDay));
+      /* 依頼文そのものを見る。**ソースを丸ごと検索しない**（説明のコメントに当たる）——
+         関数の中身だけを見る、という記録済みの作法に従う。 */
+      const PR = String(buildPrompt);
+      ok("AX. AIへの依頼に「習慣を1つだけ」と書いてある", /習慣の提案」を1つだけ/.test(PR), "");
+      ok("AX. AIに時刻・件数を書かせない", /時刻・分数・件数は書かない/.test(PR), "");
+      ok("AX. 毎回同じことを言わせない", /毎回同じことを言わない/.test(PR), "");
 
-      // 押して取り入れるまで、習慣は保存しない（決まり2）
-      const before = state.items.filter(i => i.kind === "goal").length;
-      ok("AX. 提案しただけでは目標にしない", before === 0, before + "件");
-      await act("habit", "0");
-      ok("AX. 「取り入れる」で目標になる",
-         state.items.filter(i => i.kind === "goal" && i.origin === "user").length === 1,
+      // 習慣は会話の中の提案でしかない。勝手に目標として保存しない（決まり2）
+      ok("AX. 習慣を勝手に目標として保存しない",
+         state.items.filter(i => i.kind === "goal").length === 0,
          state.items.filter(i => i.kind === "goal").map(i => i.title).join(","));
 
       // 同じことをもう一度言っても、二重にならない（決まり5）

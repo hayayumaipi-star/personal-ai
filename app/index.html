@@ -1958,23 +1958,6 @@ function buildDayPlan(req, st) {
   return { rows: all, dropped, short, left, win: req.win };
 }
 
-/* 習慣の提案。**予定表に本当に入っているものからしか作らない**（言っていないことを勧めない）。 */
-/* 直前に出した習慣の提案。ボタンの `data-id` はこの並びの番号。
-   `act` に渡るのは `data-id` だけなので、文そのものは渡さずここから引く。 */
-let LAST_HABITS = [];
-function suggestHabits(plan) {
-  const has = k => plan.rows.some(r => r.title.indexOf(k) === 0 || r.title === k);
-  const focus = plan.rows.find(r => RE_FOCUS.test(r.title));
-  const bed = plan.rows.find(r => r.title === "就寝準備");
-  const out = [];
-  if (focus) out.push(`${focus.title.replace(/[①②③④⑤⑥⑦⑧]/, "")}の前に「${durJa(focus.min)}で何を終えるか」を決める。`);
-  if (has("身支度・明日の準備")) out.push("明日の服・持ち物・最初にやることを、夜のうちに用意する。");
-  if (bed) out.push(`予定が遅れても、${hhmm(bed.e)}の就寝は後ろにずらさない。「大事な用事」を短くして調整する。`);
-  if (has("片付け・軽い運動")) out.push("食べたあとは座り続けず、20分だけ動く（片付け・散歩・ストレッチ）。");
-  if (has("振り返り・明日の計画")) out.push("一日の終わりに、できたこと1つと明日の最優先1つだけ書く。");
-  return out.slice(0, 4);
-}
-
 /* =======================================================================
    計画づくり（固定予定と移動可能な作業枠を分ける）
    ======================================================================= */
@@ -2722,8 +2705,12 @@ function turnHTML(t) {
       <span class="stamp">${stamp}${t.noteId ? ` · <button class="btn sm srcbtn" data-act="shownote" data-id="${t.noteId}">原文</button>` : ""}</span></div>`;
   }
   // 変えたことが無いときは、わざわざ「変えていません」と出さない（返事に書いてある）
+  /* 組み立てた回だけ、**「変えたこと」の下に1つだけ**まとめて消す道を出す（v6.7）。
+     提案のための欄は作らない（本人の指示）。いま行った変更に付く操作なので、ここに置く。 */
   const changes = (t.changes || []).length
-    ? `<div class="changes"><span class="eyebrow">変えたこと</span>${t.changes.map(c => `<div>・${esc(c)}</div>`).join("")}</div>` : "";
+    ? `<div class="changes"><span class="eyebrow">変えたこと</span>${t.changes.map(c => `<div>・${esc(c)}</div>`).join("")}`
+      + (t.habitDay ? `<div style="margin-top:8px"><button class="btn sm" data-act="clearsug" data-id="${esc(t.habitDay)}">提案した予定を全部消す</button></div>` : "")
+      + `</div>` : "";
   const sn = t.plan;
   const nextLine = sn && sn.next
     ? `<div class="next"><span class="eyebrow">${sn.isToday === false ? "その日の最初" : "次にすること"}</span><div class="nt">${esc(sn.next.t)}</div>
@@ -2734,17 +2721,8 @@ function turnHTML(t) {
     : show ? miniplanHTML(sn)
     : `<details class="allplan"><summary>この時点の予定案を見る（${sn.blocks.length}件）</summary><div style="margin-top:8px">${miniplanHTML(sn)}</div></details>`;
   const err = t.error ? `<div class="note warn">${esc(t.error)}</div>` : "";
-  /* 提案した習慣（v6.5）。**押すまでは保存しない**ので、ここはただの提案。
-     習慣の文そのものを `data-h` に持たせる——`act` には `data-id` しか渡らないが、
-     押された要素は渡るので、開き直しても押せる（番号で覚えると会話が増えたときにずれる）。 */
-  const habits = (t.habits || []).length
-    ? `<div class="changes"><span class="eyebrow">このような習慣はどうですか？</span>
-       ${t.habits.map(h => `<div class="revrow"><span>・${esc(h)}</span>
-         <button class="btn sm" data-act="habit" data-h="${esc(h)}" style="margin-left:auto">取り入れる</button></div>`).join("")}
-       ${t.habitDay ? `<div style="margin-top:8px"><button class="btn sm" data-act="clearsug" data-id="${esc(t.habitDay)}">提案した予定を全部消す</button></div>` : ""}
-      </div>` : "";
   return `<div class="turn ai"><div class="bub">${esc(t.text)}</div>
-    <div class="extra">${err}${nextLine}${changes}${habits}${plan}</div>
+    <div class="extra">${err}${nextLine}${changes}${plan}</div>
     <span class="stamp">${stamp} · ${t.ai ? "AIが読み取り" : "ルールで読み取り"}</span></div>`;
 }
 function renderChat(scroll) {
@@ -3165,21 +3143,6 @@ function note(it, what) { it.history = (it.history || []).concat({ at: new Date(
 
 async function act(a, id, el) {
   const tz = state.settings.timezone;
-  /* 提案した習慣を取り入れる（v6.5）。**押したときだけ保存する**——
-     提案しただけのものを本人の目標にしない（決まり2「推測を確定にしない」）。 */
-  if (a === "habit") {
-    const text = (el && el.dataset && el.dataset.h) || LAST_HABITS[+id];
-    if (!text) { toast("この提案はもう残っていません。もう一度組み立ててください"); return; }
-    const it = { id: uid(), noteId: null, kind: "goal", title: text,
-      evidence: { text: "（アプリの提案を取り入れた）" }, origin: "user",
-      confirmed: true, corrected: false, status: "open",
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-      history: [{ at: new Date().toISOString(), by: "user", what: "提案された習慣を取り入れた" }] };
-    it.dedupeKey = dedupeKey(it);
-    if (state.items.some(x => x.dedupeKey === it.dedupeKey)) { toast("もう入っています"); return; }
-    await putItem(it); renderAll(); toast("習慣として「わたしのこと」に入れました");
-    return;
-  }
   /* **提案した予定は、1手で全部消せること**（v6.5）。こちらが足したものなので、
      1件ずつ消させない。本人が言ったものには触らない。 */
   if (a === "clearsug") {
@@ -3600,7 +3563,7 @@ function ruleOps(note) {
 
 async function applyOps(rawOps, note) {
   const tz = state.settings.timezone, changes = [], asks = [], days = [], kinds = [];
-  let habits = [], habitDay = null;                 // 提案した習慣と、提案した日（決まり8：文はコードが作る）
+  let habitDay = null;                              // 組み立てた日（まとめて消す道に渡す）
   // 用事が1件だけのときに限り、ルールが読んだ日時をAIの項目へ足してよい（v5.5）
   const soleAdd = (Array.isArray(rawOps) ? rawOps : []).filter(o => o && o.op === "add").length === 1;
   const touch = k => { if (k && days.indexOf(k) < 0) days.push(k); };
@@ -3648,11 +3611,11 @@ async function applyOps(rawOps, note) {
           ? `${hhmm(req.startedAt)}からの話でしたが、いまは${hhmm(req.win[0])}なので、そこから${hhmm(req.win[1])}までで組み立てました。${alt}`
           : `今日の${hhmm(req.win[0])}〜${hhmm(req.win[1])}として組み立てました。${alt}`);
       }
-      /* **習慣は `asks` に入れない**（v6.5・作った直後に気づいた）。
-         `asks` は返事の文に混ぜて `esc()` されるので、**ボタンが文字列として出る**。
-         「変えたこと」と同じ場所（`.extra`）に、独立した欄として返す。 */
-      LAST_HABITS = suggestHabits(plan);
-      habits = LAST_HABITS.slice(); habitDay = req.dayKey;
+      /* **習慣の提案はコードで作らない**（v6.7・本人の指示）。
+         決まった持ち札から選ぶと、毎回同じ4つが出る。**その都度AIに考えさせ、
+         返事の文の中で1つだけ**言ってもらう（`buildPrompt` に書いてある）。
+         ここが持つのは「どの日を組み立てたか」だけ——まとめて消す道に要る。 */
+      habitDay = req.dayKey;
       continue;
     }
     if (o.op === "_needs_ai") {
@@ -3847,7 +3810,7 @@ async function applyOps(rawOps, note) {
     }
     kinds.push(o.op);
   }
-  return { changes, asks: [...new Set(asks)], days, kinds, habits, habitDay };
+  return { changes, asks: [...new Set(asks)], days, kinds, habitDay };
 }
 
 /* AIが日付を付けてきたとき、その発言に**日付の言葉**が本当にあったかを確かめる。
@@ -4174,9 +4137,16 @@ estimateMin は 30 のように返してください（開始時刻を決めな�
 **日付の言葉（今日・明日・◯日・曜日など）が無いときは、dueDate を null にしてください。**
 時刻だけ言われたものは、**話したその日**のことです。勝手に「明日」にしないこと。
 **「1日を組み立てて」「スケジュールを作って」「他に入れる予定を提案して」と頼まれたときは、
-ops を返さないでください。**組み立てはコードが行い、時刻も並びもコードが決めます
-（決まり8）。あなたは「組み立てました」の一言だけ書いてください。
-**時刻・枠の数・習慣の中身を文章に書かないこと。**画面に出る予定表と食い違います。
+ops を返さないでください。**組み立てはコードが行い、時刻も並びもコードが決めます（決まり8）。
+**時刻・枠の数を文章に書かないこと。**画面に出る予定表と食い違います。
+そのうえで、**返事の最後に「習慣の提案」を1つだけ**書いてください。
+- **1つだけ。** 2つ以上は書かない。箇条書きにしない。
+- 「〜のはどうですか？」のように、**やってみないかと誘う形**にする。
+- **その人の話に合わせて、その都度考える。**毎回同じことを言わない。
+- **今日やる用事そのものではなく、続けると効く小さな習慣**にする
+  （例の言い方：始める前に終わりの条件を決める／終わったら次の準備だけしておく）。
+- **時刻・分数・件数は書かない**（予定表と食い違うため）。
+- 押して登録するボタンは出ません。気に入ったら本人が言葉で返します。
 【作業に使える時間帯】${hhmm(cx.winS)}〜${hhmm(cx.winE)}
 【いまの予定案】${cx.plan}
 【本人が前に言った「こうしてほしい」】${cx.pf.length ? cx.pf.join(" / ") : "（まだありません）"}
@@ -4464,7 +4434,7 @@ async function sendTurn(text) {
   await pushTurn({
     id: uid(), role: "assistant", text: reply, at: new Date().toISOString(),
     changes, plan: sn, ai: usedAI, error: err,
-    habits: applied.habits || [], habitDay: applied.habitDay || null,
+    habitDay: applied.habitDay || null,
     showTable: shouldShowTable(ctx)     // 毎回は出さない
   });
   renderChat(true); renderDay(); renderMe(); renderNotes(); renderSettings();

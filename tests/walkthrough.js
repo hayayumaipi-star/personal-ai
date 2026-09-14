@@ -663,16 +663,11 @@
           + state.items.length + "件 / 提案" + state.items.filter(i => i.suggested).length + "件");
       if (state.items.filter(i => !i.suggested && i.kind === "task").length < 4)
         throw new Error("本人が言った4件が入っていない");
-      if (!/このような習慣はどうですか/.test($$("#chatOut").textContent))
-        throw new Error("習慣を提案していない");
-    });
-    await step("提案された習慣を「取り入れる」で押せる", async () => {
-      const b = document.querySelector('#chatOut [data-act="habit"]');
-      if (!b) throw new Error("「取り入れる」が無い");
-      const before = state.items.filter(i => i.kind === "goal").length;
-      await click(b);
-      if (state.items.filter(i => i.kind === "goal").length !== before + 1)
-        throw new Error("押しても目標にならない");
+      // **習慣のための欄は作らない**（v6.7・本人の指示）。提案はAIの返事の文の中だけ
+      if (document.querySelector('#chatOut [data-act="habit"]'))
+        throw new Error("習慣の欄が残っている（返事の文の中だけにする）");
+      if (/このような習慣はどうですか/.test($$("#chatOut").textContent))
+        throw new Error("コードが習慣の見出しを出している");
     });
     await step("「提案した予定を全部消す」で、提案だけ消える", async () => {
       const b = document.querySelector('#chatOut [data-act="clearsug"]');
