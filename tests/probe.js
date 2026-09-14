@@ -2067,11 +2067,16 @@
          全文を parseWhen に渡すと 10月1日として拾い、日付も午前/午後もまるごと狂った。 */
       ok("AX. 「1日」を日付として拾わない", !!req && req.dayKey === KEY, req && req.dayKey);
       ok("AX. 「30分かける2回」を 30分×2 と読む",
-         !!req && req.wants.some(w => w.title === "勉強" && w.min === 30 && w.count === 2),
+         !!req && req.wants.some(w => w.title === "勉強をする" && w.min === 30 && w.count === 2),
          req && JSON.stringify(req.wants));
       ok("AX. 「お風呂とご飯それぞれ30分ずつ」を2件に分ける",
-         !!req && req.wants.some(w => w.title === "お風呂" && w.min === 30)
-               && req.wants.some(w => w.title === "ご飯" && w.min === 30),
+         !!req && req.wants.some(w => w.title === "お風呂に入る" && w.min === 30)
+               && req.wants.some(w => w.title === "夕食を食べる" && w.min === 30),
+         req && req.wants.map(w => w.title).join(","));
+      /* **見出しは言い切りにそろえる**（v6.8・実機で「勉強を か ける①」「ご飯それぞ れ」になった）。
+         ご飯は決まり6i で朝昼夕に名前を揃えるので「夕食を食べる」になる。 */
+      ok("AX. 見出しを言い切りの形にする",
+         !!req && req.wants.every(w => /(する|入る|食べる|行く|とる)$/.test(w.title)),
          req && req.wants.map(w => w.title).join(","));
       ok("AX. 見出しに助詞を残さない（「勉強を」にしない）",
          !!req && !req.wants.some(w => /[をにへでがはもの]$/.test(w.title)),
@@ -2096,9 +2101,11 @@
       ok("AX. 18:00 から始まる", rows[0] === "18:00〜18:10 切り替え・準備", rows[0]);
       ok("AX. 23:30 に就寝準備で終わる", rows[rows.length - 1] === "23:00〜23:30 就寝準備", rows[rows.length - 1]);
       ok("AX. 勉強①②が 18:10 と 19:30 に入る",
-         rows.includes("18:10〜18:40 勉強①") && rows.includes("19:30〜20:00 勉強②"), rows.join(" / "));
+         rows.includes("18:10〜18:40 勉強をする①") && rows.includes("19:30〜20:00 勉強をする②"), rows.join(" / "));
       ok("AX. ご飯は前半、お風呂は身支度の前",
-         rows.indexOf("18:40〜19:10 ご飯") >= 0 && rows.indexOf("21:00〜21:30 お風呂") >= 0, rows.join(" / "));
+         rows.indexOf("18:40〜19:10 夕食を食べる") >= 0 && rows.indexOf("21:00〜21:30 お風呂に入る") >= 0, rows.join(" / "));
+      ok("AX. 壊れた見出しを予定表に入れない",
+         rows.every(r => !/\s(か|れ|を|ける|それぞ)\s/.test(r) && !/か ける|それぞ れ/.test(r)), rows.join(" / "));
       ok("AX. 置けなかったものが出ない", pl.unplaced.length === 0,
          pl.unplaced.map(u => u.item.title + "→" + u.reason).join(" / "));
 
@@ -2158,7 +2165,7 @@
         const rows2 = pl2.blocks.filter(b => b.item).map(b => hhmm(b.s) + "〜" + hhmm(b.e) + " " + b.item.title);
         ok("AX. 遅れても就寝準備は 23:30 に終わる",
            rows2[rows2.length - 1] === "22:55〜23:30 就寝準備", rows2[rows2.length - 1]);
-        ok("AX. 言われた4件は落とさない",
+        ok("AX. 遅れても言われた4件は落とさない",
            state.items.filter(i => !i.suggested && i.kind === "task").length === 4,
            state.items.filter(i => !i.suggested).map(i => i.title).join(","));
         ok("AX. 過ぎた時間に置こうとしない", pl2.unplaced.length === 0,
@@ -2168,6 +2175,32 @@
         ok("AX. 頭を切ったことを1文で言う",
            r4.asks.filter(x => /組み立てました/.test(x)).length === 1,
            r4.asks.filter(x => /組み立てました/.test(x)).join(" / "));
+      }
+
+      /* **句点が無い形**（実機はこれだった）。1文にまとまると、依頼の文を飛ばす所で
+         活動を1つも拾えず、組み立てごと消えていた。長さが2つ以上あるときは切ってから読む。 */
+      {
+        const one = (t) => {
+          const at4 = zoned(2026, 9, 12, 17, 0, TZ).toISOString();
+          const r = parseDayRequest({ id: uid(), text: normNote(t), capturedAt: at4, createdAt: at4 }, TZ);
+          return r ? r.wants.map(w => w.title + "/" + w.min + "x" + w.count).join(" ") : "組み立てない";
+        };
+        const noDot = "6時から11時半までの間で勉強を30分かける2回 その間にお風呂とご飯それぞれ30分ずつ使う 他に入れる予定や習慣を提案して組み立てて";
+        ok("AX. 句点が無くても組み立てる",
+           one(noDot) === "勉強をする/30x2 お風呂に入る/30x1 夕食を食べる/30x1", one(noDot));
+        // 長さが2つ以上あるときは、先に出た長さを他の活動へ持ち込まない
+        const two = "18時から23時半の間で読書を20分、散歩を30分。他も提案して組み立てて。";
+        ok("AX. 長さを他の活動に持ち込まない",
+           one(two) === "読書をする/20x1 散歩する/30x1", one(two));
+
+        // 時間帯が読めないときは黙らない（決まり5 と同じ理屈）
+        const at5 = zoned(2026, 9, 12, 17, 0, TZ).toISOString();
+        const n5 = { id: uid(), text: normNote("9時から12時の間で資料づくりを45分かける2回。提案して組み立てて。"),
+          hash: hash("x9"), capturedAt: at5, source: "talk", sourceName: null, createdAt: at5 };
+        await putNote(n5);
+        const r5 = await applyOps(ruleOps(n5), n5);
+        ok("AX. 組み立てられなかったことを黙らない",
+           r5.asks.some(x => /読み取れませんでした/.test(x)), r5.asks.join(" / ") || "知らせ無し");
       }
 
       state.settings = Object.assign({}, state.settings, { workStart: keepW[0], workEnd: keepW[1] });
