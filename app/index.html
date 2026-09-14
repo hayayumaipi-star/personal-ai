@@ -1880,7 +1880,36 @@ function parseDayRequest(note, tz) {
     for (const x of wantsIn(st.text)) wants.push(x);
   }
   if (!w || !w.between || !wants.length) return null;
-  return { win: [w.between.from, w.between.to], wants, dayKey: dayKey(new Date(w.start), tz) };
+  let win = [w.between.from, w.between.to], dk = dayKey(new Date(w.start), tz), movedFrom = null;
+  /* **範囲は、終わりが過ぎていなければ「これから来る」**（v6.6・本人が「夕方6時」と確認した後に実測）。
+     決まり4b は**一点の時刻**を「いちばん近いこれから来るほう」に寄せる。
+     ところが **18:30 に「6時から11時半までの間で」と言うと翌日の朝6時**になっていた。
+     開始は30分過ぎただけで、23:30 までまだ5時間使える——**飛ぶ必要がない。**
+     「今夜こうしよう」と思うのは夕方以降なので、ここがいちばん効く。
+     **4b は書き換えない**（あれは一点の時刻の話で、U群が12例で固定している）。
+     ここで見るのは「日をまたいで飛んだときだけ、話した日に同じ窓が残っていないか」。 */
+  const spokeDay = dayKey(new Date(note.capturedAt), tz);
+  if (dk > spokeDay) {
+    const nowMin = minOfDay(note.capturedAt, tz);
+    const needMin = wants.reduce((a, x) => a + (x.min || 0) * (x.count || 1), 0);
+    const cands = [win, [win[0] + 720, win[1] + 720], [win[0] - 720, win[1] - 720]]
+      .filter(c => c[0] >= 0 && c[1] <= 1440 && c[1] > c[0])
+      // **言われたぶんが入るだけ残っている**ものだけ。残り30分の窓へ5時間half を押し込まない
+      .filter(c => c[1] > nowMin && c[1] - Math.max(c[0], nowMin) >= needMin)
+      .sort((a, b) => Math.abs(a[0] - nowMin) - Math.abs(b[0] - nowMin));
+    if (cands.length) { movedFrom = [dk, win]; win = cands[0]; dk = spokeDay; }
+  }
+  /* **もう始まっている範囲は、いまから組み立てる**（v6.6）。
+     20時に「6時から11時半までの間で」と言われて 18:00 から並べると、
+     18:00〜20:00 のぶんが**まるごと「過ぎています」**になる（`planFor` は過ぎた所に置かない）。
+     欲しいのは「残りの時間で、どう過ごすか」。頭を**いま**へ寄せて、5分刻みに丸める。 */
+  let startedAt = null;
+  if (dk === dayKey(new Date(note.capturedAt), tz)) {
+    const nowMin = minOfDay(note.capturedAt, tz);
+    if (nowMin > win[0]) { startedAt = win[0]; win = [Math.ceil(nowMin / 5) * 5, win[1]]; }
+  }
+  if (win[1] - win[0] < 15) return null;        // 残りが15分を切るなら、組み立てるより言い直してもらう
+  return { win, wants, dayKey: dk, movedFrom, startedAt };
 }
 
 /* 並べる。**入りきらなければ提案から落とす**（本人が言ったものは落とさない）。
@@ -3607,7 +3636,18 @@ async function applyOps(rawOps, note) {
       changes.push(`${hhmm(req.win[0])}〜${hhmm(req.win[1])}で1日を組み立てました（言われた${mineN}件＋提案${sugN}件）`);
       if (dupes.length) asks.push(`${dupes.join("・")}は、もう同じものが入っていたので足していません。`);
       if (plan.dropped.length) asks.push(`時間が足りないので、提案のうち${plan.dropped.join("・")}は入れませんでした。`);
-      if (plan.short > 0) asks.push(`言われたぶんだけで${durJa(plan.short)}はみ出しています。どれかを短くするか、時間帯を広げてください。`);
+      if (plan.short > 0) asks.push(`言われたぶんだけで${durJa(plan.short)}はみ出しています。どれかを短くするか、時間帯を広げてください。`);      /* **寄せたなら、そう言う**（決まり4b「選んだだけで終わらせない」）。
+         黙って今日へ寄せると、明日のつもりだった人には理由が分からない。 */
+      /* 寄せたこと・頭を切ったことは、**1文にまとめて1回だけ**言う（決まり6d「返事は軽く」）。
+         2つに分けると、20時に言ったとき同じ時刻が3回出て読めなくなった（作った直後に実測）。 */
+      if (req.startedAt != null || req.movedFrom) {
+        const alt = req.movedFrom
+          ? `明日の朝${Math.floor(req.movedFrom[1][0] / 60)}時からのことなら、「明日の朝${Math.floor(req.movedFrom[1][0] / 60)}時から」と言い直してください。`
+          : "";
+        asks.push(req.startedAt != null
+          ? `${hhmm(req.startedAt)}からの話でしたが、いまは${hhmm(req.win[0])}なので、そこから${hhmm(req.win[1])}までで組み立てました。${alt}`
+          : `今日の${hhmm(req.win[0])}〜${hhmm(req.win[1])}として組み立てました。${alt}`);
+      }
       /* **習慣は `asks` に入れない**（v6.5・作った直後に気づいた）。
          `asks` は返事の文に混ぜて `esc()` されるので、**ボタンが文字列として出る**。
          「変えたこと」と同じ場所（`.extra`）に、独立した欄として返す。 */

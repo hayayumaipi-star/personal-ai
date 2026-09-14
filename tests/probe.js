@@ -2129,6 +2129,47 @@
       ok("AX. 増えなかったことを黙らない", res2.asks.some(x => /足していません/.test(x)),
          res2.asks.join(" / ").replace(/<[^>]+>/g, ""));
 
+      /* **話す時刻で答えが変わる**（v6.6・本人が「夕方6時」と確認したあとに実測）。
+         18:30 に言うと翌日の朝6時になっていた。開始が30分過ぎただけで、23:30 まで
+         5時間使えるのに、丸一日飛んでいた。「今夜こうしよう」は夕方以降に言うので、ここが効く。
+         決まり4b（一点の時刻）は**書き換えない**。日をまたいで飛んだときだけ、今日を見直す。 */
+      {
+        const winAt = (h, mi) => {
+          const at2 = zoned(2026, 9, 12, h, mi, TZ).toISOString();
+          const n3 = { id: uid(), text: normNote(LINE), capturedAt: at2, createdAt: at2 };
+          const r = parseDayRequest(n3, TZ);
+          return r ? r.dayKey + " " + hhmm(r.win[0]) + "-" + hhmm(r.win[1]) : "組み立てない";
+        };
+        ok("AX. 朝に言っても今日の夕方", winAt(8, 0) === KEY + " 18:00-23:30", winAt(8, 0));
+        // 18:30 に言えば「今日の夕方のまま・いまから」。翌日の朝へ飛ばさないことが要点
+        ok("AX. 18時を過ぎても翌日へ飛ばさない", winAt(18, 30) === KEY + " 18:30-23:30", winAt(18, 30));
+        ok("AX. 始まっていたら、いまから組み立てる", winAt(20, 0) === KEY + " 20:00-23:30", winAt(20, 0));
+        // 残りが「言われたぶん」に足りないなら、無理に今日へ寄せない
+        ok("AX. 残りが足りなければ今日へ寄せない", winAt(22, 0) === NEXT + " 06:00-11:30", winAt(22, 0));
+
+        // 20時に言っても、就寝準備は 23:30 に終わる（提案のほうを落として調整する）
+        reset();
+        const at3 = zoned(2026, 9, 12, 20, 0, TZ).toISOString();
+        const n4 = { id: uid(), text: normNote(LINE), hash: hash(LINE + "20"), capturedAt: at3,
+          source: "talk", sourceName: null, createdAt: at3 };
+        await putNote(n4);
+        const r4 = await applyOps(ruleOps(n4), n4);
+        const pl2 = planFor(KEY, { nowMin: 20 * 60 });
+        const rows2 = pl2.blocks.filter(b => b.item).map(b => hhmm(b.s) + "〜" + hhmm(b.e) + " " + b.item.title);
+        ok("AX. 遅れても就寝準備は 23:30 に終わる",
+           rows2[rows2.length - 1] === "22:55〜23:30 就寝準備", rows2[rows2.length - 1]);
+        ok("AX. 言われた4件は落とさない",
+           state.items.filter(i => !i.suggested && i.kind === "task").length === 4,
+           state.items.filter(i => !i.suggested).map(i => i.title).join(","));
+        ok("AX. 過ぎた時間に置こうとしない", pl2.unplaced.length === 0,
+           pl2.unplaced.map(u => u.item.title + "→" + u.reason).join(" / "));
+        ok("AX. 落とした提案を黙らない", r4.asks.some(x => /入れませんでした/.test(x)),
+           r4.asks.join(" / "));
+        ok("AX. 頭を切ったことを1文で言う",
+           r4.asks.filter(x => /組み立てました/.test(x)).length === 1,
+           r4.asks.filter(x => /組み立てました/.test(x)).join(" / "));
+      }
+
       state.settings = Object.assign({}, state.settings, { workStart: keepW[0], workEnd: keepW[1] });
     }
 
