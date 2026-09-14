@@ -4428,12 +4428,29 @@ function buildPrompt(note, cx) {
      時間帯を知らないのだから当たり前で、**AIの落ち度ではなくこちらの渡し忘れ**。
      判定は `parseDayRequest` をそのまま呼ぶ——同じ判定を2か所に書かない（決まり7e）。 */
   const dayReq = parseDayRequest(note, tz);
+  /* **重なりは、弾くより先に「渡して防ぐ」**（v7.8・本人の指摘）。
+     これまでAIには**本人が何を頼んだのかを一度も渡していなかった**ので、
+     文章から自分で読み取るしかなく、「勉強をする」が本人のぶんと提案で
+     **2回並んだ**（実測）。こちらは `parseDayRequest` で既に読めているのだから、渡せばいい。
+     **それでも `sameTopic` の検算は外さない**（決まり9「禁じただけで守られたと思わない」）。
+     渡すのは**出させないため**、弾くのは**入れないため**。役目が違うので、両方要る。 */
+  const already = dayReq ? [].concat(
+    dayReq.wants.map(w => (w.mealWord ? `${w.mealWord}（食事）` : w.title)
+      + (w.count > 1 ? ` × ${w.count}回（各${w.min}分）` : `（${w.min}分）`)),
+    liveItems().filter(i => i.status === "open" && !i.suggested
+        && i.dayKey === dayReq.dayKey && validISO(i.due)
+        && minOfDay(i.due, tz) >= dayReq.win[0] && minOfDay(i.due, tz) < dayReq.win[1])
+      .slice(0, 10).map(i => i.title)
+  ) : [];
   const buildBlock = dayReq ? `
 【この発話は「1日の組み立て」の依頼です】
 組み立てる時間帯：${fmtDayPlain(dayReq.dayKey, tz)} ${hhmm(dayReq.win[0])}〜${hhmm(dayReq.win[1])}
 この時間帯は**${WHEN_WORD(Math.floor(dayReq.win[0] / 60))}**です。${dayReq.win[1] >= 21 * 60 ? "終わりは就寝に向かう枠で締めてください。" : "**就寝・寝る前・夜の話を書かないでください。**この時間帯には合いません。"}
 - **「dayfill」を必ず1つ返してください。**返ってこないと、決まった顔ぶれの提案しか出せず、毎回同じ予定表になります。
-- 返事の最後の「習慣の提案」も、**この時間帯に合うもの**にしてください。
+${already.length ? `この時間帯には、本人が言った次のものが**すでに入ります**：
+${already.map(x => "  - " + x).join("\n")}
+**これらと同じもの・似たものは出さないでください。**（同じことが2回並びます）
+` : ""}- 返事の最後の「習慣の提案」も、**この時間帯に合うもの**にしてください。
 - ここに書いた日付と時刻は、**返事に書かないでください**（アプリが表示します）。
 ` : "";
   return `あなたは本人専属の秘書です。本人は整理せずに、予定・気分・思いつきを混ぜて話します。
