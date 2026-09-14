@@ -2251,6 +2251,60 @@
       state.settings = Object.assign({}, state.settings, { workStart: keepW[0], workEnd: keepW[1] });
     }
 
+    /* ===== AY. 合わない提案を外す・戻す（v7.1） =====
+       持ち札は9つ固定なので、暮らしに合わないものが毎回出る。
+       「片付けは提案しないで」で外れ、「片付けもまた提案して」で戻ること。
+       **片道だけ作らない**——戻せないと、外した人が詰む。 */
+    {
+      reset();
+      const keepW2 = [state.settings.workStart, state.settings.workEnd];
+      state.settings = Object.assign({}, state.settings, { workStart: "00:00", workEnd: "23:59" });
+      const at = zoned(2026, 9, 12, 17, 0, TZ).toISOString();
+      const talk = async (t) => {
+        const n = { id: uid(), text: normNote(t), hash: hash(t + Math.random()), capturedAt: at,
+          source: "talk", sourceName: null, createdAt: at };
+        await putNote(n); return await applyOps(ruleOps(n), n);
+      };
+      const LINE2 = "6時から11時半までの間で勉強を30分かける2回 その間にお風呂とご飯それぞれ30分ずつ使う 他に入れる予定や習慣を提案して組み立てて";
+      const titles = () => planFor(KEY, { nowMin: 17 * 60 }).blocks.filter(b => b.item).map(b => b.item.title);
+
+      let r = await talk("片付けは提案しないで。リラックスも要らない。");
+      ok("AY. 「提案しないで」を希望として受け取る",
+         prefs(KEY).noSuggest.join(",") === "tidy,relax", prefs(KEY).noSuggest.join(","));
+      /* **要望を用事にしない**（決まり0）。これが無いと
+         「タスクを追加：片付けは提案しないで」が予定表に並ぶ（実測）。 */
+      ok("AY. 要望の文からタスクを作らない",
+         !state.items.some(i => i.kind === "task"),
+         state.items.filter(i => i.kind === "task").map(i => i.title).join(","));
+      ok("AY. 2つ言っても、片方が消えない", prefs(KEY).noSuggest.length === 2,
+         prefs(KEY).noSuggest.join(","));
+
+      await talk(LINE2);
+      ok("AY. 外した提案は組み立てに入らない",
+         !titles().some(t => /片付け|リラックス/.test(t)), titles().join(" / "));
+      ok("AY. ほかの提案は今までどおり入る",
+         titles().includes("就寝準備") && titles().includes("休憩"), titles().join(" / "));
+
+      state.items = state.items.filter(i => i.kind === "preference");   // 予定だけ消して組み直す
+      r = await talk("片付けもまた提案して。");
+      ok("AY. 「また提案して」で戻せる", prefs(KEY).noSuggest.join(",") === "relax",
+         prefs(KEY).noSuggest.join(","));
+      ok("AY. 戻したことを変えたことに出す",
+         r.changes.some(c => /また提案する/.test(c)), r.changes.join(" / "));
+      await talk(LINE2 + "（2回目）");
+      ok("AY. 戻したら、また入る", titles().some(t => /片付け/.test(t)), titles().join(" / "));
+
+      r = await talk("片付けもまた提案して。");
+      ok("AY. もともと外していないなら、そう言う",
+         r.asks.some(x => /もともと外していません/.test(x)), r.asks.join(" / "));
+      /* 「提案して」という言葉だけで「組み立てられなかった」と言わない——
+         時刻を言っているときだけ（実測でここが出ていた）。 */
+      ok("AY. 時刻が無いのに組み立て失敗を言わない",
+         !r.asks.some(x => /読み取れませんでした/.test(x)), r.asks.join(" / "));
+
+      state.settings = Object.assign({}, state.settings, { workStart: keepW2[0], workEnd: keepW2[1] });
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;

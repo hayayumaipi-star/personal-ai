@@ -1517,7 +1517,7 @@ function applyTheme(t) {
 /* 「今日は詰めないで」はその日だけの希望。「しばらくそうして」はずっとの希望。
    混ぜると、一日の気分が永久のルールになってしまう。 */
 function prefs(forDay) {
-  const out = { nextOnly: false, buffer: false, noEveningWork: null, lightDay: false, free: [] };
+  const out = { nextOnly: false, buffer: false, noEveningWork: null, lightDay: false, noSuggest: [], free: [] };
   const day = forDay || dayKey(new Date(), state.settings.timezone);
   for (const p of liveItems().filter(i => i.kind === "preference")) {
     if (p.scopeDay && p.scopeDay !== day) continue;     // その日限りの希望は、その日にだけ効く
@@ -1526,6 +1526,7 @@ function prefs(forDay) {
     // 「夜までずっと作業したくない」＝ 終了を早めるだけでなく、
     //   残り時間を別の作業で埋めない。急がないものは今日に置かない。
     else if (p.preferKey === "noEveningWork") { out.noEveningWork = typeof p.preferValue === "number" ? p.preferValue : EVENING_DEFAULT_MIN; out.lightDay = true; }
+    else if (p.preferKey === "noSuggest") { if (typeof p.preferValue === "string") out.noSuggest.push(p.preferValue); }
     else out.free.push(p);
   }
   return out;
@@ -1824,6 +1825,25 @@ const DAY_FILL = [
   { key: "relax",  title: "リラックス",           min: 30, w: 75, drop: 8, need: null,   why: "読書や音楽など、区切りをつけやすいもの", night: true },
   { key: "bed",    title: "就寝準備",             min: 30, w: 90, drop: 1, need: null,   why: "歯磨き、トイレ、照明を落とす", night: true }
 ];
+/* **合わない提案を外せるようにする**（v7.1）。持ち札は9つ固定なので、
+   暮らしに合わないものが毎回出る（一人暮らしでない人の「片付け」など）。
+   「片付けは提案しないで」と言えば外れ、「片付けも提案して」で戻る。
+   **勝手に減らさない**——外すかどうかは本人が決める（決まり10「勝手にしぼらない」と同じ）。 */
+const SUGGEST_WORDS = [
+  [/(切り替え|準備だけ|事前準備)/, "prep"], [/(片付け|かたづけ|軽い運動)/, "tidy"],
+  [/(休憩|きゅうけい)/, "break"], [/(大事な用事|大きな用事|メインの用事)/, "main"],
+  [/(身支度|明日の準備)/, "ready"], [/(自由|予備)/, "spare"],
+  [/(振り返り|ふりかえり|今日の計画)/, "review"], [/(リラックス|くつろ)/, "relax"],
+  [/(就寝|寝る準備|寝支度)/, "bed"]
+];
+const RE_NO_SUGGEST = /(要らな|いらな|入れないで|提案しないで|提案しなくて|なくていい|無くていい|不要|やめて)/;
+const RE_YES_SUGGEST = /(も提案して|また提案して|入れていい|入れて欲しい|入れてほしい|戻して)/;
+function suggestKeyIn(sentence) {
+  const t = halfWidth(sentence);
+  for (const [re, key] of SUGGEST_WORDS) if (re.test(t)) return key;
+  return null;
+}
+
 /* 本人が言った活動を、一日のどのあたりに置くか。
    **順番はこちらが決めてよい**（「組み立てて」と言われているので）。ただし理由が言えること：
    集中は前半、食事は中盤、入浴は身支度の前。ここに無い言葉は「大事な用事」の後ろに置く。 */
@@ -2010,7 +2030,9 @@ function buildDayPlan(req, st) {
      夜かどうかは**窓の終わりが21時以降か**で決める（言葉ではなく時刻で決める）。
      「区切り」だけは朝にも要るので、文言を入れ替える（振り返り → 今日の計画を立てる）。 */
   const isNight = to >= 21 * 60;
-  const fill = DAY_FILL.filter(f => (!f.need || kinds[f.need]) && (!f.night || isNight))
+  // 「◯◯は提案しないで」と言われた札は出さない（v7.1）
+  const off = prefs(req.dayKey).noSuggest;
+  const fill = DAY_FILL.filter(f => (!f.need || kinds[f.need]) && (!f.night || isNight) && !off.includes(f.key))
     // 朝の「計画」は**始めに**置く。夜の「振り返り」と同じ重みだと終わりに来る（実測）
     .map(f => ({ title: (!isNight && f.dayTitle) ? f.dayTitle : f.title, min: f.min,
       w: (!isNight && f.dayW != null) ? f.dayW : f.w,
@@ -3475,7 +3497,7 @@ function askConfirm({ title, body, yes, danger, alt }) {
    ops はすべて検証してから適用する。AIの言い値では書き換えない。
    ======================================================================= */
 const OPS = ["add", "update", "done", "defer", "drop", "prefer", "memo", "condition", "profile", "progress", "idea"];
-const PREF_KEYS = ["nextOnly", "buffer", "noEveningWork", "free"];
+const PREF_KEYS = ["nextOnly", "buffer", "noEveningWork", "noSuggest", "free"];
 /* 「夜は予定を入れないで」の既定＝18:00（分）。**3か所に同じ数字が散っていた**（v6.0・5周目）。
    ルールが作る値・検算のフォールバック・`prefs` の読み取り、その全部でこれを使う。
    **`WINDOWS.afternoon` の `18 * 60` とは別物**——あちらは「午後の終わり」で、意味が違う。
@@ -3565,12 +3587,22 @@ function ruleOps(note) {
   /* **頼まれたのに組み立てられなかったことを、黙らない**（v6.8・決まり5 と同じ理屈）。
      「9時から12時の間で」を17時に言うと 21:00〜翌0:00 と読めてしまい、時間帯が決まらない。
      何も言わないと、依頼文が目標として保存されるだけで**組み立てられなかったことが分からない**。 */
-  if (RE_BUILD_DAY.test(text)) ops.push({ op: "buildfail" });
+  if (RE_BUILD_DAY.test(text) && /\d{1,2}\s*時/.test(text)) ops.push({ op: "buildfail" });
   // 「明日の打ち合わせ、14時にして」は言い直し。ルールでは対象を決められないが、
   // だからといって新しい予定を作ってはいけない（同じ用事が二重になる）。
   const restating = looksRestating(text);
   let needsAi = false;
+  /* **「片付けは提案しないで」は用事ではない**（v7.1・決まり0「AIへの要望は用事にしない」）。
+     先に拾っておいて、その文から作られた項目は捨てる。
+     これをしないと「タスクを追加：片付けは提案しないで」が予定表に並ぶ（実測）。 */
+  const wishSents = [];
+  for (const l of splitLines(text)) for (const st of l.sentences) {
+    if (suggestKeyIn(st.text) && (RE_NO_SUGGEST.test(st.text) || RE_YES_SUGGEST.test(st.text)))
+      wishSents.push(st.text);
+  }
+  const inWish = t => wishSents.some(sx => sx.includes(t) || t.includes(sx));
   for (const it of extractByRule(note, state.settings)) {
+    if (it.evidence && inWish(it.evidence.text)) continue;
     if (it.kind === "condition") { ops.push({ op: "condition", text: it.selfReport, quote: it.evidence.text }); continue; }
     const twin = restating && state.items.find(x =>
       x.status === "open" && x.kind === it.kind && sameTopic(x.title, it.title));
@@ -3639,6 +3671,15 @@ function ruleOps(note) {
   if (RE_NEXTONLY.test(text)) ops.push({ op: "prefer", key: "nextOnly", value: true, scopeDay: scope, text: "次にやることを一つだけ見せてほしい", quote: q });
   if (RE_BUFFER.test(text)) ops.push({ op: "prefer", key: "buffer", value: true, scopeDay: scope, text: "予定を詰めすぎず、余裕を持たせてほしい", quote: q });
   if (RE_NOEVENING.test(text)) ops.push({ op: "prefer", key: "noEveningWork", value: EVENING_DEFAULT_MIN, scopeDay: scope, text: "夜は作業を入れないでほしい", quote: q });
+  /* 「片付けは提案しないで」「片付けも提案して」（v7.1）。**文ごとに**見る——
+     1回の発言で2つ外すことがあるし、他の話題を巻き込まないため。 */
+  for (const sx of sents) {
+    const k = suggestKeyIn(sx); if (!k) continue;
+    const ja = (DAY_FILL.find(f => f.key === k) || {}).title || k;
+    if (RE_YES_SUGGEST.test(sx)) ops.push({ op: "unsuggest", key: k, ja, quote: sx.slice(0, 60) });
+    else if (RE_NO_SUGGEST.test(sx)) ops.push({ op: "prefer", key: "noSuggest", value: k, scopeDay: null,
+      text: `「${ja}」は提案しないでほしい`, quote: sx.slice(0, 60) });
+  }
   if (RE_KEEP.test(text)) ops.push({ op: "memo", text: raw.slice(0, 200), quote: q });
   // 言い直し・見積もり直しは、ルールだけでは「どれのことか」を決められない。黙って無視せず伝える。
   // ただし、その発話から実際に何か作れているなら言い直しではないので黙っている。
@@ -3661,6 +3702,20 @@ async function applyOps(rawOps, note) {
     if (o.op === "_ambiguous_done") { asks.push("どれが終わったのか特定できませんでした。「スケジュール」タブの項目から「完了」を押してください。"); continue; }
     /* 1日を組み立てる（v6.5）。**言われたものを言われた長さで置き、空いた所に提案を足す。**
      提案は `suggested:true` を立てる——こちらが決めたものと本人が言ったものを混ぜない（決まり2）。 */
+    /* **外した提案を戻せること**（v7.1）。片道だけ作らない——
+       「やっぱり入れて」と言われたときに、画面のどこからも戻せないのは最悪。 */
+    if (o.op === "unsuggest") {
+      const hit = liveItems().filter(i => i.kind === "preference" && i.preferKey === "noSuggest"
+        && i.preferValue === o.key);
+      if (!hit.length) { asks.push(`「${o.ja}」はもともと外していません。`); continue; }
+      for (const i of hit) {
+        i.status = "dropped"; i.updatedAt = new Date().toISOString();
+        i.history = (i.history || []).concat({ at: i.updatedAt, by: "user", what: "また提案してよいことにした" });
+        await putItem(i);
+      }
+      changes.push(`「${o.ja}」をまた提案するようにしました`);
+      continue;
+    }
     if (o.op === "buildfail") {
       asks.push("組み立てを頼まれましたが、どの時間帯かを読み取れませんでした。"
         + "「夜6時から11時半までの間で」のように、始まりと終わりの両方を言ってください。");
@@ -3830,9 +3885,15 @@ async function applyOps(rawOps, note) {
          **その日が丸ごと使えなくなる**（実測でそうなった）。決まり9そのもの。 */
       const value = key === "noEveningWork"
         ? (num(o.value, 12 * 60, 23 * 60) || EVENING_DEFAULT_MIN)   // 12:00〜23:00 に収める
+        : key === "noSuggest"
+        ? (DAY_FILL.some(f => f.key === o.value) ? o.value : null)  // 持ち札の名前以外は受け取らない
         : (o.value !== false);
+      if (key === "noSuggest" && !value) { asks.push("どの提案を外すのか分かりませんでした。"); continue; }
+      /* `noSuggest` は**1件ずつ別の希望**なので、値まで見て突き合わせる（v7.1）。
+         key だけで見ると、2つ目を言ったときに1つ目が上書きされて消える。 */
       const existing = liveItems().find(i => i.kind === "preference" && i.preferKey === key && key !== "free"
-        && (i.scopeDay || null) === scopeDay);
+        && (i.scopeDay || null) === scopeDay
+        && (key !== "noSuggest" || i.preferValue === value));
       if (existing) { existing.preferValue = value; existing.title = text; existing.updatedAt = new Date().toISOString(); note2(existing, "言い直しで更新"); await putItem(existing); }
       else {
         await putItem({
@@ -3840,7 +3901,7 @@ async function applyOps(rawOps, note) {
           preferValue: value,
           evidence: evidenceOf(note, o.quote), origin: "user", corrected: false, confirmed: true, status: "open",
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: [],
-          dedupeKey: "pref|" + key + "|" + (scopeDay || "always")
+          dedupeKey: "pref|" + key + (key === "noSuggest" ? "|" + value : "") + "|" + (scopeDay || "always")
         });
       }
       changes.push(scopeDay ? `今日の出し方：${text}` : `これからの出し方：${text}`);
