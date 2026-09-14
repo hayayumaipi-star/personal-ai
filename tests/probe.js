@@ -2166,8 +2166,15 @@
         const r4 = await applyOps(ruleOps(n4), n4);
         const pl2 = planFor(KEY, { nowMin: 20 * 60 });
         const rows2 = pl2.blocks.filter(b => b.item).map(b => hhmm(b.s) + "〜" + hhmm(b.e) + " " + b.item.title);
-        ok("AX. 遅れても就寝準備は 23:30 に終わる",
-           rows2[rows2.length - 1] === "22:55〜23:30 就寝準備", rows2[rows2.length - 1]);
+        /* 見張っているのは「就寝が後ろへずれないこと」。
+           v7.7 で端数ならしをやめたので、窓の終わりより**早く終わる**ことはある。
+           早いぶんには本人の言った原則（就寝をずらさない）を破っていない。 */
+        {
+          const lastRow = rows2[rows2.length - 1] || "";
+          const m = lastRow.match(/〜(\d{2}):(\d{2}) 就寝準備/);
+          ok("AX. 遅れても就寝準備は 23:30 までに終わる",
+             !!m && (+m[1] * 60 + +m[2]) <= 23 * 60 + 30, lastRow);
+        }
         ok("AX. 遅れても言われた4件は落とさない",
            state.items.filter(i => !i.suggested && i.kind === "task").length === 4,
            state.items.filter(i => !i.suggested).map(i => i.title).join(","));
@@ -2453,10 +2460,20 @@
       /* **穴を空けない**。飛ばしたぶんの場所が空いたままになるのが、実機で見えた形。 */
       const gaps = a2.slice(1).map((r, i) => r.s - a2[i].e).filter(g => g > 0);
       ok("BB. 置いた枠のあいだに穴が空かない", gaps.length === 0, "穴 " + gaps.join(","));
+      /* 余った時間は**最後にまとめて**空きとして残る（活動を伸ばして埋めない・v7.7）。 */
+      ok("BB. 余りは最後に空きとして残る",
+         a2[a2.length - 1].e < 11 * 60 + 30, hhmm(a2[a2.length - 1].e));
       /* **名前のついた活動を、こちらの都合で長くしない**（実機で音楽が1時間30分になった）。 */
       const music = a2.find(r => r.t === "好きな音楽を聴く");
-      ok("BB. AIが20分と言った枠を1時間半にしない",
-         !!music && music.e - music.s <= 60, music ? (music.e - music.s) + "分" : "無い");
+      ok("BB. AIが言った長さを、そのまま使う（伸ばさない）",
+         !!music && music.e - music.s === 20, music ? (music.e - music.s) + "分" : "無い");
+      /* 名前のついた活動は1分も伸ばさない（v7.7・本人の指示）。
+         余りは空きのまま残す——`planFor` が空き時間として描くので、消したことにならない。 */
+      ok("BB. 名前のついた活動を1つも伸ばさない",
+         [["軽くストレッチをする",10],["窓を開けて外の空気を吸う",5],
+          ["家族や友人にひとこと連絡する",10]].every(([t, m]) => {
+            const r = a2.find(x => x.t === t); return r && r.e - r.s === m; }),
+         a2.map(r => r.t + (r.e - r.s)).join("/"));
 
       /* `dedupeKey` が **UTCの日付**を使っていたので、日本時間の午前9時をまたぐと
          同じ日の同じ用事が別物になった（実機で「お風呂に入る」が二重に入った）。 */

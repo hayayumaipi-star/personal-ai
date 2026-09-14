@@ -2098,23 +2098,20 @@ function buildDayPlan(req, st, aiFill) {
      黙って消したことにはならない。 */
   let left = room - total();
   if (left > 0 && picked.length) {
-    /* **名前のついた活動を、こちらの都合で長くしない**（v7.5・実機で報告）。
+    /* **名前のついた活動を、こちらの都合で長くしない**（v7.5・実機で報告 → v7.7 で徹底）。
        前は「余りを最後の札に全部足す」だったので、AIが「20分」と言った
        **「好きな音楽を聴く」が 1時間30分**になった（実測）。
        本人は一度もそう言っていないし、AIもそうは言っていない（決まり2）。
-       伸ばしてよいのは：
-       ①「自由・予備時間」——**もともと中身が無い枠**なので、長さに意味がある
-       ② AIが「余ったら延ばしてよい」と言った枠を、**少しだけ**（+30分・合計60分まで）
+       **一度は「少しだけなら」と +30分／端数ならし +15分を残したが、本人が「伸ばさないで」
+       と決めた**（v7.7）。いま伸ばしてよいのは「自由・予備時間」だけ——
+       あれは**もともと中身が無い枠**なので、長さそのものが意味になる。
        残りは空きのままにする。`planFor` が空き時間として描くので、黙って消したことにならない。 */
+    // 伸ばしてよいのは「自由・予備時間」だけ（90分まで）。
+    // **名前のついた活動は、1分も伸ばさない**（v7.7・本人の指示）。
     const sp = picked.find(f => f.key === "spare");
-    const fl = picked.find(f => f.flex);
-    const fx = sp || fl || picked[picked.length - 1];
-    if (fx) {
-      // 中身の無い「予備」は90分まで／AIが「延ばしてよい」と言った枠は+30分・合計60分まで／
-      // それ以外は**端数をならすだけ**（+15分）。名前のついた活動を勝手に長くしない
-      const cap = sp ? 90 : fl ? Math.min(60, fx.min + 30) : fx.min + 15;
-      const take = Math.max(0, Math.min(left, cap - fx.min));
-      fx.min += take; left -= take;
+    if (sp) {
+      const take = Math.max(0, Math.min(left, 90 - sp.min));
+      sp.min += take; left -= take;
     }
   }
   const all = rows.concat(picked).sort((a, b) => a.w - b.w);
@@ -3771,7 +3768,7 @@ async function applyOps(rawOps, note) {
       aiFill.push({
         title: t,
         min: num(b && b.min, 5, 120) || 20,                       // 5〜120分に収める
-        w: slot.w, drop: slot.drop, flex: !!(b && b.flex),
+        w: slot.w, drop: slot.drop,
         why: String((b && b.why) || "").slice(0, 60), key: null, mine: false
       });
     }
@@ -4464,14 +4461,14 @@ estimateMin は 30 のように返してください（開始時刻を決めな�
 
 そのかわり、**「dayfill」 を1つだけ返してください。**その日に入れるとよさそうな
 「本人が言っていない予定」を、**その人に合わせて**考えるところです。
-{"op":"dayfill","blocks":[{"title":"名前","min":分,"slot":"start|early|middle|late|winddown|end","flex":true|false,"why":"一言"}]}
+{"op":"dayfill","blocks":[{"title":"名前","min":分,"slot":"start|early|middle|late|winddown|end","why":"一言"}]}
 - **4〜8個**。多すぎると一日が埋まります。
 - 「title」 は**短い言い切り**（20文字まで）。「ストレッチをする」「弁当の下ごしらえ」のように。
 - 「min」 は **5〜120**。**時刻は書かないでください**（どこに置くかはコードが決めます）。
+  **書いた長さは、そのまま使います。**こちらで延ばしたり縮めたりしません。
 - 「slot」 は**だいたいどのあたりか**だけ：
   「start」=始める前の切り替え／「early」=前半／「middle」=真ん中／「late」=後半／
   「winddown」=終わりに向けて／「end」=いちばん最後。
-- 「flex」 は「時間が余ったら延ばしてよい枠」に **1つだけ** true。
 - **本人が言った予定と同じものを出さない**（勉強・お風呂・食事などを重ねない）。
 - **その人の話に合わせて、毎回変えてください。**「わたしのこと」「開いている用事」
   「その日の体調」を見て、いまのこの人に効くものを選ぶ。同じ顔ぶれを繰り返さない。
