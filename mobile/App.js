@@ -14,14 +14,12 @@
    入れない分だけ、殻は小さく、壊れる場所も少なくなります。
    =========================================================================== */
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator, Platform, SafeAreaView, StatusBar, StyleSheet, Text, View
-} from "react-native";
+import React, { useCallback, useEffect, useRef } from "react";
+import { Platform, StatusBar, StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
-import { Asset } from "expo-asset";
-import * as FileSystem from "expo-file-system";
 import * as Notifications from "expo-notifications";
+/* アプリ本体。`node sync.js` が app/index.html から作る（直さないこと）。 */
+import APP_HTML from "./app-html";
 
 /* 実体のある出どころを与える。`file://` のままだと Android の WebView が
    localStorage を貸してくれないことがあり、**記録がまるごと消えたように見える**。 */
@@ -57,20 +55,6 @@ async function scheduleOne(content, date) {
 
 export default function App() {
   const web = useRef(null);
-  const [html, setHtml] = useState(null);
-  const [err, setErr] = useState("");
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const asset = Asset.fromModule(require("./assets/app.html"));
-        await asset.downloadAsync();
-        setHtml(await FileSystem.readAsStringAsync(asset.localUri || asset.uri));
-      } catch (e) {
-        setErr("アプリの本体を読み込めませんでした：" + String((e && e.message) || e));
-      }
-    })();
-  }, []);
 
   useEffect(() => {
     (async () => {
@@ -130,27 +114,12 @@ export default function App() {
     }
   }, [post]);
 
-  if (err) {
-    return (
-      <SafeAreaView style={s.center}>
-        <Text style={s.err}>{err}</Text>
-        <Text style={s.hint}>mobile/assets/app.html が入っているか確かめてください（npm run sync）。</Text>
-      </SafeAreaView>
-    );
-  }
-  if (!html) {
-    return (
-      <SafeAreaView style={s.center}>
-        <ActivityIndicator />
-      </SafeAreaView>
-    );
-  }
   return (
     <View style={s.fill}>
       <StatusBar barStyle="default" />
       <WebView
         ref={web}
-        source={{ html, baseUrl: BASE_URL }}
+        source={{ html: APP_HTML, baseUrl: BASE_URL }}
         originWhitelist={["*"]}
         onMessage={onMessage}
         domStorageEnabled
@@ -165,8 +134,5 @@ export default function App() {
 }
 
 const s = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: "#F2F4F3" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  err: { fontSize: 15, lineHeight: 24, textAlign: "center" },
-  hint: { fontSize: 13, color: "#55635F", marginTop: 10, textAlign: "center" }
+  fill: { flex: 1, backgroundColor: "#F2F4F3" }
 });

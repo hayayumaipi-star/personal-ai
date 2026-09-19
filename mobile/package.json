@@ -1,0 +1,20 @@
+{
+  "name": "hitohi-mobile",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "expo": "~57.0.24",
+    "expo-notifications": "~57.0.20",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-webview": "13.16.1"
+  },
+  "scripts": {
+    "sync": "node sync.js",
+    "start": "node sync.js && expo start",
+    "android": "node sync.js && expo start --android",
+    "build": "node sync.js && eas build -p android --profile preview"
+  },
+  "private": true
+}
