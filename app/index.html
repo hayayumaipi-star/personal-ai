@@ -1477,7 +1477,10 @@ function rekey(list) {
    ======================================================================= */
 const LS = "hitohi.v1";
 let DB = null, SAMPLEFN = null, DL = null;
-const state = { notes: [], items: [], turns: {}, docs: [], settings: null, ready: false, backend: "local" };
+const state = { notes: [], items: [], turns: {}, docs: [], settings: null, ready: false, backend: "local",
+  /* LifeOS 側（Claude Code で動くエージェント）とのやり取り。
+     **このアプリは判断しない。** 置き場を持って、渡して、映すだけ。 */
+  lifeos: { memory: [], results: [] } };
 
 /* 「わたしのこと」の分類。ここに入るのは、日をまたいでも変わらないことだけ。
    その日の体調・気分は condition として「今日」に残る。混ぜない。 */
@@ -1791,6 +1794,16 @@ async function boot() {
       DB.collection("turns").orderBy("day", "desc").limit(400).get(),
       DB.collection("docs").orderBy("createdAt", "desc").limit(200).get()
     ]);
+    /* LifeOS 側が書いた記憶と結果を読む。**無くても落ちない**——
+       つながっていない状態でも、アプリはこれまでどおり動くこと。 */
+    try {
+      const [ms, rs] = await Promise.all([
+        DB.collection("lifeos_memory").limit(200).get(),
+        DB.collection("lifeos_results").limit(50).get()
+      ]);
+      state.lifeos.memory = ms.docs.map(d => thaw(d.data()));
+      state.lifeos.results = rs.docs.map(d => thaw(d.data()));
+    } catch (e) { /* LifeOS 側がまだ無い。それでよい */ }
     // すべて thaw を通す。凍結されたまま state に入れると、以後の更新が全部落ちる。
     // 並びは、これまでどおり古い順に戻しておく（画面側がその前提で並べ替えている）。
     const byCreated = (a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
@@ -4431,7 +4444,11 @@ function contextForAI(note) {
     .sort((a, b) => (b.confirmed === true) - (a.confirmed === true))
     .slice(0, 40).map(i => `${i.category || "その他"}：${i.title}${i.confirmed || i.corrected ? "" : "（未確認）"}`);
   const recent = turnsFor(key).slice(-6).map(t => `${t.role === "user" ? "本人" : "あなた"}：${String(t.text).slice(0, 160)}`).join("\n");
-  return { key, p, open, plan, pf, me, recent, winS: pl.winS, winE: pl.winE,
+  /* LifeOS 側が覚えていることを、毎回の依頼文へ渡す。
+     これが「会話を閉じても残り、次回また使われる」の実体。 */
+  const los = (state.lifeos.memory || []).slice(0, 40)
+    .map(m => String(m && m.text || "")).filter(Boolean);
+  return { key, p, open, plan, pf, me, recent, lifeos: los, winS: pl.winS, winE: pl.winE,
            omitted: Math.max(0, allOpen.length - open.length) };
 }
 
@@ -4532,7 +4549,7 @@ estimateMin は 30 のように返してください（開始時刻を決めな�
 - 押して登録するボタンは出ません。気に入ったら本人が言葉で返します。
 【作業に使える時間帯】${hhmm(cx.winS)}〜${hhmm(cx.winE)}
 【いまの予定案】${cx.plan}
-【本人が前に言った「こうしてほしい」】${cx.pf.length ? cx.pf.join(" / ") : "（まだありません）"}
+${cx.lifeos && cx.lifeos.length ? `【LifeOSが覚えていること】\n${cx.lifeos.map(x => "- " + x).join("\n")}\n` : ""}【本人が前に言った「こうしてほしい」】${cx.pf.length ? cx.pf.join(" / ") : "（まだありません）"}
 【この人について分かっていること（変わらないこと）】
 ${cx.me.length ? cx.me.map(s => "- " + s).join("\n") : "（まだありません）"}
 【いま開いている用事（言い直しはこのidを使う）】
