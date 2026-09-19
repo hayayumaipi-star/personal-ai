@@ -2744,6 +2744,72 @@
       state.lifeos = keepL;
     }
 
+    /* ===== BF群：自分のAPIキーでAIを呼ぶ（v8.2）=====
+       いちばん大事なのは **キーが共有の場所へ出ていかないこと**。
+       `db` はリンクを開いた人に渡る（実機で確認済み）ので、キーが入ったら漏れる。 */
+    {
+      const keepFn = SAMPLEFN, keepLS = (() => { try { return localStorage.getItem(AI_KEY_LS); } catch { return null; } })();
+      const CFG = { provider: "claude", key: "sk-ant-TESTKEY-do-not-use", model: "claude-opus-5" };
+
+      writeOwnAI(CFG);
+      ok("BF. キーはこの端末の入れ物にだけ入る",
+         String(localStorage.getItem(AI_KEY_LS) || "").includes(CFG.key), "保存されていない");
+      ok("BF. キーは設定（共有の保存先へ行くもの）に入らない",
+         !JSON.stringify(state.settings).includes(CFG.key), "設定に混ざっている");
+      ok("BF. キーは書き出すJSONに入らない",
+         !exportPayload().includes(CFG.key), "書き出しに混ざっている");
+
+      const f = ownAI(CFG);
+      ok("BF. 窓口の形が `sample` と同じ（呼ぶ側を変えなくていい）",
+         typeof f === "function" && typeof f.json === "function" && typeof f.limits === "function",
+         typeof f + "/" + typeof f.json);
+      ok("BF. どこのAIかの印を持つ", f.own === "claude", String(f.own));
+
+      ok("BF. 読み込むと同じものが返る",
+         JSON.stringify(readOwnAI()) === JSON.stringify(CFG), JSON.stringify(readOwnAI()));
+      ok("BF. 自分のキーがあれば、そちらが勝つ",
+         applyOwnAI() === true && SAMPLEFN.own === "claude", String(SAMPLEFN && SAMPLEFN.own));
+
+      /* 保存データは壊れると思って読む（記録済みの決まり）。 */
+      try { localStorage.setItem(AI_KEY_LS, "{壊れた"); } catch {}
+      ok("BF. 壊れた保存値で落ちない", readOwnAI() === null, "落ちたか値を返した");
+      try { localStorage.setItem(AI_KEY_LS, JSON.stringify({ provider: "しらない", key: "x" })); } catch {}
+      ok("BF. 知らない提供元は採らない", readOwnAI() === null, "採っている");
+      try { localStorage.setItem(AI_KEY_LS, JSON.stringify({ provider: "claude", key: "" })); } catch {}
+      ok("BF. キーが空なら使わない", readOwnAI() === null, "使おうとしている");
+
+      /* AIは ```json で包んで返すことがある。包みと前後の言葉を外して読む。 */
+      ok("BF. 包まれたJSONを読める",
+         jsonFromText('はい。\n```json\n{"ops":[],"reply":"あ"}\n```\nどうぞ').reply === "あ", "読めない");
+      ok("BF. 裸のJSONも読める", jsonFromText('{"a":1}').a === 1, "読めない");
+      ok("BF. 配列も読める", jsonFromText('[{"a":1}]')[0].a === 1, "読めない");
+
+      /* 呼べなかった理由を、本人が打てる手に翻訳する（決まり6n と同じ理屈）。 */
+      ok("BF. 通信そのものが止められたと分かる文にする",
+         /外部への通信が禁じられている/.test(ownAIError(new TypeError("Failed to fetch"), "api.example")),
+         ownAIError(new TypeError("Failed to fetch"), "api.example"));
+      ok("BF. 相手が返した理由は、そのまま見せる",
+         ownAIError(new Error("Claude 401：invalid x-api-key"), "h") === "Claude 401：invalid x-api-key",
+         ownAIError(new Error("Claude 401：invalid x-api-key"), "h"));
+
+      /* **送信先・送信内容・費用を、保存する前に見せる**（決まりそのもの）。 */
+      const note = ownAINote("claude");
+      ok("BF. 送信先を書いている", /api\.anthropic\.com/.test(note), note.slice(0, 60));
+      ok("BF. 送信する中身を書いている", /送信するもの/.test(note) && /わたしのこと/.test(note), "書いていない");
+      ok("BF. 費用を書いている", /あなたのキーに請求されます/.test(note), "書いていない");
+      ok("BF. 資料の全文は送らないと書いている", /資料の全文は送りません/.test(note), "書いていない");
+      ok("BF. 使わないときは「何も送らない」と書く",
+         /外へは何も送りません/.test(ownAINote("")), ownAINote(""));
+
+      /* キーを消したら、元の窓口へ戻れること（片道にしない）。 */
+      writeOwnAI(null);
+      ok("BF. 消したら読めなくなる", readOwnAI() === null, "残っている");
+      ok("BF. キーが無ければ窓口を触らない", applyOwnAI() === false, "触っている");
+
+      try { if (keepLS == null) localStorage.removeItem(AI_KEY_LS); else localStorage.setItem(AI_KEY_LS, keepLS); } catch {}
+      SAMPLEFN = keepFn;
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;

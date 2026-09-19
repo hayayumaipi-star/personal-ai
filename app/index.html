@@ -486,6 +486,34 @@ details.unconf>summary{color:var(--warn)}
     </div>
 
     <div class="card stack">
+      <h3 style="font-size:14px">自分のAPIキーを使う（任意）</h3>
+      <p class="hint"><strong>入れなくて構いません。</strong>入れなければ今までどおり動きます。<br>
+      入れると、上の「AIの利用」の代わりに<strong>あなたのキーで</strong>AIを呼びます。
+      独立したサイトやスマホのアプリにしたときは、<strong>これが唯一のAIの道</strong>になります。</p>
+      <div class="grid2">
+        <div><label class="fld" for="aiProv">どこのAI</label>
+          <select id="aiProv">
+            <option value="">使わない（今までどおり）</option>
+            <option value="claude">Claude（Anthropic）</option>
+            <option value="gemini">Gemini（Google）</option>
+          </select></div>
+        <div><label class="fld" for="aiModel">モデル名</label>
+          <input type="text" id="aiModel" placeholder="claude-opus-5" autocomplete="off"></div>
+      </div>
+      <p class="hint">モデル名は<strong>書き換えられます</strong>。提供元が名前を変えることがあるので、
+      断られたらここを直してください。安いモデルを選べば費用は下がります。</p>
+      <div><label class="fld" for="aiKey">APIキー</label>
+        <input type="password" id="aiKey" placeholder="ここに貼り付ける" autocomplete="off"></div>
+      <div class="note info" id="aiSendNote"></div>
+      <div class="row">
+        <button class="btn" id="btnAiTest">つながるか試す</button>
+        <button class="btn pri" id="btnAiSave">保存する</button>
+        <button class="btn danger" id="btnAiClear" style="margin-left:auto">消す</button>
+      </div>
+      <div id="aiKeyMsg"></div>
+    </div>
+
+    <div class="card stack">
       <h3 style="font-size:14px">保存されている原文</h3>
       <p class="hint">あなたが話した言葉そのものです。項目の「根拠」はここを指しています。<br>
       ふだんは触る必要はありません。会話の自分の発言の下にある「原文」からも見られます。</p>
@@ -1489,6 +1517,9 @@ function rekey(list) {
    ======================================================================= */
 const LS = "hitohi.v1";
 let DB = null, SAMPLEFN = null, DL = null;
+/* claude.ai が貸してくれる窓口を別に覚えておく。自分のキーを「消す」ときに、
+   ここへ戻す（戻し先が無いと、開き直すまでAIが消える）。 */
+let HOSTSAMPLE = null;
 const state = { notes: [], items: [], turns: {}, docs: [], settings: null, ready: false, backend: "local",
   /* LifeOS 側（Claude Code で動くエージェント）とのやり取り。
      **このアプリは判断しない。** 置き場を持って、渡して、映すだけ。 */
@@ -1523,6 +1554,119 @@ function telosGaps() {
   return TELOS_ASKS.filter(a => !live.some(i => i.status === "open" && (a.cat === "goal"
     ? i.kind === "goal"
     : i.kind === "profile" && (i.category || "その他") === a.cat)));
+}
+
+/* ── 自分のAPIキーでAIを呼ぶ（v8.2・本人の指示）─────────────────
+   いまAIは `sample`（claude.ai が貸してくれる窓口）で動いていて、追加の支払いが要らない。
+   ただし **`sample` は Artifact の中でしか渡らない**ので、独立したサイトにしても、
+   Android アプリにしても、その瞬間に消える。だから「**使う人が自分のキーを入れる**」道を足す。
+   本人の言葉：「APIキーを入力させる仕組みにすればいいのでは」。
+
+   **キーは `localStorage` にだけ置く。** `db` にも書き出しのJSONにも入れない——
+   `db` は**共有の場所**で、リンクを開いた人に渡る（2026-09-13 に実機で確認済み）。
+   だから `state.settings` にも入れない（あれは `db` へ行く）。別の入れ物にする。
+
+   **窓口は1つ**（決まり7e）。`SAMPLEFN` と同じ形
+   （`f(prompt, opts)` が `{text}` を返し、`f.json(...)` が読み取った JSON を返す）を
+   そのまま真似るので、**呼ぶ側の3か所は1行も変えない**。
+
+   **キーが無ければ今までどおり。**（決まり7「AIは任意」）入れていない人には何も起きない。 */
+const AI_KEY_LS = "hitohi.ownai.v1";
+const AI_PROVIDERS = {
+  claude: { label: "Claude（Anthropic）", host: "api.anthropic.com",
+            model: "claude-opus-5", where: "console.anthropic.com" },
+  gemini: { label: "Gemini（Google）", host: "generativelanguage.googleapis.com",
+            model: "gemini-3.5-flash", where: "aistudio.google.com" }
+};
+function readOwnAI() {
+  try {
+    const v = JSON.parse(localStorage.getItem(AI_KEY_LS) || "null");
+    if (!v || !AI_PROVIDERS[v.provider] || !v.key) return null;
+    return { provider: v.provider, key: String(v.key),
+             model: String(v.model || AI_PROVIDERS[v.provider].model) };
+  } catch { return null; }
+}
+function writeOwnAI(cfg) {
+  try {
+    if (!cfg) localStorage.removeItem(AI_KEY_LS);
+    else localStorage.setItem(AI_KEY_LS, JSON.stringify(cfg));
+    return true;
+  } catch { return false; }
+}
+/* AIは ```json ``` で包んで返すことがある。包みと前後の言葉を外してから読む。 */
+function jsonFromText(t) {
+  let x = String(t == null ? "" : t).trim();
+  x = x.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  const a = x.indexOf("{"), b = x.indexOf("[");
+  const i = a < 0 ? b : (b < 0 ? a : Math.min(a, b));
+  if (i > 0) x = x.slice(i);
+  const j = Math.max(x.lastIndexOf("}"), x.lastIndexOf("]"));
+  if (j >= 0) x = x.slice(0, j + 1);
+  return JSON.parse(x);
+}
+/* 呼べなかった理由を、本人が打てる手に翻訳する（決まり6n と同じ理屈）。
+   いちばん大事なのは「**この場所では外部通信が禁じられている**」を言い当てること——
+   Artifact の中では必ずこれになるので、キーの打ち間違いと取り違えると迷子になる。 */
+function ownAIError(e, host) {
+  const m = String((e && e.message) || e || "");
+  if (/^(Claude|Gemini) \d/.test(m)) return m;            // 相手が返した理由はそのまま
+  if (e && e.name === "AbortError") return "途中でやめました";
+  return `${host} へ通信できませんでした。この場所では外部への通信が禁じられている可能性があります`
+    + `（claude.ai の中では呼べません）。${m ? "（" + m + "）" : ""}`;
+}
+async function ownAICall(cfg, prompt, opts) {
+  const quick = !!(opts && opts.modelTier === "quick");
+  const sig = opts && opts.signal;
+  const P = AI_PROVIDERS[cfg.provider];
+  let r, d;
+  if (cfg.provider === "gemini") {
+    try {
+      r = await fetch(`https://${P.host}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`, {
+        method: "POST", signal: sig,
+        headers: { "content-type": "application/json", "x-goog-api-key": cfg.key },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      });
+    } catch (e) { throw new Error(ownAIError(e, P.host)); }
+    d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(`Gemini ${r.status}：${(d && d.error && d.error.message) || "断られました"}`);
+    const parts = (d && d.candidates && d.candidates[0] && d.candidates[0].content
+                   && d.candidates[0].content.parts) || [];
+    return parts.map(x => (x && x.text) || "").join("");
+  }
+  /* Claude。**ブラウザから直接呼ぶには専用のヘッダが要る**（既定では断られる）。
+     `max_tokens` を小さくしない（途中で切れて読み直しになる）。
+     速い返事のほうだけ `effort` を下げる——決まり7b の「1〜2秒で受け止める」ため。
+     **`temperature` は送らない**（いまのモデルでは 400 になる）。 */
+  const body = { model: cfg.model, max_tokens: 16000,
+                 messages: [{ role: "user", content: prompt }] };
+  if (quick) body.output_config = { effort: "low" };
+  try {
+    r = await fetch(`https://${P.host}/v1/messages`, {
+      method: "POST", signal: sig,
+      headers: { "content-type": "application/json", "x-api-key": cfg.key,
+                 "anthropic-version": "2023-06-01",
+                 "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify(body)
+    });
+  } catch (e) { throw new Error(ownAIError(e, P.host)); }
+  d = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(`Claude ${r.status}：${(d && d.error && d.error.message) || "断られました"}`);
+  if (d && d.stop_reason === "refusal") throw new Error("AIがこの依頼への返答を断りました");
+  return ((d && d.content) || []).filter(b => b && b.type === "text")
+    .map(b => b.text || "").join("");
+}
+function ownAI(cfg) {
+  const f = (prompt, opts) => ownAICall(cfg, prompt, opts)
+    .then(t => ({ text: t, truncated: false }));
+  f.json = (prompt, opts) => ownAICall(cfg, prompt, opts).then(jsonFromText);
+  f.limits = () => Promise.resolve({ maxPromptBytes: 200000 });
+  f.own = cfg.provider;          // 画面の印に使う。`sample` には無い
+  return f;
+}
+function applyOwnAI() {
+  const cfg = readOwnAI();
+  if (cfg) SAMPLEFN = ownAI(cfg);
+  return !!cfg;
 }
 const DOC_MAX_CHARS = 60000;      // 1件の資料の上限（保存先の1ドキュメント上限に収めるため）
 const AI_CHUNK = 6000;            // AIに一度に読ませる文字数
@@ -1812,9 +1956,16 @@ async function boot() {
   state.ready = true;
   renderAll();
 
+  /* **自分のキーを先に効かせる**（v8.2）。`window.claude` が無い場所
+     （独立したサイト・アプリの中）では、この下の行で早々に抜けてしまうので、
+     ここより後ろに置くと**キーを入れてもAIが動かない**。 */
+  applyOwnAI(); refreshAiState();
+
   if (typeof window.claude === "undefined" || !window.claude.use) { setSync("local"); return; }
   try { DL = await window.claude.use("downloads"); } catch {}
-  try { SAMPLEFN = await window.claude.use("sample"); } catch {}
+  try { HOSTSAMPLE = await window.claude.use("sample"); } catch {}
+  // 自分のキーが入っているなら、そちらが勝つ（本人が選んだものを上書きしない）
+  if (!SAMPLEFN) SAMPLEFN = HOSTSAMPLE;
   refreshAiState();
   let db = null;
   try { db = await window.claude.use("db"); } catch {}
@@ -3192,6 +3343,31 @@ async function renderResidency() {
        次に開いたときチャットに「留守のあいだに」として出ます。</div>`;
 }
 
+/* 自分のキーの欄を描く。**送信先・送信内容・費用を、保存する前に見せる**
+   （決まり「新しい外部送信を足すときは、明記してから足す」）。
+   キーは `localStorage` から読む。`state.settings` には入っていない（あれは共有の `db` へ行く）。 */
+function ownAINote(prov) {
+  const P = AI_PROVIDERS[prov];
+  if (!P) return "「使わない」のままなら、外へは何も送りません。";
+  return `<strong>送信先：</strong>${esc(P.host)}（${esc(P.label)}）<br>`
+    + "<strong>送信するもの：</strong>あなたの発言・いま開いている用事・「わたしのこと」・直前のやりとり。"
+    + "<strong>渡した資料の全文は送りません</strong>（読み取りのときだけ、確認を取ってから送ります）。<br>"
+    + "<strong>費用：</strong>あなたのキーに請求されます。"
+    + "<strong>1回話しかけるとAIを2回呼びます</strong>（速い返事と、読み取り）。";
+}
+function renderOwnAI() {
+  const prov = $("#aiProv"); if (!prov) return;
+  const cfg = readOwnAI();
+  // 触っている最中は上書きしない（入力途中で選び直しても消えないように）
+  if (document.activeElement !== prov) prov.value = cfg ? cfg.provider : "";
+  const mEl = $("#aiModel"), kEl = $("#aiKey");
+  if (document.activeElement !== mEl) mEl.value = cfg ? cfg.model : "";
+  if (document.activeElement !== kEl) kEl.value = cfg ? cfg.key : "";
+  const P = AI_PROVIDERS[prov.value];
+  mEl.placeholder = P ? P.model : "使わないときは空のまま";
+  $("#aiSendNote").innerHTML = ownAINote(prov.value);
+}
+
 function renderSettings() {
   const s = state.settings;
   $("#tz").value = s.timezone; $("#defEst").value = s.defaultEstimate;
@@ -3199,6 +3375,7 @@ function renderSettings() {
   $("#breakLen") && ($("#breakLen").value = s.breakMin == null ? 10 : s.breakMin);
   $("#theme") && ($("#theme").value = s.theme || "auto");
   renderResidency();            // 測るだけ。待たない（描画を止めない）
+  renderOwnAI();
   const turnCount = Object.values(state.turns).reduce((n, l) => n + l.length, 0);
   /* **作業に使える時間帯を、読めるところに1行だけ出す**（v6.2b・実機で報告）。
      設定欄は v3.9 で外した（本人の指示）ので、ここは**入力欄ではなく事実の表示**。
@@ -3253,7 +3430,10 @@ function renderSettings() {
 }
 function refreshAiState() {
   const el = $("#aiState"); if (!el) return;
-  el.innerHTML = SAMPLEFN
+  el.innerHTML = SAMPLEFN && SAMPLEFN.own
+    ? `<strong>あなたのAPIキーで動いています（${esc(AI_PROVIDERS[SAMPLEFN.own].label)}）。</strong>`
+      + "料金は<strong>あなたのキーに請求されます</strong>。やめたいときは、下の欄で「消す」を押してください。"
+    : SAMPLEFN
     ? "この端末ではAIが使えます。あなたのClaudeアカウントの利用枠を使うので、<strong>別のAPI契約や追加の支払いは不要</strong>です。"
     : "いまAIは使えません（未許可、または対応していない開き方）。<strong>ルールだけで、追加・計画・訂正・再計画は全部動きます。</strong>";
 }
@@ -5352,8 +5532,74 @@ $("#theme").addEventListener("change", () => applyTheme($("#theme").value));   /
 for (const id of ["#tz", "#defEst", "#breakEvery", "#breakLen", "#theme", "#useAI"]) {
   $(id).addEventListener("change", saveSettingsNow);
 }
+/* ---- 自分のAPIキー（v8.2）---- */
+$("#aiProv").addEventListener("change", () => {
+  const P = AI_PROVIDERS[$("#aiProv").value];
+  if (P && !$("#aiModel").value.trim()) $("#aiModel").value = P.model;
+  $("#aiModel").placeholder = P ? P.model : "使わないときは空のまま";
+  $("#aiSendNote").innerHTML = ownAINote($("#aiProv").value);
+});
+function ownAIFromForm() {
+  const provider = $("#aiProv").value;
+  if (!AI_PROVIDERS[provider]) return null;
+  const key = $("#aiKey").value.trim();
+  if (!key) return { _noKey: true };
+  return { provider, key, model: $("#aiModel").value.trim() || AI_PROVIDERS[provider].model };
+}
+function ownAIMsg(kind, html) {
+  $("#aiKeyMsg").innerHTML = `<div class="note ${kind}" style="margin-top:8px">${html}</div>`;
+}
+$("#btnAiTest").addEventListener("click", async () => {
+  const cfg = ownAIFromForm();
+  if (!cfg) { ownAIMsg("info", "「どこのAI」を選んでから押してください。"); return; }
+  if (cfg._noKey) { ownAIMsg("warn", "APIキーを貼り付けてから押してください。"); return; }
+  const btn = $("#btnAiTest"); btn.disabled = true; btn.textContent = "試しています…";
+  ownAIMsg("info", "1回だけ短い問い合わせを送っています…");
+  const t0 = Date.now();
+  try {
+    const out = await ownAICall(cfg, "「つながりました」とだけ返してください。", { modelTier: "quick" });
+    ownAIMsg("info", `<strong>つながりました。</strong>（${Math.round((Date.now() - t0) / 100) / 10}秒）`
+      + `<br>返ってきた言葉：${esc(String(out).trim().slice(0, 60))}`);
+  } catch (e) {
+    ownAIMsg("bad", `<strong>つながりませんでした。</strong><br>${esc(String(e && e.message || e))}`);
+  } finally { btn.disabled = false; btn.textContent = "つながるか試す"; }
+});
+$("#btnAiSave").addEventListener("click", () => {
+  const cfg = ownAIFromForm();
+  if (!cfg) {                       // 「使わない」を選んで保存＝消すのと同じ
+    writeOwnAI(null); SAMPLEFN = HOSTSAMPLE; refreshAiState(); renderOwnAI();
+    ownAIMsg("info", "自分のキーは使わない設定にしました。"); toast("今までどおりに戻しました"); return;
+  }
+  if (cfg._noKey) { ownAIMsg("warn", "APIキーを貼り付けてから押してください。"); return; }
+  if (!writeOwnAI(cfg)) { ownAIMsg("bad", "この端末に保存できませんでした（容量がいっぱいかもしれません）。"); return; }
+  applyOwnAI(); refreshAiState(); renderOwnAI();
+  ownAIMsg("info", "<strong>保存しました。</strong>このキーは<strong>この端末の中だけ</strong>に残ります。"
+    + "共有の保存先にも、書き出すJSONにも入りません。");
+  toast("自分のキーを使う設定にしました");
+});
+$("#btnAiClear").addEventListener("click", async () => {
+  if (!readOwnAI() && !$("#aiKey").value.trim()) { toast("消すものがありません"); return; }
+  const yes = await askConfirm({ title: "APIキーを消しますか？",
+    body: "この端末に保存したキーを消します。AIは<strong>今までどおり</strong>（claude.ai の窓口）に戻ります。"
+      + "<br>キーそのものは提供元に残るので、また貼り付ければ使えます。",
+    yes: "消す", danger: true });
+  if (!yes) return;
+  writeOwnAI(null);
+  $("#aiProv").value = ""; $("#aiKey").value = ""; $("#aiModel").value = "";
+  SAMPLEFN = HOSTSAMPLE; refreshAiState(); renderOwnAI();
+  ownAIMsg("info", "消しました。");
+  toast("APIキーを消しました");
+});
+
+/* 書き出す中身は**ここだけ**が決める（決まり7e）。テストが同じものを読めるようにする。
+   **APIキーはここに入らない。** キーは `localStorage` の別の入れ物にあり、
+   `state.settings`（＝共有の `db` へ行くもの）には最初から入っていない。 */
+function exportPayload() {
+  return JSON.stringify({ exportedAt: new Date().toISOString(), settings: state.settings,
+    notes: state.notes, items: state.items, turns: state.turns, docs: state.docs }, null, 2);
+}
 $("#btnExport").addEventListener("click", async () => {
-  const data = JSON.stringify({ exportedAt: new Date().toISOString(), settings: state.settings, notes: state.notes, items: state.items, turns: state.turns, docs: state.docs }, null, 2);
+  const data = exportPayload();
   if (DL) {
     try { await DL.save({ filename: `hitohi-${dayKey(new Date(), state.settings.timezone)}.json`, data }); $("#expOut").innerHTML = '<p class="hint">書き出しました。</p>'; return; }
     catch (e) { /* fall through to copy box */ }

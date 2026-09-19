@@ -762,6 +762,55 @@
       if (!/タブを閉じると止まります/.test(t)) throw new Error("止まることを書いていない");
     });
 
+    /* 自分のAPIキー（v8.2）。**実際に押して**確かめる。
+       いちばん大事なのは、キーが共有の保存先にも書き出しにも出ていかないこと。 */
+    const TESTKEY = "sk-ant-WALKTHROUGH-do-not-use";
+    await step("「どこのAI」を選ぶと、送信先と費用が出る", async () => {
+      await click('nav.tabs [data-tab="p-set"]');
+      if (!/外へは何も送りません/.test($$("#aiSendNote").textContent)) throw new Error("既定の説明が出ていない");
+      type("#aiProv", "claude");
+      const t = $$("#aiSendNote").textContent;
+      if (!/api\.anthropic\.com/.test(t)) throw new Error("送信先が出ない");
+      if (!/あなたのキーに請求されます/.test(t)) throw new Error("費用が出ない");
+      if (!$$("#aiModel").value) throw new Error("モデル名の既定が入らない");
+    });
+    await step("キーを入れずに保存すると、断られる", async () => {
+      $$("#aiKey").value = "";
+      await click("#btnAiSave");
+      if (!/貼り付けてから/.test($$("#aiKeyMsg").textContent)) throw new Error("黙って保存した");
+      if (readOwnAI()) throw new Error("空で保存された");
+    });
+    await step("キーを保存しても、共有の保存先と書き出しには出ない", async () => {
+      $$("#aiKey").value = TESTKEY;
+      await click("#btnAiSave");
+      if (!await waitFor(() => readOwnAI() && readOwnAI().key === TESTKEY, 3000))
+        throw new Error("保存されない");
+      if (JSON.stringify(state.settings).includes(TESTKEY)) throw new Error("設定に混ざった");
+      if (exportPayload().includes(TESTKEY)) throw new Error("書き出しに混ざった");
+      const got = await DB.doc("meta/settings").get();     // 保存先を読み直して確かめる
+      if (got.exists && JSON.stringify(got.data()).includes(TESTKEY)) throw new Error("共有の保存先に入った");
+      if (!SAMPLEFN || SAMPLEFN.own !== "claude") throw new Error("窓口が切り替わらない");
+      if (!/あなたのAPIキーで動いています/.test($$("#aiState").textContent)) throw new Error("画面の印が変わらない");
+    });
+    await step("「つながるか試す」は、駄目なときに理由を出す", async () => {
+      await click("#btnAiTest");
+      if (!await waitFor(() => /つながりました|つながりませんでした/.test($$("#aiKeyMsg").textContent), 15000))
+        throw new Error("結果が出ない（黙って終わった）");
+      // この環境では外へ出られないので、理由が出ることまで確かめる
+      if (/つながりませんでした/.test($$("#aiKeyMsg").textContent)
+          && $$("#aiKeyMsg").textContent.length < 40) throw new Error("理由を書いていない");
+    });
+    await step("「消す」で、元の窓口に戻る", async () => {
+      const pr = act ? null : null;
+      await click("#btnAiClear");
+      if (!await waitFor(() => has("#cfYes"), 4000)) throw new Error("確認シートが出ない");
+      await click("#cfYes");
+      if (!await waitFor(() => !readOwnAI(), 4000)) throw new Error("消えない");
+      if (SAMPLEFN !== HOSTSAMPLE) throw new Error("元の窓口に戻らない");
+      if ($$("#aiKey").value) throw new Error("入力欄に残っている");
+      void pr;
+    });
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "WALK";
     pre.textContent = "===== 操作の総点検 =====\n" + R.join("\n") +
