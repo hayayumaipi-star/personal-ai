@@ -23,6 +23,18 @@
 
 スマホに **Expo Go** を入れて、同じ Wi-Fi につないでおいてください。
 
+**Windows なら、これだけです。**
+
+```powershell
+cd C:\Users\zaoji\personal-ai\mobile
+.\start.ps1
+```
+
+足りないものを確かめて、初回の準備をして、QRを出すところまで1本でやります
+（別のネットのスマホから開くときは `.\start.ps1 -Tunnel`）。
+
+自分で順に打つなら：
+
 ```bash
 cd mobile
 npm install          # 初回だけ
