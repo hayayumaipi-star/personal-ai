@@ -692,6 +692,45 @@
       if (!state.items.length) throw new Error("何も作られない");
     });
 
+    /* まだ聞いていないこと（v8.0・本人の指摘「アプリからTELOSを埋めれるようにすべき」）。
+       アプリが持つのは質問だけ。押しても保存はせず、チャットへ移って本人が言葉で答える。 */
+    await step("「わたしのこと」に、まだ聞いていないことが出る", async () => {
+      await click('nav.tabs [data-tab="p-me"]');
+      if (!telosGaps().length) throw new Error("穴が1つも無い（この時点では全部空のはず）");
+      if (!firstAct("#p-me", "telosask")) throw new Error("「これを話す」が無い");
+      if (!/まだ聞いていないこと/.test($$("#meOut").textContent)) throw new Error("見出しが無い");
+    });
+    await step("「これを話す」で、チャットに質問が出る", async () => {
+      const key = telosGaps()[0].key;
+      await click(`#p-me [data-act="telosask"][data-id="${key}"]`);
+      if (view.tab !== "p-chat") throw new Error("チャットに移らない");
+      if ($$("#sayAsk").hidden) throw new Error("質問の帯が出ない");
+      const q = TELOS_ASKS.find(x => x.key === key).q;
+      if (!$$("#sayAsk").textContent.includes(q)) throw new Error("質問が出ていない：" + $$("#sayAsk").textContent);
+      if (state.items.some(i => i.title === q)) throw new Error("質問そのものを保存している");
+    });
+    await step("「やめる」で、質問が下りる", async () => {
+      await click('#sayAsk [data-act="askclose"]');
+      if (!$$("#sayAsk").hidden) throw new Error("帯が残る");
+      if (view.ask) throw new Error("聞いたままになっている");
+    });
+    await step("答えると「わたしのこと」に入り、質問は下りる", async () => {
+      const before = telosGaps().length;
+      await click(`#p-me [data-act="telosask"][data-id="body"]`);
+      /* ここだけAIを切る。**模擬AIの依頼文には「資料」の字が入っている**ので、
+         どんな発言にも「資料を作る」の op が返り、ルールの読み取りまで届かない。
+         決まり7（AIは任意）の道をそのまま測る。 */
+      await putSettings(Object.assign({}, state.settings, { useAI: false }));
+      type("#say", "昔から朝は頭が動かないタイプ。");
+      await click("#btnSend");
+      if (!await waitFor(() => state.items.some(i => i.kind === "profile" && i.status === "open"), 8000))
+        throw new Error("わたしのことに入らない");
+      if (!await waitFor(() => !view.ask, 3000)) throw new Error("質問が下りない");
+      if (!$$("#sayAsk").hidden) throw new Error("帯が残る");
+      if (telosGaps().length >= before) throw new Error("穴が減っていない");
+      await putSettings(Object.assign({}, state.settings, { useAI: true }));
+    });
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "WALK";
     pre.textContent = "===== 操作の総点検 =====\n" + R.join("\n") +

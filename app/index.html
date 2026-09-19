@@ -341,6 +341,12 @@ body.talking .saybar{display:block}
 .saybar textarea::-webkit-scrollbar{display:none;width:0;height:0}
 .sendbtn{min-width:44px;min-height:42px;border-radius:11px;font-size:17px;padding:0}
 .saybar-note{max-width:640px;margin:2px auto 0;font-size:11px;color:var(--ink-3);min-height:15px}
+/* いま聞いている質問を、入力欄のすぐ上に出す（まだ聞けていないことを埋めるため）。
+   `#sayNote` は入力のたびに書き換わるので、そこに置くと打った瞬間に消える。別の場所にする。 */
+.saybar-ask{max-width:640px;margin:0 auto 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;
+  font-size:12.5px;line-height:1.6;color:var(--ink-2)}
+.saybar-ask .q{flex:1 1 180px}
 body.talking .wrap{padding-bottom:190px}
 @media (min-width:720px){
   .saybar{bottom:calc(74px + env(safe-area-inset-bottom,0px))}
@@ -557,6 +563,7 @@ details.unconf>summary{color:var(--warn)}
 </div>
 
 <div class="saybar" id="saybar">
+  <div class="saybar-ask" id="sayAsk" hidden></div>
   <div class="saybar-in">
     <input type="file" id="file" accept=".txt,.md,.csv,text/plain" class="sr">
     <textarea id="say" rows="1" placeholder="話しかける"></textarea>
@@ -1477,11 +1484,41 @@ function rekey(list) {
    ======================================================================= */
 const LS = "hitohi.v1";
 let DB = null, SAMPLEFN = null, DL = null;
-const state = { notes: [], items: [], turns: {}, docs: [], settings: null, ready: false, backend: "local" };
+const state = { notes: [], items: [], turns: {}, docs: [], settings: null, ready: false, backend: "local",
+  /* LifeOS 側（Claude Code で動くエージェント）とのやり取り。
+     **このアプリは判断しない。** 置き場を持って、渡して、映すだけ。 */
+  lifeos: { memory: [], results: [] } };
 
 /* 「わたしのこと」の分類。ここに入るのは、日をまたいでも変わらないことだけ。
    その日の体調・気分は condition として「今日」に残る。混ぜない。 */
 const PROFILE_CATS = ["性格・傾向", "好み", "苦手・制約", "仕事・勉強", "体のこと", "大事にしていること", "その他"];
+
+/* ── まだ聞けていないこと ────────────────────────────────────
+   LifeOS の TELOS は「目的・妨げているもの・やり方」を1枚にまとめる形だが、
+   **その中身を git のファイルに置くと、その人ひとり専用のアプリになる**
+   （本人の指摘・2026-09-19）。だから **リポジトリに置くのは質問だけ**にして、
+   答えはこれまでどおり `profile` と `goal` として**その人の保存先**に入れる。
+   新しい入れ物も、新しいタブも作らない（決まり7e・同じものを2か所に持たない）。
+
+   ここが持っているのは**質問文だけ**で、人物像は1文字も持たない。
+   埋まったかどうかは「その分類に開いている項目があるか」で数える。
+   `renderMe` と `buildPrompt` は**必ずこの関数を通す**——
+   片方だけ直される穴を開けないため（決まり7e）。 */
+const TELOS_ASKS = [
+  { key: "work",  cat: "仕事・勉強",         q: "いま力を入れている仕事や勉強は、どんなことですか。" },
+  { key: "value", cat: "大事にしていること", q: "暮らしのなかで、これだけは譲れないと思っていることはありますか。" },
+  { key: "body",  cat: "体のこと",           q: "体のことで、予定を組むときに知っておいてほしいことはありますか。" },
+  { key: "focus", cat: "性格・傾向",         q: "集中が続きやすい時間帯と、切れやすい時間帯はありますか。" },
+  { key: "hard",  cat: "苦手・制約",         q: "苦手なこと、できれば避けたいことはありますか。" },
+  { key: "like",  cat: "好み",               q: "気持ちが軽くなる時間や、好きな過ごし方はありますか。" },
+  { key: "goal",  cat: "goal",               q: "いま続けたいこと、近づきたい状態はありますか。" }
+];
+function telosGaps() {
+  const live = liveItems();
+  return TELOS_ASKS.filter(a => !live.some(i => i.status === "open" && (a.cat === "goal"
+    ? i.kind === "goal"
+    : i.kind === "profile" && (i.category || "その他") === a.cat)));
+}
 const DOC_MAX_CHARS = 60000;      // 1件の資料の上限（保存先の1ドキュメント上限に収めるため）
 const AI_CHUNK = 6000;            // AIに一度に読ませる文字数
 /* 回数の上限は、資料の上限から**計算する**（v4.3）。
@@ -1791,6 +1828,16 @@ async function boot() {
       DB.collection("turns").orderBy("day", "desc").limit(400).get(),
       DB.collection("docs").orderBy("createdAt", "desc").limit(200).get()
     ]);
+    /* LifeOS 側が書いた記憶と結果を読む。**無くても落ちない**——
+       つながっていない状態でも、アプリはこれまでどおり動くこと。 */
+    try {
+      const [ms, rs] = await Promise.all([
+        DB.collection("lifeos_memory").limit(200).get(),
+        DB.collection("lifeos_results").limit(50).get()
+      ]);
+      state.lifeos.memory = ms.docs.map(d => thaw(d.data()));
+      state.lifeos.results = rs.docs.map(d => thaw(d.data()));
+    } catch (e) { /* LifeOS 側がまだ無い。それでよい */ }
     // すべて thaw を通す。凍結されたまま state に入れると、以後の更新が全部落ちる。
     // 並びは、これまでどおり古い順に戻しておく（画面側がその前提で並べ替えている）。
     const byCreated = (a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
@@ -2984,6 +3031,21 @@ function renderMe() {
     }
   }
 
+  /* ---- ①b まだ聞いていないこと ----
+     **答えは「会話から集まったこと」に入る。**ここは入れ物ではなく、入口だけ。
+     押しても保存はしない——チャットへ移って、本人が言葉で答える（会話が入口）。 */
+  const gaps = telosGaps();
+  if (gaps.length) {
+    h += `<div class="sect"><span class="eyebrow">NOT ASKED YET</span>
+      <h2>まだ聞いていないこと（${gaps.length}件）</h2>
+      <p class="hint">答えるほど、予定の組み方と返事があなたに合っていきます。
+      <strong>答えなくても構いません。</strong>質問だけがアプリに入っていて、答えはあなたの保存先にだけ残ります。</p></div>
+    <div class="stack">${gaps.map(a => `<div class="card row">
+      <div style="flex:1 1 180px">${esc(a.q)}</div>
+      <button class="btn sm" data-act="telosask" data-id="${a.key}" style="margin-left:auto">これを話す</button>
+    </div>`).join("")}</div>`;
+  }
+
   /* ---- ② 自分で渡したもの ---- */
   h += `<div class="sect"><span class="eyebrow">UPLOADED</span>
     <h2>自分で渡したもの（${state.docs.length}件）</h2>
@@ -3132,11 +3194,21 @@ function refreshAiState() {
     : "いまAIは使えません（未許可、または対応していない開き方）。<strong>ルールだけで、追加・計画・訂正・再計画は全部動きます。</strong>";
 }
 
-const view = { tab: "p-chat", day: null };
+const view = { tab: "p-chat", day: null, ask: null };
 function renderAll() {
   if (!view.day) view.day = dayKey(new Date(), state.settings.timezone);
   renderChat(false); renderDay(); renderMe(); renderNotes(); renderSettings();
 }
+/* いま聞いている質問の帯。保存はしない——見せて、本人の言葉を待つだけ。 */
+function renderAsk() {
+  const el = $("#sayAsk"); if (!el) return;
+  const q = TELOS_ASKS.find(x => x.key === view.ask);
+  if (!q) { el.hidden = true; el.innerHTML = ""; return; }
+  el.hidden = false;
+  el.innerHTML = `<span class="q">${esc(q.q)}</span>
+    <button class="btn sm" data-act="askclose">やめる</button>`;
+}
+
 function showTab(id) {
   view.tab = id;
   for (const p of document.querySelectorAll(".panel")) p.hidden = p.id !== id;
@@ -3148,7 +3220,7 @@ function showTab(id) {
   if (id === "p-day") renderDay();
   else if (id === "p-me") renderMe();
   else if (id === "p-set") { renderNotes(); renderSettings(); }
-  if (id === "p-chat") { renderChat(true); setTimeout(() => $("#say").focus(), 30); }
+  if (id === "p-chat") { renderChat(true); renderAsk(); setTimeout(() => $("#say").focus(), 30); }
   else { window.scrollTo({ top: 0, behavior: "instant" }); setTimeout(() => window.scrollTo({ top: 0, behavior: "instant" }), 0); }
 }
 
@@ -3360,6 +3432,15 @@ async function act(a, id, el) {
     if (row) { const open = row.classList.toggle("open"); el.setAttribute("aria-expanded", open ? "true" : "false"); }
     return;
   }
+  /* まだ聞いていないことを、会話で聞く。**ここでは何も保存しない**——
+     質問を出して入力欄へ移すだけで、答えはふつうの読み取りが「わたしのこと」にする。 */
+  if (a === "telosask") {
+    if (!TELOS_ASKS.some(x => x.key === id)) { toast("この質問は見つかりませんでした"); return; }
+    view.ask = id;
+    showTab("p-chat");
+    return;
+  }
+  if (a === "askclose") { view.ask = null; renderAsk(); return; }
   if (a === "confirmprof") {
     const list = state.items.filter(i => i.kind === "profile" && i.status === "open" && !i.confirmed && !i.corrected);
     for (const x of list) { x.confirmed = true; note(x, "まとめて確認した"); await putItem(x); }
@@ -4431,7 +4512,16 @@ function contextForAI(note) {
     .sort((a, b) => (b.confirmed === true) - (a.confirmed === true))
     .slice(0, 40).map(i => `${i.category || "その他"}：${i.title}${i.confirmed || i.corrected ? "" : "（未確認）"}`);
   const recent = turnsFor(key).slice(-6).map(t => `${t.role === "user" ? "本人" : "あなた"}：${String(t.text).slice(0, 160)}`).join("\n");
-  return { key, p, open, plan, pf, me, recent, winS: pl.winS, winE: pl.winE,
+  /* LifeOS 側が覚えていることを、毎回の依頼文へ渡す。
+     これが「会話を閉じても残り、次回また使われる」の実体。 */
+  const los = (state.lifeos.memory || []).slice(0, 40)
+    .map(m => String(m && m.text || "")).filter(Boolean);
+  /* まだ聞けていないことも渡す。**判定は `telosGaps()` ひとつ**——
+     画面と依頼文で別々に数えない（決まり7e）。 */
+  const gaps = telosGaps();
+  const asking = (TELOS_ASKS.find(x => x.key === view.ask) || {}).q || "";
+  return { key, p, open, plan, pf, me, recent, lifeos: los, winS: pl.winS, winE: pl.winE,
+           gaps: gaps.slice(0, 3).map(g => g.q), asking,
            omitted: Math.max(0, allOpen.length - open.length) };
 }
 
@@ -4532,9 +4622,20 @@ estimateMin は 30 のように返してください（開始時刻を決めな�
 - 押して登録するボタンは出ません。気に入ったら本人が言葉で返します。
 【作業に使える時間帯】${hhmm(cx.winS)}〜${hhmm(cx.winE)}
 【いまの予定案】${cx.plan}
-【本人が前に言った「こうしてほしい」】${cx.pf.length ? cx.pf.join(" / ") : "（まだありません）"}
+${cx.lifeos && cx.lifeos.length ? `【LifeOSが覚えていること】\n${cx.lifeos.map(x => "- " + x).join("\n")}\n` : ""}【本人が前に言った「こうしてほしい」】${cx.pf.length ? cx.pf.join(" / ") : "（まだありません）"}
 【この人について分かっていること（変わらないこと）】
 ${cx.me.length ? cx.me.map(s => "- " + s).join("\n") : "（まだありません）"}
+${cx.asking ? `【いま画面で聞いている質問】${cx.asking}
+- この発言は、その答えのつもりかもしれません。答えになっていたら
+  「わたしのこと」として覚えてください（op は profile、続けたいことなら goal）。
+- **答えていなければ、聞き直さないでください。** 話したいことが変わっただけです。
+` : ""}${cx.gaps.length ? `【まだ聞けていないこと】
+${cx.gaps.map(s => "- " + s).join("\n")}
+- ここが埋まるほど、予定の組み方がその人に合っていきます。
+- **毎回は聞かないでください。** 話の流れが自然に触れたときだけ、**1回の返事につき1つまで**。
+- 習慣の提案をする回には聞かないでください（返事が長くなります）。
+- 答えを**推測で埋めないでください。** 聞いていないことは、聞いていないままにします。
+` : ""}
 【いま開いている用事（言い直しはこのidを使う）】
 ${JSON.stringify(cx.open, null, 0)}
 ${cx.omitted ? `※この一覧は新しい順の40件です。ほかに${cx.omitted}件の古い用事があり、ここには載せていません。
@@ -4976,6 +5077,8 @@ async function doSend() {
   try {
     await sendTurn(v);
     $("#sayNote").textContent = "";
+    // 答えたら帯を下ろす。答えになっていなくても、同じ質問を出し続けない。
+    if (view.ask) { view.ask = null; renderAsk(); }
   } catch (e) {
     lastError = describeError(e);
     $("#say").value = v; saveDraft();       // 失敗したら書き戻す

@@ -2611,6 +2611,80 @@
       const plain = pr(mk("2026-09-14T12:30:00Z", "眠い。明日までに資料を作らないと。"));
       ok("BA. 組み立てでない発言には案内を出さない",
          !plain.includes("【この発話は「1日の組み立て」の依頼です】"), "毎回出ている");
+
+      /* ===== BD群：まだ聞けていないこと（TELOS をアプリから埋める）=====
+         **誰が使っても同じように動くこと**が要件（本人の指摘・2026-09-19）。
+         だからアプリが持つのは**質問だけ**で、人物像は1文字も持たない。
+         答えの置き場は既にある `profile` と `goal`——新しい入れ物を作らない（決まり7e）。 */
+      {
+        const keepI = state.items;
+
+        ok("BD. アプリは質問しか持たない（人物像を持たない）",
+           TELOS_ASKS.every(a => /[かは]。$/.test(a.q)) && TELOS_ASKS.length >= 5,
+           TELOS_ASKS.map(a => a.q).join("/"));
+        ok("BD. 答えの置き場は profile と goal だけ（新しい入れ物を作らない）",
+           TELOS_ASKS.every(a => a.cat === "goal" || PROFILE_CATS.includes(a.cat)),
+           TELOS_ASKS.map(a => a.cat).join("/"));
+
+        state.items = [];
+        ok("BD. 何も無ければ、全部が「まだ聞いていない」",
+           telosGaps().length === TELOS_ASKS.length, String(telosGaps().length));
+
+        /* 埋まったぶんだけ減る。**分類ごとに見る**——1件あれば全部埋まった扱いにしない。 */
+        state.items = [{ id: "bd1", kind: "profile", category: "体のこと",
+                         title: "朝は頭が動かない", status: "open" }];
+        ok("BD. 答えた分類は、もう聞かない",
+           !telosGaps().some(g => g.cat === "体のこと"), telosGaps().map(g => g.cat).join("/"));
+        ok("BD. 答えていない分類は、まだ聞く",
+           telosGaps().some(g => g.cat === "好み"), telosGaps().map(g => g.cat).join("/"));
+
+        /* 取り消したものは「答えた」ことにしない（決まり2・推測を確定にしない）。 */
+        state.items = [{ id: "bd2", kind: "profile", category: "好み",
+                         title: "散歩が好き", status: "dropped" }];
+        ok("BD. 取り消した答えは、答えたことにしない",
+           telosGaps().some(g => g.cat === "好み"), telosGaps().map(g => g.cat).join("/"));
+
+        state.items = [{ id: "bd3", kind: "goal", title: "毎日30分読む", status: "open" }];
+        ok("BD. 続けたいことは goal で埋まる",
+           !telosGaps().some(g => g.cat === "goal"), telosGaps().map(g => g.cat).join("/"));
+
+        /* 画面と依頼文が**同じ関数**を見ていること（決まり7e・片方だけ直される穴）。 */
+        state.items = [];
+        const pAll = pr(mk("2026-09-14T12:30:00Z", "ちょっと疲れた。"));
+        ok("BD. まだ聞けていないことを依頼文に渡している",
+           /【まだ聞けていないこと】/.test(pAll), "渡していない");
+        ok("BD. 渡すのは3つまで（返事が長くなるため）",
+           (pAll.split("【まだ聞けていないこと】")[1] || "").split("【")[0]
+             .split("\n").filter(l => /^- .+か。$/.test(l)).length === 3, "3つではない");
+        ok("BD. 毎回は聞かないよう頼んでいる",
+           /1回の返事につき\*\*1つまで|1回の返事につき/.test(pAll) && /毎回は聞かないでください/.test(pAll),
+           "頼んでいない");
+        ok("BD. 推測で埋めるなと頼んでいる",
+           /推測で埋めないでください/.test(pAll), "頼んでいない");
+
+        /* 全部答えていれば、依頼文からまるごと消える（用が無いのに見出しを出さない）。 */
+        state.items = TELOS_ASKS.map((a, n) => a.cat === "goal"
+          ? { id: "bg" + n, kind: "goal", title: "続けたいこと", status: "open" }
+          : { id: "bp" + n, kind: "profile", category: a.cat, title: "答え" + n, status: "open" });
+        ok("BD. 全部答えたら、依頼文から見出しごと消える",
+           !/【まだ聞けていないこと】/.test(pr(mk("2026-09-14T12:30:00Z", "ちょっと疲れた。"))),
+           "残っている");
+
+        /* 画面で聞いている質問は、聞いているあいだだけ渡す。 */
+        state.items = [];
+        view.ask = "body";
+        const pAsk = pr(mk("2026-09-14T12:30:00Z", "朝は頭が動かない。"));
+        ok("BD. 聞いている質問を依頼文に渡す",
+           /【いま画面で聞いている質問】/.test(pAsk) && /体のこと/.test(pAsk), "渡していない");
+        ok("BD. 答えていないときは聞き直させない",
+           /聞き直さないでください/.test(pAsk), "頼んでいない");
+        view.ask = null;
+        ok("BD. 聞いていないときは、その見出しを出さない",
+           !/【いま画面で聞いている質問】/.test(pr(mk("2026-09-14T12:30:00Z", "ちょっと疲れた。"))),
+           "毎回出ている");
+
+        state.items = keepI;
+      }
     }
 
     const fails = R.filter(x => x.startsWith("FAIL"));
