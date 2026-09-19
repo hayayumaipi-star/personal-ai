@@ -16,5 +16,8 @@
     "android": "node sync.js && expo start --android",
     "build": "node sync.js && eas build -p android --profile preview"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@expo/ngrok": "^4.1.3"
+  }
 }
