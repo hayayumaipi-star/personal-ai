@@ -2810,6 +2810,90 @@
       SAMPLEFN = keepFn;
     }
 
+    /* ===== BG群：ネイティブの殻との橋（v8.3・Android アプリ化）=====
+       殻の仕事は3つだけ（画面を開く・AIの通信を代わりにやる・通知を予約する）。
+       **殻が無ければ何も起きない**こと（決まり7と同じ理屈）が、いちばん大事。 */
+    {
+      const keepRN = window.ReactNativeWebView;
+      const sent = [];
+
+      ok("BG. 殻が無ければ、橋は閉じている", nativeOn() === false, "開いている");
+      ok("BG. 殻が無ければ、通知を送らない", notifyPlan(dayKey(new Date(), state.settings.timezone)) === 0,
+         "送っている");
+      ok("BG. 殻から呼ぶ窓口を生やしている",
+         typeof window.hitohiNative === "function", typeof window.hitohiNative);
+
+      window.ReactNativeWebView = { postMessage: m => sent.push(JSON.parse(m)) };
+      ok("BG. 殻があれば、橋が開く", nativeOn() === true, "開かない");
+
+      /* AIへの通信は殻へ渡す。**`fetch` を呼ばない**（CORS に止められるため）。 */
+      let fetched = 0;
+      const keepFetch = window.fetch;
+      window.fetch = () => { fetched++; return Promise.reject(new Error("呼んではいけない")); };
+      const pr = aiPost("https://example.test/x", { "content-type": "application/json" }, { a: 1 });
+      await new Promise(r => setTimeout(r, 0));
+      ok("BG. AIの通信を殻へ渡す", sent.length === 1 && sent[0].kind === "fetch",
+         JSON.stringify(sent[0] || null));
+      ok("BG. 自分では fetch を呼ばない", fetched === 0, String(fetched));
+      ok("BG. 中身をそのまま渡す",
+         sent[0].url === "https://example.test/x" && sent[0].body === '{"a":1}', sent[0].body);
+
+      /* 殻からの返事で、待っていた約束が解ける。 */
+      window.hitohiNative(JSON.stringify({ id: sent[0].id, status: 200, body: '{"ok":true}' }));
+      const got = await pr;
+      ok("BG. 殻の返事を受け取れる", got.ok === true && got.data.ok === true, JSON.stringify(got));
+
+      /* 知らない返事・壊れた返事で落ちない。 */
+      ok("BG. 知らない返事は捨てる", window.hitohiNative(JSON.stringify({ id: "zzz" })) === false, "拾った");
+      ok("BG. 壊れた返事で落ちない", window.hitohiNative("{こわれた") === false, "落ちた");
+
+      /* 殻が黙ったままでも、永久に待たない（送信欄が止まるのを防ぐ）。 */
+      sent.length = 0;
+      let timedOut = "";
+      try { await nativeAsk("fetch", { url: "x" }, 30); }
+      catch (e) { timedOut = String(e.message || e); }
+      ok("BG. 殻が黙ったら時間切れにする", /返事がありません/.test(timedOut), timedOut);
+
+      /* 相手が返した失敗は、そのまま伝わる。 */
+      sent.length = 0;
+      const pr2 = aiPost("https://example.test/y", {}, {});
+      await new Promise(r => setTimeout(r, 0));
+      window.hitohiNative(JSON.stringify({ id: sent[0].id, error: "つながりません" }));
+      let err2 = "";
+      try { await pr2; } catch (e) { err2 = String(e.message || e); }
+      ok("BG. 殻の失敗が伝わる", err2 === "つながりません", err2);
+      window.fetch = keepFetch;
+
+      /* 何を知らせるか。**時計を読まない関数**なので、翌日になっても落ちない。 */
+      {
+        const tz = state.settings.timezone, DAY = "2026-09-15";
+        const keepI = state.items;
+        const at = (h, m) => zoned(2026, 9, 15, h, m, tz).toISOString();
+        state.items = [
+          { id: "g1", kind: "event", title: "打ち合わせ", status: "open", fixed: true,
+            dayKey: DAY, start: at(14, 0), end: at(15, 0) },
+          { id: "g2", kind: "event", title: "朝の用事", status: "open", fixed: true,
+            dayKey: DAY, start: at(8, 0), end: at(9, 0) },
+          { id: "g3", kind: "event", title: "こちらの提案", status: "open", fixed: true,
+            suggested: true, dayKey: DAY, start: at(16, 0), end: at(16, 30) }
+        ];
+        const list = notifyList(DAY, 12 * 60);        // 正午にいるつもりで
+        ok("BG. これから来るものだけ知らせる",
+           list.some(x => /打ち合わせ/.test(x.title)) && !list.some(x => /朝の用事/.test(x.title)),
+           list.map(x => x.title).join("/"));
+        ok("BG. こちらの提案は知らせない",
+           !list.some(x => /こちらの提案/.test(x.title)), list.map(x => x.title).join("/"));
+        ok("BG. 時刻と長さを添える",
+           list.length > 0 && /14:00から/.test(list[0].body) && typeof list[0].at === "number",
+           JSON.stringify(list[0] || null));
+        ok("BG. 多すぎる通知を送らない", list.length <= 12, String(list.length));
+        state.items = keepI;
+      }
+
+      if (keepRN === undefined) delete window.ReactNativeWebView;
+      else window.ReactNativeWebView = keepRN;
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;

@@ -1,0 +1,7 @@
+node_modules/
+.expo/
+dist/
+android/
+ios/
+# 本体の写し。正は app/index.html なので、リポジトリには入れない
+assets/app.html

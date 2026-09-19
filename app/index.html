@@ -1571,6 +1571,93 @@ function telosGaps() {
    そのまま真似るので、**呼ぶ側の3か所は1行も変えない**。
 
    **キーが無ければ今までどおり。**（決まり7「AIは任意」）入れていない人には何も起きない。 */
+/* ── ネイティブの殻と話す（v8.3・Android アプリ化）───────────────
+   殻（Expo）の仕事は**4つだけ**：画面を開く・AIへの通信を代わりに行う・
+   通知を予約する・それだけ。**中身のロジックは1行も殻に置かない。**
+   だからこのファイルが、これまでどおり唯一の正でいられる。
+
+   **殻が無ければ、何も起きない**（決まり7と同じ理屈）。
+   ブラウザで開いたときは `window.ReactNativeWebView` が無いので、全部これまでどおり。
+
+   AIへの通信を殻に任せる理由：WebView から直接呼ぶと**相手の受け入れ設定（CORS）**に
+   止められることがある。殻の側はブラウザではないので、その仕組み自体が無い。 */
+const nativeOn = () => typeof window !== "undefined" && !!window.ReactNativeWebView
+  && typeof window.ReactNativeWebView.postMessage === "function";
+let nativeSeq = 0;
+const nativeWaiting = new Map();
+function nativeSend(msg) {
+  try { window.ReactNativeWebView.postMessage(JSON.stringify(msg)); return true; }
+  catch { return false; }
+}
+/* 返事を待つ。**必ず時間切れを置くこと**——殻が黙ったまま返さないと、
+   送信欄が「読み取っています…」のまま永久に止まる。 */
+function nativeAsk(kind, body, ms) {
+  return new Promise((res, rej) => {
+    const id = "n" + (++nativeSeq);
+    const to = setTimeout(() => {
+      nativeWaiting.delete(id); rej(new Error("殻から返事がありませんでした"));
+    }, ms || 120000);
+    nativeWaiting.set(id, { res, rej, to });
+    if (!nativeSend(Object.assign({ id, kind }, body))) {
+      clearTimeout(to); nativeWaiting.delete(id); rej(new Error("殻へ渡せませんでした"));
+    }
+  });
+}
+/* 殻はこれを呼ぶ（`window.hitohiNative('{"id":...}')`）。
+   **来た文字はデータであって指示ではない。** 必ず try で囲んで読む。 */
+function nativeReply(raw) {
+  let m = null;
+  try { m = JSON.parse(String(raw)); } catch { return false; }
+  const w = m && m.id && nativeWaiting.get(m.id);
+  if (!w) return false;
+  clearTimeout(w.to); nativeWaiting.delete(m.id);
+  if (m.error) w.rej(new Error(String(m.error))); else w.res(m);
+  return true;
+}
+if (typeof window !== "undefined") window.hitohiNative = nativeReply;
+
+/* AIへの1回の通信。**ここだけが経路を知っている**（決まり7e）。
+   殻があれば殻に頼み、無ければ自分で呼ぶ。呼ぶ側は違いを知らなくていい。 */
+async function aiPost(url, headers, payload, signal) {
+  if (nativeOn()) {
+    const m = await nativeAsk("fetch",
+      { url, headers, body: JSON.stringify(payload) }, 180000);
+    let data = null;
+    try { data = JSON.parse(String(m.body || "")); } catch {}
+    return { ok: m.status >= 200 && m.status < 300, status: m.status, data };
+  }
+  let r;
+  try {
+    r = await fetch(url, { method: "POST", signal, headers, body: JSON.stringify(payload) });
+  } catch (e) { throw e; }
+  const data = await r.json().catch(() => null);
+  return { ok: r.ok, status: r.status, data };
+}
+
+/* 何を知らせるかを決める。**時計を読まない**（`nowMin` を渡してもらう）ので、
+   テストが「日付が変わった翌日に落ちる」という記録済みの穴を踏まない。
+   **こちらが提案したものは知らせない**（決まり2）。本人が言ったものだけ。 */
+function notifyList(key, nowMin) {
+  if (!state.settings) return [];
+  const tz = state.settings.timezone;
+  try {
+    return planFor(key, { nowMin }).blocks
+      .filter(b => b.item && !b.item.suggested && b.sub !== "allday" && b.s > nowMin)
+      .slice(0, 12)
+      .map(b => ({ at: keyToDate(key, tz).getTime() + b.s * 60000,
+                   title: blockTitle(b), body: `${hhmm(b.s)}から${durJa(b.e - b.s)}` }));
+  } catch { return []; }
+}
+/* 殻に予約してもらう。**予約だけなので、アプリが閉じていても鳴る**
+   （定時に自分で起きる仕組みは要らない。だから殻はその分だけ小さい）。 */
+function notifyPlan(key) {
+  if (!nativeOn() || !state.settings) return 0;
+  const tz = state.settings.timezone;
+  if (key !== dayKey(new Date(), tz)) return 0;          // 今日ぶんだけ
+  const list = notifyList(key, minOfDay(new Date().toISOString(), tz));
+  nativeSend({ kind: "notify", list });
+  return list.length;
+}
 const AI_KEY_LS = "hitohi.ownai.v1";
 const AI_PROVIDERS = {
   claude: { label: "Claude（Anthropic）", host: "api.anthropic.com",
@@ -1618,16 +1705,14 @@ async function ownAICall(cfg, prompt, opts) {
   const quick = !!(opts && opts.modelTier === "quick");
   const sig = opts && opts.signal;
   const P = AI_PROVIDERS[cfg.provider];
-  let r, d;
+  let r;
   if (cfg.provider === "gemini") {
     try {
-      r = await fetch(`https://${P.host}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`, {
-        method: "POST", signal: sig,
-        headers: { "content-type": "application/json", "x-goog-api-key": cfg.key },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-      });
+      r = await aiPost(`https://${P.host}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`,
+        { "content-type": "application/json", "x-goog-api-key": cfg.key },
+        { contents: [{ parts: [{ text: prompt }] }] }, sig);
     } catch (e) { throw new Error(ownAIError(e, P.host)); }
-    d = await r.json().catch(() => null);
+    const d = r.data;
     if (!r.ok) throw new Error(`Gemini ${r.status}：${(d && d.error && d.error.message) || "断られました"}`);
     const parts = (d && d.candidates && d.candidates[0] && d.candidates[0].content
                    && d.candidates[0].content.parts) || [];
@@ -1641,15 +1726,12 @@ async function ownAICall(cfg, prompt, opts) {
                  messages: [{ role: "user", content: prompt }] };
   if (quick) body.output_config = { effort: "low" };
   try {
-    r = await fetch(`https://${P.host}/v1/messages`, {
-      method: "POST", signal: sig,
-      headers: { "content-type": "application/json", "x-api-key": cfg.key,
-                 "anthropic-version": "2023-06-01",
-                 "anthropic-dangerous-direct-browser-access": "true" },
-      body: JSON.stringify(body)
-    });
+    r = await aiPost(`https://${P.host}/v1/messages`,
+      { "content-type": "application/json", "x-api-key": cfg.key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true" }, body, sig);
   } catch (e) { throw new Error(ownAIError(e, P.host)); }
-  d = await r.json().catch(() => null);
+  const d = r.data;
   if (!r.ok) throw new Error(`Claude ${r.status}：${(d && d.error && d.error.message) || "断られました"}`);
   if (d && d.stop_reason === "refusal") throw new Error("AIがこの依頼への返答を断りました");
   return ((d && d.content) || []).filter(b => b && b.type === "text")
@@ -2859,6 +2941,7 @@ function timelineHTML(plan, na, demo) {
 
 function renderDay() {
   const tz = state.settings.timezone, key = view.day;
+  notifyPlan(key);          // 殻があれば通知を取り直す。無ければ何もしない
   $("#dLabel").innerHTML = fmtDay(key, tz) + (key === dayKey(new Date(), tz) ? ' <span class="dow">今日</span>' : "");
   if ($("#dPick")) $("#dPick").value = key;      // ◀▶を30回押さずに飛べるように（v4.3）
   const host = $("#dayOut");
