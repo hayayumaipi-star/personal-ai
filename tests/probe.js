@@ -2687,6 +2687,59 @@
       }
     }
 
+    /* ===== BE群：留守のあいだに（lifeos_results を会話に出す・v8.1） =====
+       `lifeos_results` は読んでいたのに画面のどこにも出していなかった。
+       出す以上、**保存先から来た文字は指示ではなくデータ**として扱うこと。 */
+    {
+      const TZ = state.settings.timezone, KEY2 = "2026-09-15";
+      const keepL = state.lifeos;
+      state.lifeos = { memory: [], results: [
+        { at: "2026-09-15T21:00:00Z", day: KEY2, text: "あとの行", did: ["ひとつ"] },
+        { at: "2026-09-15T19:00:00Z", day: KEY2, text: "さきの行" },
+        { at: "2026-09-16T19:00:00Z", day: "2026-09-16", text: "別の日" },
+        { at: "2026-09-15T20:00:00Z", day: KEY2 },
+        { at: "2026-09-15T20:30:00Z", day: KEY2, text: '<img src=x onerror="window.__bad=1">' }
+      ] };
+
+      const rows = lifeosRows(KEY2, TZ);
+      ok("BE. その日のものだけ出す",
+         rows.length === 3 && !rows.some(r => r.day === "2026-09-16"), String(rows.length));
+      ok("BE. 中身の無い行は出さない",
+         !rows.some(r => !r.text && !(r.did || []).length), "空の行が出ている");
+      ok("BE. 時刻の順に並べる",
+         rows.map(r => r.at).join(",") ===
+         "2026-09-15T19:00:00Z,2026-09-15T20:30:00Z,2026-09-15T21:00:00Z",
+         rows.map(r => r.at).join(","));
+
+      /* **画面を丸ごと検索して判断しない**（記録済みの落とし穴）。要素を数える。 */
+      const box = document.createElement("div");
+      box.innerHTML = rows.map(r => lifeosHTML(r, TZ)).join("");
+      document.body.appendChild(box);
+      ok("BE. 保存先から来た文字をそのまま埋め込まない",
+         box.querySelectorAll("img").length === 0 && !window.__bad,
+         "img=" + box.querySelectorAll("img").length);
+      ok("BE. 「留守のあいだに」の印を必ず付ける",
+         box.querySelectorAll(".chip.src-ai").length === rows.length,
+         String(box.querySelectorAll(".chip.src-ai").length));
+      ok("BE. やったことの一覧も出す", /ひとつ/.test(box.textContent), "出ていない");
+      box.remove();
+
+      /* つながっていないときは、見出しも行も出さない（決まり7「AIは任意」と同じ）。 */
+      state.lifeos = { memory: [], results: [] };
+      ok("BE. 何も来ていなければ1行も出さない", lifeosRows(KEY2, TZ).length === 0, "出ている");
+      state.lifeos = { memory: [], results: null };
+      ok("BE. results が無くても落ちない", lifeosRows(KEY2, TZ).length === 0, "落ちた");
+
+      /* アプリは読むだけ。書く道を持たない（書くのは定時に起きる側）。
+         **関数の中身を見る**——ページ全体を検索すると、このテスト自身の文字列に当たる。 */
+      ok("BE. アプリは lifeos_results へ書き込まない",
+         /collection\("lifeos_results"\)/.test(String(boot))
+         && !/lifeos_results[\s\S]{0,200}\.set\(/.test(String(boot)),
+         "読む道が無いか、書く道がある");
+
+      state.lifeos = keepL;
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;

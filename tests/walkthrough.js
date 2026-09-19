@@ -731,6 +731,32 @@
       await putSettings(Object.assign({}, state.settings, { useAI: true }));
     });
 
+    /* 留守のあいだに（v8.1）。`lifeos_results` は読んでいたのに画面に出していなかった。
+       出す以上、実際に会話へ出ること・つながっていなければ何も出ないことを押して確かめる。 */
+    await step("「留守のあいだに」が会話に出る", async () => {
+      const tz = state.settings.timezone;
+      const key = view.chatDay || view.day || dayKey(new Date(), tz);
+      state.lifeos.results = [{ at: new Date(Date.now() - 3600000).toISOString(), day: key,
+        text: "留守のあいだに記憶を整理しました", did: ["記憶を3件にまとめた"] }];
+      await click('nav.tabs [data-tab="p-chat"]');
+      const t = $$("#chatOut").textContent;
+      if (!/留守のあいだに/.test(t)) throw new Error("出ていない");
+      if (!/記憶を3件にまとめた/.test(t)) throw new Error("やったことが出ていない");
+    });
+    await step("つながっていなければ、1行も出ない", async () => {
+      state.lifeos.results = [];
+      renderChat(false);
+      if (/留守のあいだに/.test($$("#chatOut").textContent)) throw new Error("消えない");
+    });
+    await step("「閉じても動けるか」を測って出す", async () => {
+      await click('nav.tabs [data-tab="p-set"]');
+      if (!await waitFor(() => /Service Worker/.test($$("#resideOut").textContent), 4000))
+        throw new Error("測った結果が出ない");
+      const t = $$("#resideOut").textContent;
+      if (!/端末の通知/.test(t)) throw new Error("通知の行が無い");
+      if (!/タブを閉じると止まります/.test(t)) throw new Error("止まることを書いていない");
+    });
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "WALK";
     pre.textContent = "===== 操作の総点検 =====\n" + R.join("\n") +

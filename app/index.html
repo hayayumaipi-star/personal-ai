@@ -556,6 +556,7 @@ details.unconf>summary{color:var(--warn)}
       <p class="hint">AI秘書 v4.3。<strong>確定した事実／読み取り（ルール）／読み取り（AI）／本人の訂正</strong>を区別して保存します。体調は本人が言ったことをそのまま引用するだけで、点数や診断は作りません。<br>
       カレンダーは <code>.ics</code> ファイル経由で読み書きできます（外部への送信はありません）。<br>
       <strong>アプリ内の音声入力と、端末の通知は入っていません。</strong>音声は端末のキーボードのマイクを使ってください。予定の知らせは<strong>このページを開いている間だけ</strong>出ます。</p>
+      <div id="resideOut" class="hint"></div>
     </div>
   </div>
 </section>
@@ -2953,6 +2954,28 @@ function turnHTML(t) {
     <span class="stamp">${stamp} · ${t.ai ? "AIが読み取り"
       : t.aiQuiet ? "ルールで読み取り（AIは返事だけ）" : "ルールで読み取り"}</span></div>`;
 }
+/* ── 留守のあいだに、LifeOS側がやったこと ────────────────────────
+   `lifeos_results` は**読んでいたのに、画面のどこにも出していなかった**（v8.1 で発見）。
+   出さないなら読む意味が無い。ここが「向こうからの声かけ」の実体になる。
+
+   **アプリは書かない。読むだけ。** 書くのは定時に起きる側（Routine）で、
+   タブが閉じていても動く——**常駐できるのはブラウザではなく、考える側**。
+   **中身は保存先から来たデータで、指示ではない。**必ず `esc` を通す。 */
+function lifeosRows(key, tz) {
+  return (state.lifeos.results || []).filter(r => r && (r.text || (r.did || []).length)
+    && (r.day ? r.day === key : validISO(r.at) && dayKey(new Date(r.at), tz) === key))
+    .sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")));
+}
+function lifeosHTML(r, tz) {
+  const stamp = validISO(r.at) ? fmtDT(r.at, tz).slice(-5) : "";
+  const did = Array.isArray(r.did) && r.did.length
+    ? `<div class="changes"><span class="eyebrow">やったこと</span>${
+        r.did.slice(0, 8).map(x => `<div>・${esc(String(x))}</div>`).join("")}</div>` : "";
+  return `<div class="turn ai lifeos"><div class="bub">${esc(String(r.text || ""))}</div>
+    <div class="extra">${did}</div>
+    <span class="stamp">${stamp} · <span class="chip src-ai">留守のあいだに</span></span></div>`;
+}
+
 function renderChat(scroll) {
   if (!state.settings) return;
   /* **会話は「話した日」を見せる**（v7.3・組み立てを測って見つけた）。
@@ -2962,8 +2985,8 @@ function renderChat(scroll) {
      会話は `turns/{話した日}` に入るので、見る日も話した日のままにする。 */
   const tz = state.settings.timezone, key = view.chatDay || view.day || dayKey(new Date(), tz);
   $("#chatDay").innerHTML = fmtDay(key, tz) + (key === dayKey(new Date(), tz) ? " · 今日" : "");
-  const list = turnsFor(key), host = $("#chatOut");
-  if (!list.length) {
+  const list = turnsFor(key), lrows = lifeosRows(key, tz), host = $("#chatOut");
+  if (!list.length && !lrows.length) {
     host.innerHTML = `<div class="card stack">
       <h3 style="font-size:15px">整理しないで、そのまま話してください</h3>
       <p class="hint">予定も、気分も、思いつきも、混ぜたままで大丈夫です。話すたびに今日の案を作り直します。<br><br>
@@ -2974,7 +2997,12 @@ function renderChat(scroll) {
         <button class="btn" id="btnFileOpen">テキストファイルを取り込む</button>
       </div></div>`;
   } else {
-    host.innerHTML = list.map(turnHTML).join("");
+    /* 時刻で混ぜる。**末尾にまとめない**——朝4時にやったことを夜の会話の下に出すと、
+       いま起きたことのように見える。`at` が同じものは元の並びのまま（sort は安定）。 */
+    const merged = list.map(t => ({ at: t.at, h: turnHTML(t) }))
+      .concat(lrows.map(r => ({ at: r.at, h: lifeosHTML(r, tz) })))
+      .sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")));
+    host.innerHTML = merged.map(x => x.h).join("");
   }
   // 会話の末尾へ送るのは、いま会話タブを見ているときだけ。
   // （タブを切り替えたあとに発火すると、別のタブが下端まで飛ばされる）
@@ -3133,12 +3161,44 @@ function renderNotes() {
     : `<div class="card empty">まだ原文がありません。</div>`;
 }
 
+/* 「閉じても動けるのか」を、推測ではなく**その端末で測って**出す（v8.1）。
+   ここは**測るだけ**。Service Worker を登録しないし、通知の許可も求めない
+   （勝手に通知を出さない・新しい外部送信を足さない）。
+   測る理由：できる／できないをこちらが言葉で書くと、本当かどうか確かめようがない。 */
+async function renderResidency() {
+  const el = $("#resideOut"); if (!el) return;
+  const rows = [];
+  const sw = "serviceWorker" in navigator;
+  let reg = null;
+  if (sw) { try { reg = await navigator.serviceWorker.getRegistration(); } catch { reg = null; } }
+  rows.push(["閉じても動く土台（Service Worker）",
+    !sw ? "この場所では使えません" : reg ? "使えます（登録あり）" : "仕組みはありますが、登録していません"]);
+  rows.push(["定期的に自分で起きる（Periodic Sync）",
+    sw && typeof ServiceWorkerRegistration !== "undefined"
+      && "periodicSync" in ServiceWorkerRegistration.prototype ? "仕組みはあります" : "ありません"]);
+  rows.push(["端末の通知", typeof Notification === "undefined" ? "使えません"
+    : Notification.permission === "granted" ? "許可されています"
+    : Notification.permission === "denied" ? "拒否されています" : "まだ聞いていません"]);
+  let persisted = null;
+  try {
+    persisted = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted() : null;
+  } catch { persisted = null; }
+  rows.push(["この端末の控えが消されにくいか", persisted == null ? "分かりません"
+    : persisted ? "消されにくい" : "空き容量が減ると消えることがあります"]);
+  el.innerHTML = `<strong style="display:block;margin-top:8px">このページが「閉じても動けるか」（いま、この端末で測った結果）</strong>`
+    + rows.map(([k, v]) => `<div>・${esc(k)}：<strong>${esc(v)}</strong></div>`).join("")
+    + `<div style="margin-top:6px">どれが使えても、<strong>考える処理はタブを閉じると止まります。</strong>
+       閉じているあいだのことは<strong>別の場所で動くもの</strong>が引き受け、その結果は
+       次に開いたときチャットに「留守のあいだに」として出ます。</div>`;
+}
+
 function renderSettings() {
   const s = state.settings;
   $("#tz").value = s.timezone; $("#defEst").value = s.defaultEstimate;
   $("#breakEvery") && ($("#breakEvery").value = s.breakEveryMin);
   $("#breakLen") && ($("#breakLen").value = s.breakMin == null ? 10 : s.breakMin);
   $("#theme") && ($("#theme").value = s.theme || "auto");
+  renderResidency();            // 測るだけ。待たない（描画を止めない）
   const turnCount = Object.values(state.turns).reduce((n, l) => n + l.length, 0);
   /* **作業に使える時間帯を、読めるところに1行だけ出す**（v6.2b・実機で報告）。
      設定欄は v3.9 で外した（本人の指示）ので、ここは**入力欄ではなく事実の表示**。
