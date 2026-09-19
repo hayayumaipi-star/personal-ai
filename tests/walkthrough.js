@@ -742,11 +742,16 @@
       const t = $$("#chatOut").textContent;
       if (!/留守のあいだに/.test(t)) throw new Error("出ていない");
       if (!/記憶を3件にまとめた/.test(t)) throw new Error("やったことが出ていない");
+      // 数えて確かめる（画面を丸ごと検索しない）。1行渡して1行だけ出ること
+      const n = document.querySelectorAll("#chatOut .turn.lifeos").length;
+      if (n !== 1) throw new Error("行の数が合わない：" + n);
+      // 本人の発言と取り違えていないこと
+      if (document.querySelector("#chatOut .turn.lifeos.me")) throw new Error("本人の発言として出ている");
     });
     await step("つながっていなければ、1行も出ない", async () => {
       state.lifeos.results = [];
       renderChat(false);
-      if (/留守のあいだに/.test($$("#chatOut").textContent)) throw new Error("消えない");
+      if (document.querySelectorAll("#chatOut .turn.lifeos").length) throw new Error("消えない");
     });
     await step("「閉じても動けるか」を測って出す", async () => {
       await click('nav.tabs [data-tab="p-set"]');

@@ -2721,6 +2721,10 @@
       ok("BE. 「留守のあいだに」の印を必ず付ける",
          box.querySelectorAll(".chip.src-ai").length === rows.length,
          String(box.querySelectorAll(".chip.src-ai").length));
+      ok("BE. 本人の発言と同じ見た目にしない",
+         box.querySelectorAll(".turn.lifeos").length === rows.length
+         && !box.querySelector(".turn.me"),
+         String(box.querySelectorAll(".turn.lifeos").length));
       ok("BE. やったことの一覧も出す", /ひとつ/.test(box.textContent), "出ていない");
       box.remove();
 
