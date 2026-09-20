@@ -509,15 +509,11 @@ details.unconf>summary{color:var(--warn)}
     <div class="card stack">
       <h3 style="font-size:14px">データ</h3>
       <p class="hint" id="dataState"></p>
-      <p class="hint"><strong>このページを共有している間は、記録も共有されます。</strong>
-        記録は <code>notes</code> や <code>items</code> という<strong>共有の場所</strong>に入っているので、
-        リンクを開いた人には<strong>ここにある予定・会話・体調がそのまま見えます</strong>
-        （2026-09-13 に別の人に開いてもらって確かめました）。<br>
-        <strong>共有している間は、見られて困ることを入れないでください。</strong>
-        本当の予定として使い始めるときは、先に共有を切ること。<br>
-        人にも「自分の秘書」として使ってもらうなら、<code>app/index.html</code> を渡して
-        <strong>その人自身のページとして公開</strong>してもらってください。データもAIの枠も完全に分かれます。<br>
-        端末の中の控え（localStorage）は、その端末の中だけに残ります。</p>
+      <!-- 記録がどこにあるかは、**開き方で変わる**（2026-09-20・APKを本物にした日）。
+           ここに固定の文を書くと、Android アプリでは**まるごと嘘**になる
+           （あちらに `db` は渡らないので、共有の場所そのものが無い）。
+           だから `renderWhere()` が、いまつながっている先を見て書く。 -->
+      <div class="note info" id="whereNote"></div>
       <div class="note warn" id="dataWarn" hidden></div>
       <!-- 作業に使える時間帯が狭いまま保存されている人の逃げ道（v6.3・実機で報告）。
            設定欄は v3.9 で外したので、古い値のままだと**画面から直す道が無かった**。
@@ -3415,6 +3411,7 @@ function renderSettings() {
   $("#breakLen") && ($("#breakLen").value = s.breakMin == null ? 10 : s.breakMin);
   $("#theme") && ($("#theme").value = s.theme || "auto");
   renderOwnAI();
+  renderWhere();
   const turnCount = Object.values(state.turns).reduce((n, l) => n + l.length, 0);
   /* **作業に使える時間帯を、読めるところに1行だけ出す**（v6.2b・実機で報告）。
      設定欄は v3.9 で外した（本人の指示）ので、ここは**入力欄ではなく事実の表示**。
@@ -3481,9 +3478,33 @@ function refreshAiState() {
     : SAMPLEFN
     ? "<strong>AIを使っています。</strong>あなたのClaudeアカウントの利用枠を使うので、"
       + "<strong>別のAPI契約や追加の支払いは不要</strong>です。<br>" + AI_SENDS
-    : "いまAIは使えません（未許可、または対応していない開き方）。"
-      + "<strong>ルールだけで、追加・計画・訂正・再計画は全部動きます。</strong>"
-      + "外へは何も送っていません。";
+    /* **「使えません」で終わらせない**（2026-09-20・APKを本物にした日）。
+       Android アプリには claude.ai の窓口が無いので、**ここが既定の状態**になる。
+       「未許可」とだけ言われても打つ手が分からない。下の欄を名指しすること。 */
+    : "<strong>いまAIは使っていません。</strong>"
+      + (DB ? "この開き方ではAIの窓口が渡っていません。" : "この開き方には claude.ai の窓口がありません。")
+      + "<strong>下の欄にAPIキーを入れると使えます。</strong>"
+      + "入れなくても、<strong>追加・計画・訂正・再計画はルールだけで全部動きます</strong>（外へは何も送りません）。";
+}
+
+/* 記録がどこにあるかを、**いまつながっている先から**書く（決まり7e・判定を2か所に書かない）。
+   Artifact では `db`（共有の場所）に入るので、リンクを開いた人に見える。
+   Android アプリには `db` が無いので、**端末の中だけ**——共有の心配そのものが無い。
+   **固定の文を置かないこと。** 片方では必ず嘘になる。 */
+function renderWhere() {
+  const el = $("#whereNote"); if (!el) return;
+  el.innerHTML = DB
+    ? "<strong>この記録は claude.ai の共有の場所にあります。</strong>"
+      + "<code>notes</code> や <code>items</code> は共有のパスなので、"
+      + "<strong>このページのリンクを開いた人には、予定・会話・体調がそのまま見えます</strong>"
+      + "（2026-09-13 に別の人に開いてもらって確かめました）。"
+      + "<strong>共有している間は、見られて困ることを入れないでください。</strong><br>"
+      + "本当の予定として使うなら、<strong>Android アプリのほう</strong>を使ってください。"
+      + "あちらは記録がこの端末の中だけに残り、誰にも渡りません。"
+    : "<strong>この記録は、この端末の中だけにあります。</strong>"
+      + "外にも、ほかの誰にも渡っていません。"
+      + "<strong>端末を変えたり、アプリを消したりすると無くなります。</strong>"
+      + "残しておきたいときは、下の「書き出す（JSON）」で控えを取ってください。";
 }
 
 const view = { tab: "p-chat", day: null, ask: null };

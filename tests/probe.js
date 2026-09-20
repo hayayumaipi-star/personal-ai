@@ -2920,6 +2920,48 @@
       else window.ReactNativeWebView = keepRN;
     }
 
+    /* ===== BH群：記録の置き場所を、開き方から書く（2026-09-20・APKを本物にした日）=====
+       Android アプリには `db` が無い。**固定の文を置くと、片方では必ず嘘になる**——
+       実際、設定タブには「このページを共有している間は、記録も共有されます」が
+       固定で書いてあり、APK では**共有の場所そのものが無い**のに出ていた。 */
+    {
+      const keepDB = DB;
+      /* **画面を丸ごと検索しないこと**（記録済みの穴）。`innerHTML` にはこのテスト自身の
+         文字列も入るので、同じ regex が必ず当たる（実際、最初それで誤検知した）。
+         見るのは**関数の中身**と、**描いたあとの本文**。 */
+      ok("BH. 置き場所の文は、関数が書いている（固定で埋め込まない）",
+         /whereNote/.test(String(renderWhere)) && /DB\s*\n?\s*\?/.test(String(renderWhere)),
+         "renderWhere が分岐していない");
+
+      // 端末の中だけ（＝Android アプリ・独立したサイト）
+      DB = null; renderWhere(); refreshAiState();
+      const local = $("#whereNote").textContent;
+      ok("BH. つながっていなければ、設定タブに「共有」の話が出ない",
+         !/共有の場所/.test($("#p-set").textContent), "共有の話が残っている");
+      ok("BH. つながっていなければ「この端末の中だけ」と言う",
+         /この端末の中だけ/.test(local), local.slice(0, 40));
+      ok("BH. 共有していると言わない", !/リンクを開いた人/.test(local), local.slice(0, 40));
+      ok("BH. 消えることと、控えの取り方を言う",
+         /無くなります/.test(local) && /書き出す/.test(local), local.slice(0, 60));
+
+      // AIが無いときは「使えません」で終わらせず、打つ手を名指しする
+      const keepAI = SAMPLEFN; SAMPLEFN = null; refreshAiState();
+      const ai = $("#aiState").textContent;
+      ok("BH. AIが無いとき、キーの欄を名指しする", /APIキーを入れると使えます/.test(ai), ai.slice(0, 50));
+      ok("BH. AIが無くてもルールで動くと言う", /ルールだけで/.test(ai), ai.slice(0, 50));
+      SAMPLEFN = keepAI;
+
+      // 共有の保存先につながっているとき（＝Artifact）
+      DB = { doc: () => ({}) }; renderWhere();
+      const shared = $("#whereNote").textContent;
+      ok("BH. つながっていれば、見えることを言う",
+         /リンクを開いた人/.test(shared) && /見られて困ること/.test(shared), shared.slice(0, 40));
+      ok("BH. 本物はAndroidアプリのほうだと書く",
+         /Android アプリ/.test(shared), shared.slice(0, 60));
+
+      DB = keepDB; renderWhere(); refreshAiState();
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;
