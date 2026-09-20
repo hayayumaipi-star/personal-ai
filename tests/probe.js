@@ -2975,28 +2975,68 @@
       DB = keepDB; renderWhere(); refreshAiState();
     }
 
-    /* ===== BI. 黒と白の配色と、飾りの文字（2026-09-20・本人の指示） =====
-       「緑と白ではなく黒と白にしたい」「表示する必要のない文字列が多い」を受けた変更。
+    /* ===== BI. iOS の配色と、飾りの文字（2026-09-20・本人の指示） =====
+       「白と黒というのは却下」。iOS を参考にした配色に戻した（決まり15）。
        **色の値をここに直書きしない**（決まり7e・BG群で一度それをやって落ちた）。
-       確かめるのは「色みが無いこと」であって、どの灰色かではない。
-       色みを測るのは max(R,G,B) - min(R,G,B)。灰色なら 0 になる。
-       **`--alert` だけは別**——消す操作を見分けるための1色で、これは意図して残している。 */
+       確かめるのは「どの色か」ではなく、**iOS の配色が満たすべき性質**：
+       ① accent に色みがある（灰色に戻っていない） ② accent は青系
+       ③ 意味の色（accent / warn / done / alert）が互いに別の色
+       ④ **「-ink」は必ず「-soft」の上で読める**——W群 はチップしか見ていないので、
+          `.note.bad` や `.btn` のような**地の広い場所**はここで見張る。 */
     {
-      const KEYS = ["--paper", "--surface", "--surface-2", "--ink", "--ink-2", "--ink-3",
-                    "--line", "--line-strong", "--accent", "--accent-soft", "--accent-ink",
-                    "--warn", "--warn-soft", "--warn-ink", "--done", "--done-soft"];
-      const chroma = h => { const m = /^#([0-9a-fA-F]{6})$/.exec(h.trim()); if (!m) return -1;
-        const n = parseInt(m[1], 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-        return Math.max(r, g, b) - Math.min(r, g, b); };
+      const lum = c => {
+        const m = /^#([0-9a-fA-F]{6})$/.exec(String(c).trim());
+        if (!m) return -1;
+        const n = parseInt(m[1], 16);
+        const v = [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+          .map(x => { x /= 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); });
+        return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+      };
+      const ratio = (a, b) => { const l1 = lum(a), l2 = lum(b);
+        return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); };
+      const rgb = c => { const n = parseInt(String(c).trim().slice(1), 16);
+        return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+      const chroma = c => { const [r, g, b] = rgb(c); return Math.max(r, g, b) - Math.min(r, g, b); };
+      // 色相（0〜360）。色みが無いものは -1（比べる意味が無い）
+      const hue = c => {
+        const [r, g, b] = rgb(c).map(x => x / 255);
+        const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+        if (d < 0.02) return -1;
+        let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+        h *= 60; return h < 0 ? h + 360 : h;
+      };
+      const apart = (a, b) => { const d = Math.abs(hue(a) - hue(b)); return Math.min(d, 360 - d); };
+
       const before = document.documentElement.getAttribute("data-theme");
       for (const theme of ["light", "dark"]) {
         document.documentElement.setAttribute("data-theme", theme);
         const cs = getComputedStyle(document.documentElement);
-        const bad = KEYS.map(k => [k, String(cs.getPropertyValue(k) || "").trim()])
-          .map(([k, v]) => [k, v, chroma(v)])
-          .filter(([, , c]) => c > 8 || c < 0);
-        ok("BI. 配色に色みが無い（" + theme + "）", bad.length === 0,
-           bad.map(([k, v, c]) => k + "=" + v + "(色み" + c + ")").join(" / ") || "全部グレー");
+        const V = k => String(cs.getPropertyValue(k) || "").trim();
+
+        ok("BI. accent に色みがある（灰色に戻っていない・" + theme + "）",
+           chroma(V("--accent")) >= 40, V("--accent") + " 色み" + chroma(V("--accent")));
+        // iOS の系統色は青が基調。青系＝青の成分がいちばん強い
+        ok("BI. accent は青系（" + theme + "）",
+           rgb(V("--accent"))[2] > rgb(V("--accent"))[0]
+           && rgb(V("--accent"))[2] > rgb(V("--accent"))[1],
+           V("--accent") + " 色相" + Math.round(hue(V("--accent"))));
+        // 意味の色が近すぎると、見分けが付かない
+        const pairs = [["--accent", "--warn"], ["--accent", "--done"], ["--accent", "--alert"],
+                       ["--warn", "--done"], ["--warn", "--alert"], ["--done", "--alert"]];
+        const near = pairs.filter(([a, b]) => apart(V(a), V(b)) < 25);
+        ok("BI. 意味の色は互いに別の色（" + theme + "）", near.length === 0,
+           near.map(([a, b]) => a + "×" + b + "=" + Math.round(apart(V(a), V(b))) + "度").join(" / ") || "全部離れている");
+
+        /* **「-ink」は「-soft」の上で読めること。**
+           色を戻した以上、ここが崩れると「色は付いたが読めない」になる。 */
+        for (const k of ["accent", "warn", "done", "alert"]) {
+          const r = ratio(V("--" + k + "-ink"), V("--" + k + "-soft"));
+          ok("BI. --" + k + "-ink が --" + k + "-soft の上で読める（" + theme + "）",
+             r >= 4.5, r.toFixed(2));
+        }
+        // ふつうのボタン（灰色の塗り × accent の文字）。W群 はチップしか見ていない
+        const rb = ratio(V("--accent-ink"), V("--surface-2"));
+        ok("BI. ボタンの文字が読める（" + theme + "）", rb >= 4.5, rb.toFixed(2));
       }
       if (before) document.documentElement.setAttribute("data-theme", before);
       else document.documentElement.removeAttribute("data-theme");

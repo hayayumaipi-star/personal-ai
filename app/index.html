@@ -5,43 +5,43 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700&family=Noto+Sans+JP:wght@400;500&family=JetBrains+Mono:wght@500;600&display=swap">
 <style>
 :root{
-  --paper:#FAFAFA; --surface:#FFFFFF; --surface-2:#F4F4F4;
-  --ink:#121212; --ink-2:#5C5C5C; --ink-3:#8C8C8C;
-  --line:#E3E3E3; --line-strong:#BFBFBF;
-  --accent:#121212; --accent-soft:#F0F0F0; --accent-ink:#121212;
-  --warn:#6B6B6B; --warn-soft:#F0F0F0; --warn-ink:#2E2E2E;
-  --done:#5C5C5C; --done-soft:#F4F4F4;
-  --alert:#B3261E; --alert-soft:#FBEBEA;
-  --shadow:0 1px 2px rgba(0,0,0,.05), 0 6px 18px rgba(0,0,0,.05);
-  --r:10px;
-  --f-disp:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
-  --f-body:"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
+  --paper:#F2F2F7; --surface:#FFFFFF; --surface-2:#E5E5EA;
+  --ink:#1C1C1E; --ink-2:#5F5F63; --ink-3:#8E8E93;
+  --line:#D9D9DE; --line-strong:#C6C6C8;
+  --accent:#0A62CE; --accent-soft:#E6F1FF; --accent-ink:#0A5BC4;
+  --warn:#FF9500; --warn-soft:#FFF1DF; --warn-ink:#8F5200;
+  --done:#34C759; --done-soft:#E3F7E8; --done-ink:#1B7030;
+  --alert:#FF3B30; --alert-soft:#FFEBE9; --alert-ink:#B3261E;
+  --shadow:0 1px 2px rgba(0,0,0,.04), 0 6px 20px rgba(0,0,0,.06);
+  --r:12px;
+  --f-disp:-apple-system,BlinkMacSystemFont,"SF Pro Display","Hiragino Sans","Zen Kaku Gothic New","Noto Sans JP","Yu Gothic",sans-serif;
+  --f-body:-apple-system,BlinkMacSystemFont,"SF Pro Text","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;
   --f-mono:"JetBrains Mono","SFMono-Regular",Consolas,monospace;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --paper:#0F0F0F; --surface:#181818; --surface-2:#242424;
-  --ink:#F0F0F0; --ink-2:#A0A0A0; --ink-3:#787878;
-  --line:#2B2B2B; --line-strong:#464646;
-  --accent:#FAFAFA; --accent-soft:#242424; --accent-ink:#F0F0F0;
-  --warn:#9A9A9A; --warn-soft:#242424; --warn-ink:#D4D4D4;
-  --done:#A0A0A0; --done-soft:#242424;
-  --alert:#F08379; --alert-soft:#2E1917;
-  --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.3);
+  --paper:#000000; --surface:#1C1C1E; --surface-2:#2C2C2E;
+  --ink:#FFFFFF; --ink-2:#A1A1A6; --ink-3:#8E8E93;
+  --line:#38383A; --line-strong:#48484A;
+  --accent:#0A84FF; --accent-soft:#0A2647; --accent-ink:#6FB4FF;
+  --warn:#FF9F0A; --warn-soft:#3A2A0C; --warn-ink:#FFB84D;
+  --done:#30D158; --done-soft:#123A1C; --done-ink:#5BE07E;
+  --alert:#FF453A; --alert-soft:#3A1614; --alert-ink:#FF8A80;
+  --shadow:0 1px 2px rgba(0,0,0,.5), 0 6px 20px rgba(0,0,0,.4);
 }}
 :root[data-theme="dark"]{
-  --paper:#0F0F0F; --surface:#181818; --surface-2:#242424;
-  --ink:#F0F0F0; --ink-2:#A0A0A0; --ink-3:#787878;
-  --line:#2B2B2B; --line-strong:#464646;
-  --accent:#FAFAFA; --accent-soft:#242424; --accent-ink:#F0F0F0;
-  --warn:#9A9A9A; --warn-soft:#242424; --warn-ink:#D4D4D4;
-  --done:#A0A0A0; --done-soft:#242424;
-  --alert:#F08379; --alert-soft:#2E1917;
-  --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.3);
+  --paper:#000000; --surface:#1C1C1E; --surface-2:#2C2C2E;
+  --ink:#FFFFFF; --ink-2:#A1A1A6; --ink-3:#8E8E93;
+  --line:#38383A; --line-strong:#48484A;
+  --accent:#0A84FF; --accent-soft:#0A2647; --accent-ink:#6FB4FF;
+  --warn:#FF9F0A; --warn-soft:#3A2A0C; --warn-ink:#FFB84D;
+  --done:#30D158; --done-soft:#123A1C; --done-ink:#5BE07E;
+  --alert:#FF453A; --alert-soft:#3A1614; --alert-ink:#FF8A80;
+  --shadow:0 1px 2px rgba(0,0,0,.5), 0 6px 20px rgba(0,0,0,.4);
 }
 
 *{box-sizing:border-box}
 body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.75;-webkit-text-size-adjust:100%}
-h1,h2,h3{font-family:var(--f-disp);font-weight:700;line-height:1.4;margin:0;text-wrap:balance}
+h1,h2,h3{font-family:var(--f-disp);font-weight:700;line-height:1.35;margin:0;letter-spacing:-.02em;text-wrap:balance}
 p{margin:0}
 button,input,textarea,select{font:inherit;color:inherit}
 button{cursor:pointer;background:none;border:none;padding:0}
@@ -58,34 +58,36 @@ header.top{position:sticky;top:0;z-index:40;background:var(--paper);border-botto
 .sync{margin-left:auto;font-family:var(--f-mono);font-size:10px;letter-spacing:.04em;
   color:var(--ink-3);border:1px solid var(--line);border-radius:999px;padding:1px 8px;white-space:nowrap}
 .sync.ok{color:var(--accent);border-color:var(--accent)}
-.sync.local{color:var(--warn);border-color:var(--warn)}
+.sync.local{color:var(--warn-ink);border-color:var(--warn)}
 
 .eyebrow{font-family:var(--f-disp);font-size:10px;font-weight:700;letter-spacing:.16em;
   color:var(--ink-3);text-transform:uppercase}
 .sect{margin:22px 0 0}
 .sect>.eyebrow{display:block;margin-bottom:7px}
-.sect>h2{font-size:16px;margin-bottom:4px}
+.sect>h2{font-size:20px;margin-bottom:5px}
 .hint{font-size:12.5px;color:var(--ink-2);line-height:1.65}
 
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.card{background:var(--surface);border:1px solid transparent;border-radius:var(--r);padding:14px}
 .stack{display:flex;flex-direction:column;gap:10px}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
-  font-family:var(--f-disp);font-weight:500;font-size:13.5px;
-  border:1px solid var(--line-strong);border-radius:8px;padding:9px 14px;background:var(--surface);
-  min-height:40px;transition:background .12s,border-color .12s}
-.btn:hover{border-color:var(--ink-3)}
+  font-family:var(--f-disp);font-weight:600;font-size:13.5px;letter-spacing:-.01em;
+  border:1px solid transparent;border-radius:10px;padding:9px 14px;background:var(--surface-2);
+  color:var(--accent-ink);
+  min-height:40px;transition:background .12s,opacity .12s}
+.btn:hover{opacity:.7}
 .btn.pri{background:var(--accent);border-color:var(--accent);color:var(--paper);font-weight:700}
 .btn.pri:hover{filter:brightness(1.08)}
-.btn.sm{font-size:12px;padding:5px 10px;min-height:32px;border-radius:7px}
+.btn.sm{font-size:12px;padding:5px 12px;min-height:32px;border-radius:999px}
 /* 会話の時刻の横に添える「原文」。画面幅で大きさを変えるので、インライン style にしない */
 .btn.sm.srcbtn{min-height:auto;padding:0 6px;font-size:10px}
 .btn[disabled]{opacity:.45;cursor:not-allowed}
-.btn.danger{color:var(--alert);border-color:var(--alert)}
+.btn.danger{color:var(--alert-ink)}
 
-textarea,input[type=text],input[type=date],input[type=time],input[type=number],select{
-  width:100%;background:var(--surface);border:1px solid var(--line-strong);border-radius:8px;
+textarea,input[type=text],input[type=date],input[type=time],input[type=number],
+input[type=password],input[type=search],select{
+  width:100%;background:var(--surface-2);border:1px solid transparent;border-radius:10px;
   padding:10px 11px;font-family:var(--f-body);font-size:15px}
 textarea{min-height:170px;resize:vertical;line-height:1.8}
 label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
@@ -99,16 +101,16 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 .chip.src-rule{border-color:var(--line-strong);color:var(--ink-2)}
 /* 文字は --warn ではなく --warn-ink。明るいときに --warn × --warn-soft だと 4.24 しか出ない */
 .chip.src-ai{border-style:dashed;border-color:var(--warn);color:var(--warn-ink);background:var(--warn-soft)}
-.chip.st-done{background:var(--done-soft);border-color:var(--done);color:var(--done)}
+.chip.st-done{background:var(--done-soft);border-color:var(--done);color:var(--done-ink)}
 /* 取り消しの印は控えめでよいが、読めなくては意味がない（--ink-3 だと 2.98 しか出ない） */
 .chip.st-drop{background:var(--surface-2);color:var(--ink-2)}
 .chip.vague{background:var(--warn-soft);border-color:var(--warn);color:var(--warn-ink)}
 .chip.fixed{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink)}
 
 /* item rows */
-.item{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:11px 12px;
+.item{background:var(--surface);border:1px solid transparent;border-radius:var(--r);padding:11px 12px;
   display:flex;flex-direction:column;gap:7px}
-.item.unconfirmed{border-style:dashed}
+.item.unconfirmed{border-color:var(--line-strong);border-style:dashed}
 .item.isdone .ttl{text-decoration:line-through;color:var(--ink-3)}
 .item .ttl{font-family:var(--f-disp);font-weight:500;font-size:14.5px;line-height:1.5}
 .meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--ink-2)}
@@ -171,7 +173,7 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
   margin-right:7px;vertical-align:middle;flex:none}
 /* いま進行中の枠。赤い線を消した代わりに、この印が「いま」を引き受ける */
 .nowtag{flex:none;align-self:center;font-family:var(--f-disp);font-size:9.5px;font-weight:700;
-  letter-spacing:.08em;color:var(--paper);background:var(--ink);border-radius:4px;padding:2px 6px;line-height:1.4}
+  letter-spacing:.06em;color:var(--paper);background:var(--accent);border-radius:999px;padding:2px 8px;line-height:1.4}
 /* いまの枠は、囲みを**足さずに**枠そのものの色を変える。
    外側に輪を重ねると、固定予定（青い枠）の上に赤い枠が乗って二重に見える（本人からの報告）。
    実線／破線はそのまま残るので、固定か動かせるかの区別は消えない。 */
@@ -179,10 +181,10 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 .blk.running.past{opacity:1}
 /* いまの位置（空いている時間にいるときだけ引く） */
 .tlrow.nowline{align-items:center;margin:2px 0 6px}
-.tlrow.nowline .tltime{padding-top:0;color:var(--ink);font-weight:600}
-.tlrow.nowline>div:last-child{position:relative;height:1px;background:var(--ink)}
+.tlrow.nowline .tltime{padding-top:0;color:var(--alert-ink);font-weight:600}
+.tlrow.nowline>div:last-child{position:relative;height:1px;background:var(--alert)}
 .tlrow.nowline span{position:absolute;left:0;top:-8px;background:var(--paper);padding-right:7px;
-  font-family:var(--f-disp);font-size:10px;font-weight:700;color:var(--ink);letter-spacing:.08em}
+  font-family:var(--f-disp);font-size:10px;font-weight:700;color:var(--alert-ink);letter-spacing:.06em}
 
 .next{background:var(--surface);border:1px solid var(--accent);border-radius:var(--r);
   border-top:3px solid var(--accent);padding:13px 14px;display:flex;flex-direction:column;gap:8px}
@@ -193,9 +195,9 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 .reasons li::before{content:"—";position:absolute;left:0;color:var(--ink-3)}
 
 .note{border-radius:8px;padding:9px 11px;font-size:12.5px;line-height:1.7}
-.note.warn{background:var(--warn-soft);border:1px solid var(--warn);color:var(--warn)}
-.note.info{background:var(--surface-2);border:1px solid var(--line);color:var(--ink-2)}
-.note.bad{background:var(--alert-soft);border:1px solid var(--alert);color:var(--alert)}
+.note.warn{background:var(--warn-soft);color:var(--warn-ink)}
+.note.info{background:var(--surface-2);color:var(--ink-2)}
+.note.bad{background:var(--alert-soft);color:var(--alert-ink)}
 .note strong{font-weight:700}
 
 .quote{border-left:3px solid var(--line-strong);padding:4px 0 4px 11px;font-size:13.5px;color:var(--ink)}
@@ -211,12 +213,14 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
   opacity:0;border:0;padding:0;margin:0;min-height:0;cursor:pointer}
 
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--surface);
+  background:color-mix(in srgb, var(--surface) 80%, transparent);
+  -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);
   border-top:1px solid var(--line);padding:5px 6px calc(5px + env(safe-area-inset-bottom,0px));
   display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
 nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px;border-radius:8px;
   font-family:var(--f-disp);font-size:10.5px;font-weight:500;color:var(--ink-3);min-height:46px;justify-content:center}
 nav.tabs button .ic{font-size:16px;line-height:1.1}
-nav.tabs button[aria-current="page"]{color:var(--accent);background:var(--accent-soft)}
+nav.tabs button[aria-current="page"]{color:var(--accent-ink);font-weight:700}
 @media (min-width:720px){
   nav.tabs{max-width:520px;margin:0 auto 14px;border:1px solid var(--line);border-radius:999px;
     padding:5px;box-shadow:var(--shadow)}
@@ -229,7 +233,7 @@ nav.tabs button[aria-current="page"]{color:var(--accent);background:var(--accent
 .sheet{position:fixed;inset:0;z-index:60;background:rgba(10,20,19,.5);display:flex;align-items:flex-end;
   justify-content:center;padding-bottom:calc(64px + env(safe-area-inset-bottom,0px))}
 .sheet .inner{background:var(--surface);width:100%;max-width:640px;max-height:78vh;overflow-y:auto;
-  border-radius:14px;padding:16px 15px 14px;display:flex;flex-direction:column;gap:12px;
+  border-radius:16px;padding:10px 15px 14px;display:flex;flex-direction:column;gap:12px;
   box-shadow:0 -6px 28px rgba(10,20,19,.25)}
 .sheet .foot{position:sticky;bottom:-14px;background:var(--surface);padding:10px 0 4px;margin-top:2px;
   border-top:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -238,6 +242,9 @@ nav.tabs button[aria-current="page"]{color:var(--accent);background:var(--accent
 /* シートが開いている間、後ろの画面を動かさない（v4.3）。
    動くと、閉じたときに全然ちがう場所に戻っていて、どこを見ていたか分からなくなる。 */
 body.sheetopen{overflow:hidden}
+/* iOS のシートの「つまみ」。下へ引いて閉じられる形だと分かる目印 */
+.sheet .inner::before{content:"";flex:none;align-self:center;width:36px;height:5px;
+  border-radius:3px;background:var(--line-strong);margin:0 0 4px}
 
 /* toast */
 #toast{position:fixed;left:50%;transform:translateX(-50%);z-index:70;pointer-events:none;
@@ -268,7 +275,7 @@ body.sheetopen{overflow:hidden}
   .blk{padding:9px 11px}
   .blk .bttl{font-size:14.5px}
   /* 横は詰めて1行に収め、縦は指で押せる高さを確保する */
-  .btn.sm{font-size:11.5px;padding:7px 9px;min-height:36px;border-radius:7px}
+  .btn.sm{font-size:11.5px;padding:7px 11px;min-height:36px;border-radius:999px}
   .btn.sm.srcbtn{padding:4px 8px;font-size:10.5px;min-height:26px}
   .acts{gap:5px}
   /* たたんである枠は、見出しだけでなく枠全体を押せるようにする */
@@ -295,9 +302,7 @@ body.sheetopen{overflow:hidden}
 .turn{display:flex;flex-direction:column;gap:6px;max-width:100%}
 .turn.me{align-items:flex-end}
 .bub{border-radius:13px;padding:9px 12px;max-width:86%;white-space:pre-wrap;line-height:1.75;font-size:14.5px}
-.turn.me .bub{background:var(--accent);color:#fff;border-bottom-right-radius:4px}
-:root[data-theme="dark"] .turn.me .bub{color:#08201F}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .turn.me .bub{color:#08201F}}
+.turn.me .bub{background:var(--accent);color:var(--paper);border-bottom-right-radius:5px}
 .turn.ai .bub{background:var(--surface);border:1px solid var(--line);border-bottom-left-radius:4px}
 .turn .stamp{font-family:var(--f-mono);font-size:10px;color:var(--ink-3);padding:0 4px}
 .turn.thinking .bub{color:var(--ink-3);letter-spacing:.3em;animation:pulse 1.2s ease-in-out infinite}
@@ -327,10 +332,11 @@ body.sheetopen{overflow:hidden}
   padding:8px 14px 4px;display:none;bottom:calc(58px + env(safe-area-inset-bottom,0px))}
 body.talking .saybar{display:block}
 .saybar-in{max-width:640px;margin:0 auto;display:flex;gap:8px;align-items:flex-end}
-.saybar textarea{min-height:42px;max-height:150px;resize:none;line-height:1.6;padding:9px 11px;border-radius:11px;
+.saybar textarea{min-height:42px;max-height:150px;resize:none;line-height:1.6;padding:9px 13px;
+  background:var(--surface);border:1px solid var(--line);border-radius:999px;
   scrollbar-width:none;-ms-overflow-style:none}
 .saybar textarea::-webkit-scrollbar{display:none;width:0;height:0}
-.sendbtn{min-width:44px;min-height:42px;border-radius:11px;font-size:17px;padding:0}
+.sendbtn{min-width:42px;min-height:42px;border-radius:999px;font-size:17px;padding:0}
 .saybar-note{max-width:640px;margin:2px auto 0;font-size:11px;color:var(--ink-3);min-height:15px}
 /* いま聞いている質問を、入力欄のすぐ上に出す（まだ聞けていないことを埋めるため）。
    `#sayNote` は入力のたびに書き換わるので、そこに置くと打った瞬間に消える。別の場所にする。 */
@@ -355,7 +361,7 @@ details.allplan>summary::-webkit-details-marker{display:none}
 details.allplan>summary::before{content:"▸ ";color:var(--ink-3)}
 details.allplan[open]>summary::before{content:"▾ "}
 details.unconf{border-color:var(--warn);background:var(--warn-soft)}
-details.unconf>summary{color:var(--warn)}
+details.unconf>summary{color:var(--warn-ink)}
 .revrow{display:flex;gap:8px;align-items:center;justify-content:space-between;font-size:13px;
   padding:4px 0;border-bottom:1px solid var(--line)}
 .revrow:last-child{border-bottom:none}
@@ -5360,7 +5366,7 @@ function saveDraft() {
 async function doSend() {
   if (sending) return;
   let v = $("#say").value.trim();
-  if (!v) { $("#sayNote").innerHTML = '<span style="color:var(--alert)">何か話しかけてください。</span>'; return; }
+  if (!v) { $("#sayNote").innerHTML = '<span style="color:var(--alert-ink)">何か話しかけてください。</span>'; return; }
   /* 長すぎる入力を、そのまま流さない（v4.3）。
      ここだけ上限が無く、10万文字で画面が20秒止まり、保存先の1件あたりの上限も超えていた。
      長い文章は「わたしのこと」の資料として入れるほうが、全文が残って読み返せる。 */
@@ -5391,7 +5397,7 @@ async function doSend() {
   } catch (e) {
     lastError = describeError(e);
     $("#say").value = v; saveDraft();       // 失敗したら書き戻す
-    $("#sayNote").innerHTML = '<span style="color:var(--alert)">うまく処理できませんでした（' + esc(lastError) +
+    $("#sayNote").innerHTML = '<span style="color:var(--alert-ink)">うまく処理できませんでした（' + esc(lastError) +
       '）。入力は戻しました。この文は設定タブにも残ります。</span>';
     renderSettings();
   } finally { sending = false; btn.disabled = false; btn.textContent = "↑"; }
@@ -5428,8 +5434,8 @@ document.addEventListener("change", e => {
     if (!f) return;
     const r = new FileReader();
     r.onload = () => { importJSON(String(r.result || ""), f.name).catch(err => {
-      lastError = describeError(err); $("#expOut").innerHTML = '<p class="hint" style="color:var(--alert)">読み込めませんでした：' + esc(lastError) + "</p>"; renderSettings(); }); };
-    r.onerror = () => { $("#expOut").innerHTML = '<p class="hint" style="color:var(--alert)">ファイルを読めませんでした。</p>'; };
+      lastError = describeError(err); $("#expOut").innerHTML = '<p class="hint" style="color:var(--alert-ink)">読み込めませんでした：' + esc(lastError) + "</p>"; renderSettings(); }); };
+    r.onerror = () => { $("#expOut").innerHTML = '<p class="hint" style="color:var(--alert-ink)">ファイルを読めませんでした。</p>'; };
     r.readAsText(f, "utf-8");
     return;
   }
@@ -5438,7 +5444,7 @@ document.addEventListener("change", e => {
     if (!f) return;
     const r = new FileReader();
     r.onload = () => { importICS(String(r.result || ""), f.name).catch(err => {
-      lastError = describeError(err); $("#expOut").innerHTML = '<p class="hint" style="color:var(--alert)">読み込めませんでした：' + esc(lastError) + "</p>"; renderSettings(); }); };
+      lastError = describeError(err); $("#expOut").innerHTML = '<p class="hint" style="color:var(--alert-ink)">読み込めませんでした：' + esc(lastError) + "</p>"; renderSettings(); }); };
     r.readAsText(f, "utf-8");
     return;
   }
@@ -5450,7 +5456,7 @@ document.addEventListener("change", e => {
       $("#docText").dataset.name = f.name;
       $("#docNote").textContent = `${f.name} を読み込みました（${String(r.result || "").length.toLocaleString()}文字）。`;
     };
-    r.onerror = () => { $("#docNote").innerHTML = '<span style="color:var(--alert)">ファイルを読めませんでした。テキストファイル（.txt）を選んでください。</span>'; };
+    r.onerror = () => { $("#docNote").innerHTML = '<span style="color:var(--alert-ink)">ファイルを読めませんでした。テキストファイル（.txt）を選んでください。</span>'; };
     r.readAsText(f, "utf-8");
     e.target.value = "";
   }
@@ -5459,12 +5465,12 @@ document.addEventListener("change", e => {
 /* ---- 「わたしのこと」への取り込み ---- */
 async function addDoc() {
   const raw = $("#docText").value;
-  if (!raw.trim()) { $("#docNote").innerHTML = '<span style="color:var(--alert)">本文が空です。</span>'; return; }
+  if (!raw.trim()) { $("#docNote").innerHTML = '<span style="color:var(--alert-ink)">本文が空です。</span>'; return; }
   const truncated = raw.length > DOC_MAX_CHARS;
   const text = normNote(truncated ? raw.slice(0, DOC_MAX_CHARS) : raw);
   const h = hash(text);
   if (state.docs.some(d => d.hash === h)) {
-    $("#docNote").innerHTML = '<span style="color:var(--warn)">同じ内容の資料が既にあります。</span>';
+    $("#docNote").innerHTML = '<span style="color:var(--warn-ink)">同じ内容の資料が既にあります。</span>';
     return;
   }
   const doc = {
@@ -5536,7 +5542,7 @@ $("#file").addEventListener("change", e => {
   const f = e.target.files && e.target.files[0]; if (!f) return;
   const r = new FileReader();
   r.onload = () => { $("#say").value = String(r.result || ""); saveDraft(); $("#sayNote").textContent = `${f.name} を読み込みました。送ると取り込みます。`; };
-  r.onerror = () => { $("#sayNote").innerHTML = '<span style="color:var(--alert)">ファイルを読めませんでした。テキストファイル（.txt）を選んでください。</span>'; };
+  r.onerror = () => { $("#sayNote").innerHTML = '<span style="color:var(--alert-ink)">ファイルを読めませんでした。テキストファイル（.txt）を選んでください。</span>'; };
   r.readAsText(f, "utf-8");
   e.target.value = "";
 });
@@ -5678,8 +5684,8 @@ $("#btnImport").addEventListener("click", () => $("#impFile").click());
 async function importJSON(text, name) {
   const out = $("#expOut");
   let d;
-  try { d = JSON.parse(text); } catch { out.innerHTML = '<p class="hint" style="color:var(--alert)">JSONとして読めませんでした。書き出したファイルを選んでください。</p>'; return; }
-  if (!d || typeof d !== "object" || Array.isArray(d)) { out.innerHTML = '<p class="hint" style="color:var(--alert)">中身の形が違います。</p>'; return; }
+  try { d = JSON.parse(text); } catch { out.innerHTML = '<p class="hint" style="color:var(--alert-ink)">JSONとして読めませんでした。書き出したファイルを選んでください。</p>'; return; }
+  if (!d || typeof d !== "object" || Array.isArray(d)) { out.innerHTML = '<p class="hint" style="color:var(--alert-ink)">中身の形が違います。</p>'; return; }
   const arr = k => Array.isArray(d[k]) ? d[k] : [];
   const haveNote = new Set(state.notes.map(n => n.id)), haveHash = new Set(state.notes.map(n => n.hash));
   const haveItem = new Set(state.items.map(i => i.id)), haveKey = new Set(state.items.map(i => i.dedupeKey));
@@ -5790,7 +5796,7 @@ async function importICS(text, name) {
   const tz = state.settings.timezone;
   let found = [];
   try { found = parseICS(text, tz); } catch (e) { lastError = describeError(e); }
-  if (!found.length) { $("#expOut").innerHTML = '<p class="hint" style="color:var(--alert)">予定が見つかりませんでした。.ics ファイルを選んでください。</p>'; return; }
+  if (!found.length) { $("#expOut").innerHTML = '<p class="hint" style="color:var(--alert-ink)">予定が見つかりませんでした。.ics ファイルを選んでください。</p>'; return; }
   const rep = found.filter(f => f.rrule).length;
   const mk = f => {
     const it = {
