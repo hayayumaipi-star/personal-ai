@@ -89,7 +89,13 @@ node sync.js      # ← 忘れると古い中身の APK ができる
 npx eas-cli@latest build -p android --profile preview
 ```
 
-- **Expo の無料アカウントが要ります**（初回にブラウザが開いて登録・ログイン）
+- **Expo の無料アカウントを、先に作っておくこと**（https://expo.dev/signup ・無料）。
+  **ログインはブラウザではなく、黒い窓の中で**ユーザー名とパスワードを聞かれます
+  （`npx eas-cli@latest login`）。作っていないと
+  `Your username, email, or password was incorrect.` で落ちます——
+  **「間違い」と出るが、実際は「まだ無い」ことが多い**（実機で報告）。
+  `build-apk.ps1` は組み立てを頼む前に `whoami` で確かめて、ここで止めます。
+  **パスワードは画面に何も出ません**（`*` も出ない）。打ち直すと二重になって失敗します。
 - 初回は「プロジェクトを作るか」「Android の鍵を作るか」と聞かれます。**どちらも Y**
   （鍵はアプリに署名するためのもので、Expo が預かります）
 - 組み立ては **Expo のサーバー側**で行われます（10〜20分）
