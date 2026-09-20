@@ -473,22 +473,15 @@ details.unconf>summary{color:var(--warn)}
     </div>
 
     <div class="card stack">
-      <h3 style="font-size:14px">AIの利用</h3>
+      <h3 style="font-size:14px">AI</h3>
+      <!-- 「AIを使うかどうか」の切り替えは外した（2026-09-20・本人の指示
+           「聞かずにAIを使う設定にする」）。使えるなら使う。押し忘れで
+           静かに効かなくなる欄を残さない（決まり「設定に保存ボタンを置かない」と同じ理屈）。
+           **ただし「何が送られるか」は画面から消さない。**新しい外部送信を足すときの
+           決まりそのもので、`refreshAiState` がその1行を書く。 -->
       <p class="hint" id="aiState">確認中…</p>
-      <label class="row" style="gap:8px;cursor:pointer">
-        <input type="checkbox" id="useAI" style="width:auto;min-height:auto">
-        <span style="font-size:13.5px">話しかけたときにAIへ送る</span>
-      </label>
-      <p class="hint"><strong>オンのとき</strong>：話した内容と、いま開いている用事の一覧が、あなたのClaudeアカウント経由でClaudeに送られます。言い直し（「15時じゃなくて14時」）や完了の判断ができるようになります。<br>
-      <strong>1回の発言につき2回</strong>Claudeを呼びます。速い方が1〜2秒で受け止めの一言を返し、丁寧な方が裏で読み取って静かに反映します。どちらも<strong>追加の支払いは不要</strong>です。<br>
-      <strong>オフのとき</strong>：何も送信しません。ルールだけで動きます。追加はできますが、言い直しや完了の自動判定はできません。<br>
-      どちらでも<strong>費用はかかりません</strong>。予定表の時刻はどちらの場合もアプリが計算します。AIに時刻は書かせません。</p>
-    </div>
-
-    <div class="card stack">
-      <h3 style="font-size:14px">自分のAPIキーを使う（任意）</h3>
-      <p class="hint"><strong>入れなくて構いません。</strong>入れなければ今までどおり動きます。<br>
-      入れると、上の「AIの利用」の代わりに<strong>あなたのキーで</strong>AIを呼びます。
+      <p class="hint"><strong>APIキーは入れなくて構いません。</strong>入れなければ今までどおり動きます。<br>
+      入れると、claude.ai の窓口の代わりに<strong>あなたのキーで</strong>AIを呼びます。
       独立したサイトやスマホのアプリにしたときは、<strong>これが唯一のAIの道</strong>になります。</p>
       <div class="grid2">
         <div><label class="fld" for="aiProv">どこのAI</label>
@@ -511,15 +504,6 @@ details.unconf>summary{color:var(--warn)}
         <button class="btn danger" id="btnAiClear" style="margin-left:auto">消す</button>
       </div>
       <div id="aiKeyMsg"></div>
-    </div>
-
-    <div class="card stack">
-      <h3 style="font-size:14px">保存されている原文</h3>
-      <p class="hint">あなたが話した言葉そのものです。項目の「根拠」はここを指しています。<br>
-      ふだんは触る必要はありません。会話の自分の発言の下にある「原文」からも見られます。</p>
-      <details class="allplan"><summary id="noteCount">原文を開く</summary>
-        <div id="noteOut" class="stack" style="margin-top:10px"></div>
-      </details>
     </div>
 
     <div class="card stack">
@@ -578,20 +562,12 @@ details.unconf>summary{color:var(--warn)}
       <textarea id="errText" readonly style="min-height:70px;font-family:var(--f-mono);font-size:12px"></textarea>
       <div class="row"><button class="btn sm" id="btnErrClear">消す</button></div>
     </div>
-
-    <div class="card stack">
-      <h3 style="font-size:14px">このページについて</h3>
-      <p class="hint">AI秘書 v4.3。<strong>確定した事実／読み取り（ルール）／読み取り（AI）／本人の訂正</strong>を区別して保存します。体調は本人が言ったことをそのまま引用するだけで、点数や診断は作りません。<br>
-      カレンダーは <code>.ics</code> ファイル経由で読み書きできます（外部への送信はありません）。<br>
-      <strong>アプリ内の音声入力と、端末の通知は入っていません。</strong>音声は端末のキーボードのマイクを使ってください。予定の知らせは<strong>このページを開いている間だけ</strong>出ます。</p>
-      <div id="resideOut" class="hint"></div>
-    </div>
   </div>
 </section>
 
 </div>
 
-<div class="saybar" id="saybar">
+<div class="saybar">
   <div class="saybar-ask" id="sayAsk" hidden></div>
   <div class="saybar-in">
     <input type="file" id="file" accept=".txt,.md,.csv,text/plain" class="sr">
@@ -2037,7 +2013,10 @@ function safeSettings(s) {
   };
   if (!okClock(o.workStart)) o.workStart = DEFAULTS.workStart;
   if (!okClock(o.workEnd)) o.workEnd = DEFAULTS.workEnd;
-  if (typeof o.useAI !== "boolean") delete o.useAI;        // 未設定はオン（既定）のまま
+  /* AIを使うかどうかの切り替えは外した（2026-09-20・本人の指示）。使えるなら使う。
+     古い控えに `useAI:false` が残っていることがあるので、**読むたびに落とす**——
+     残っていると、画面に無い設定でAIが静かに止まる（決まり「保存データは必ず壊れると思って読む」）。 */
+  delete o.useAI;
   return o;
 }
 function migrateWindow(s) {
@@ -3298,7 +3277,7 @@ function renderMe() {
   /* ---- ① 会話から集まったこと ---- */
   h += `<div class="sect"><span class="eyebrow">FROM TALKING</span>
     <h2>会話から集まったこと（${profs.length}件）</h2>
-    <p class="hint">話しているうちに出てきた、あなたについての情報です。${SAMPLEFN && state.settings.useAI !== false
+    <p class="hint">話しているうちに出てきた、あなたについての情報です。${SAMPLEFN
       ? "AIが会話の中から見つけたものも含みます。" : "いまAIを使っていないので、はっきりした言い方（「〜が苦手」「昔から〜」など）だけを拾っています。"}</p></div>`;
 
   if (unconf.length) {
@@ -3355,7 +3334,7 @@ function renderMe() {
         <div class="acts">
           <button class="btn sm" data-act="docopen" data-id="${d.id}">全文を見る</button>
           <button class="btn sm" data-act="docitems" data-id="${d.id}">読み取ったものを見る</button>
-          ${SAMPLEFN && state.settings.useAI !== false && !d.aiRead ? `<button class="btn sm" data-act="docai" data-id="${d.id}">AIにも読ませる</button>` : ""}
+          ${SAMPLEFN && !d.aiRead ? `<button class="btn sm" data-act="docai" data-id="${d.id}">AIにも読ませる</button>` : ""}
           <button class="btn sm danger" data-act="docdel" data-id="${d.id}">この資料を消す</button>
         </div></div>`;
     }).join("")}</div>`;
@@ -3404,48 +3383,6 @@ function renderMe() {
   host.innerHTML = h;
 }
 
-function renderNotes() {
-  const tz = state.settings.timezone;
-  $("#noteCount").textContent = state.notes.length ? `原文を開く（${state.notes.length}件）` : "原文はまだありません";
-  $("#noteOut").innerHTML = state.notes.length
-    ? state.notes.slice().sort((a, b) => String(b.capturedAt).localeCompare(String(a.capturedAt))).map(n => `
-      <div class="item"><div class="meta"><span class="chip">原文</span><span class="mono">${fmtDT(n.capturedAt, tz)}</span>${n.sourceName ? `<span class="chip">${esc(n.sourceName)}</span>` : ""}</div>
-      <div class="evid">${esc(n.text).replace(/\n/g, "<br>")}</div>
-      <div class="acts"><button class="btn sm danger" data-act="delnote" data-id="${n.id}">この原文を消す</button></div></div>`).join("")
-    : `<div class="card empty">まだ原文がありません。</div>`;
-}
-
-/* 「閉じても動けるのか」を、推測ではなく**その端末で測って**出す（v8.1）。
-   ここは**測るだけ**。Service Worker を登録しないし、通知の許可も求めない
-   （勝手に通知を出さない・新しい外部送信を足さない）。
-   測る理由：できる／できないをこちらが言葉で書くと、本当かどうか確かめようがない。 */
-async function renderResidency() {
-  const el = $("#resideOut"); if (!el) return;
-  const rows = [];
-  const sw = "serviceWorker" in navigator;
-  let reg = null;
-  if (sw) { try { reg = await navigator.serviceWorker.getRegistration(); } catch { reg = null; } }
-  rows.push(["閉じても動く土台（Service Worker）",
-    !sw ? "この場所では使えません" : reg ? "使えます（登録あり）" : "仕組みはありますが、登録していません"]);
-  rows.push(["定期的に自分で起きる（Periodic Sync）",
-    sw && typeof ServiceWorkerRegistration !== "undefined"
-      && "periodicSync" in ServiceWorkerRegistration.prototype ? "仕組みはあります" : "ありません"]);
-  rows.push(["端末の通知", typeof Notification === "undefined" ? "使えません"
-    : Notification.permission === "granted" ? "許可されています"
-    : Notification.permission === "denied" ? "拒否されています" : "まだ聞いていません"]);
-  let persisted = null;
-  try {
-    persisted = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted() : null;
-  } catch { persisted = null; }
-  rows.push(["この端末の控えが消されにくいか", persisted == null ? "分かりません"
-    : persisted ? "消されにくい" : "空き容量が減ると消えることがあります"]);
-  el.innerHTML = `<strong style="display:block;margin-top:8px">このページが「閉じても動けるか」（いま、この端末で測った結果）</strong>`
-    + rows.map(([k, v]) => `<div>・${esc(k)}：<strong>${esc(v)}</strong></div>`).join("")
-    + `<div style="margin-top:6px">どれが使えても、<strong>考える処理はタブを閉じると止まります。</strong>
-       閉じているあいだのことは<strong>別の場所で動くもの</strong>が引き受け、その結果は
-       次に開いたときチャットに「留守のあいだに」として出ます。</div>`;
-}
-
 /* 自分のキーの欄を描く。**送信先・送信内容・費用を、保存する前に見せる**
    （決まり「新しい外部送信を足すときは、明記してから足す」）。
    キーは `localStorage` から読む。`state.settings` には入っていない（あれは共有の `db` へ行く）。 */
@@ -3477,7 +3414,6 @@ function renderSettings() {
   $("#breakEvery") && ($("#breakEvery").value = s.breakEveryMin);
   $("#breakLen") && ($("#breakLen").value = s.breakMin == null ? 10 : s.breakMin);
   $("#theme") && ($("#theme").value = s.theme || "auto");
-  renderResidency();            // 測るだけ。待たない（描画を止めない）
   renderOwnAI();
   const turnCount = Object.values(state.turns).reduce((n, l) => n + l.length, 0);
   /* **作業に使える時間帯を、読めるところに1行だけ出す**（v6.2b・実機で報告）。
@@ -3521,30 +3457,39 @@ function renderSettings() {
       1回に読み込めるのは<strong>${READ_LIMIT.toLocaleString()}件まで</strong>です。超えたぶんは保存されていますが、画面には出なくなります。
       <strong>「書き出す（JSON）」で控えを取ってから</strong>、古い記録の整理を考えてください。`;
   }
-  $("#useAI").checked = s.useAI !== false;
-  $("#useAI").disabled = !SAMPLEFN;
   const ec = $("#errCard");
   if (ec) {
     ec.hidden = !lastError;
     if (lastError) $("#errText").value =
-      `${new Date().toLocaleString("ja-JP")}\n${lastError}\n保存先=${state.backend} AI=${SAMPLEFN ? "あり" : "なし"}(${s.useAI !== false ? "オン" : "オフ"})\n項目${state.items.length} 原文${state.notes.length}`;
+      `${new Date().toLocaleString("ja-JP")}\n${lastError}\n保存先=${state.backend} AI=${SAMPLEFN ? "あり" : "なし"}\n項目${state.items.length} 原文${state.notes.length}`;
   }
   refreshAiState();
 }
+/* いまAIが何で動いているかと、**何が送られるか**を1行で出す。
+   「使うかどうか」の切り替えは外したが（2026-09-20・本人の指示）、
+   **送信の中身を画面から消してはいけない**——新しい外部送信を足すときの決まりそのもの。
+   欄をひとつ減らしたぶん、ここに畳んである。 */
+const AI_SENDS = "話しかけると、<strong>その発言・いま開いている用事・「わたしのこと」・"
+  + "直前のやりとり</strong>が送られます（渡した資料の全文は送りません）。"
+  + "1回の発言につき2回呼びます。";
 function refreshAiState() {
   const el = $("#aiState"); if (!el) return;
   el.innerHTML = SAMPLEFN && SAMPLEFN.own
     ? `<strong>あなたのAPIキーで動いています（${esc(AI_PROVIDERS[SAMPLEFN.own].label)}）。</strong>`
-      + "料金は<strong>あなたのキーに請求されます</strong>。やめたいときは、下の欄で「消す」を押してください。"
+      + "料金は<strong>あなたのキーに請求されます</strong>。やめたいときは、下の欄で「消す」を押してください。<br>"
+      + AI_SENDS
     : SAMPLEFN
-    ? "この端末ではAIが使えます。あなたのClaudeアカウントの利用枠を使うので、<strong>別のAPI契約や追加の支払いは不要</strong>です。"
-    : "いまAIは使えません（未許可、または対応していない開き方）。<strong>ルールだけで、追加・計画・訂正・再計画は全部動きます。</strong>";
+    ? "<strong>AIを使っています。</strong>あなたのClaudeアカウントの利用枠を使うので、"
+      + "<strong>別のAPI契約や追加の支払いは不要</strong>です。<br>" + AI_SENDS
+    : "いまAIは使えません（未許可、または対応していない開き方）。"
+      + "<strong>ルールだけで、追加・計画・訂正・再計画は全部動きます。</strong>"
+      + "外へは何も送っていません。";
 }
 
 const view = { tab: "p-chat", day: null, ask: null };
 function renderAll() {
   if (!view.day) view.day = dayKey(new Date(), state.settings.timezone);
-  renderChat(false); renderDay(); renderMe(); renderNotes(); renderSettings();
+  renderChat(false); renderDay(); renderMe(); renderSettings();
 }
 /* いま聞いている質問の帯。保存はしない——見せて、本人の言葉を待つだけ。 */
 function renderAsk() {
@@ -3566,7 +3511,7 @@ function showTab(id) {
   // タブを開いたら必ず描き直す（前の操作の結果が古いまま残らないように）
   if (id === "p-day") renderDay();
   else if (id === "p-me") renderMe();
-  else if (id === "p-set") { renderNotes(); renderSettings(); }
+  else if (id === "p-set") renderSettings();
   if (id === "p-chat") { renderChat(true); renderAsk(); setTimeout(() => $("#say").focus(), 30); }
   else { window.scrollTo({ top: 0, behavior: "instant" }); setTimeout(() => window.scrollTo({ top: 0, behavior: "instant" }), 0); }
 }
@@ -3834,6 +3779,10 @@ async function act(a, id, el) {
     }
     toast("資料を消しました"); renderAll(); return;
   }
+  /* 会話の「原文」から開くシート。**原文を消す唯一の入口でもある**
+     （2026-09-20）。設定タブの「保存されている原文」を外したとき、
+     「この原文を消す」がそこにしか無かったので、ここへ引っ越した。
+     決まり「画面から何かを消すときは、そこにしか入口が無いものを先に探して引っ越す」。 */
   if (a === "shownote") {
     const n = state.notes.find(x => x.id === id);
     const derived = state.items.filter(x => x.noteId === id);
@@ -3841,7 +3790,9 @@ async function act(a, id, el) {
       ${n ? `<div class="evid" style="white-space:pre-wrap">${esc(n.text).replace(/\n/g, "<br>")}</div>
       <p class="hint">記録日時 <span class="mono">${fmtDT(n.capturedAt, tz)}</span>（${esc(tz)}基準）</p>` : `<div class="note info">原文が見つかりません。</div>`}
       <div class="stack">${derived.length ? derived.map(x => itemHTML(x)).join("") : '<div class="card empty">この発話からは何も作られていません。</div>'}</div>
-      <div class="foot"><button class="btn pri" data-close style="margin-left:auto">閉じる</button></div>`);
+      <div class="foot">
+        ${n ? `<button class="btn danger" data-act="delnote" data-id="${n.id}">この原文を消す</button>` : ""}
+        <button class="btn pri" data-close style="margin-left:auto">閉じる</button></div>`);
     return;
   }
   // ↓ ここから下は「項目」のid。原文(note)のidを渡す操作は、必ずこの上で処理して return すること。
@@ -3861,6 +3812,7 @@ async function act(a, id, el) {
       return;
     }
     state.notes = state.notes.filter(x => x.id !== id); lsWrite();
+    closeSheet();                      // 消した原文の画面を開いたままにしない
     toast("原文を消しました");
     renderAll();
     return;
@@ -4249,7 +4201,7 @@ async function applyOps(rawOps, note) {
          AIがオンなのに `dayfill` が返らないと、決まった9つから選ぶ。画面には
          **前とまったく同じ顔ぶれ**が出るので、本人からは「直っていない」ようにしか見えない
          （実際にそう報告された）。理由が分かれば、もう一度言えば済む。決まり5と同じ理屈。 */
-      if (SAMPLEFN && state.settings.useAI !== false && !aiFill.length) {
+      if (SAMPLEFN && !aiFill.length) {
         asks.push("提案の中身がAIから返ってこなかったので、決まった顔ぶれから選びました。"
           + "もう一度同じことを言うと、その人に合わせたものが出ることがあります。");
       }
@@ -5168,7 +5120,7 @@ async function sendTurn(text) {
 
   // 4. 二段構え。速いAIが先に受け止めて返し、丁寧なAIが裏で読み取る。
   //    返事を読み取りの完了まで待たせない（40秒後の「うん、聞いたよ」は冷たい）。
-  const useAI = SAMPLEFN && state.settings.useAI !== false;
+  const useAI = !!SAMPLEFN;
   let quick = null;
   if (useAI) {
     quick = aiQuickReply(note).then(t => {
@@ -5279,7 +5231,7 @@ async function sendTurn(text) {
     habitDay: applied.habitDay || null,
     showTable: shouldShowTable(ctx)     // 毎回は出さない
   });
-  renderChat(true); renderDay(); renderMe(); renderNotes(); renderSettings();
+  renderChat(true); renderDay(); renderMe(); renderSettings();
 }
 
 /* =======================================================================
@@ -5530,7 +5482,7 @@ async function addDoc() {
    「AIにも読ませる」ボタン（`act("docai")`）には確認が無く、押すと黙って全文が送られていた。
    保存直後の経路にしか付けていなかったのが理由で、`runDocAI` にはテストも1件も無かった。 */
 async function confirmDocAI(doc, keepNote) {
-  if (!doc || !SAMPLEFN || state.settings.useAI === false) return false;
+  if (!doc || !SAMPLEFN) return false;
   const n = Math.min(Math.ceil(doc.chars / AI_CHUNK), AI_MAX_CHUNKS);
   // 読み切れない分があるなら、必ず先に言う。黙って途中でやめない（v4.3）
   const rest = doc.chars - Math.min(doc.chars, AI_CHUNK * AI_MAX_CHUNKS);
@@ -5616,7 +5568,7 @@ async function saveSettingsNow() {
   const s = Object.assign({}, state.settings, {
     timezone: $("#tz").value, defaultEstimate: clamp(+$("#defEst").value || 30, 5, 240),
     breakEveryMin: clamp(+$("#breakEvery").value || 90, 30, 240),
-    breakMin: clamp(+$("#breakLen").value || 10, 5, 30), useAI: $("#useAI").checked,
+    breakMin: clamp(+$("#breakLen").value || 10, 5, 30),
     theme: ["auto", "light", "dark"].includes($("#theme").value) ? $("#theme").value : "auto"
   });
   // 見た目は上の change 側で当て済み。ここで当て直すと、
@@ -5632,7 +5584,7 @@ async function saveSettingsNow() {
   setTimeout(() => { const el = $("#setMsg"); if (el) el.textContent = ""; }, 2000);
 }
 $("#theme").addEventListener("change", () => applyTheme($("#theme").value));   // 先に見た目だけ当てる
-for (const id of ["#tz", "#defEst", "#breakEvery", "#breakLen", "#theme", "#useAI"]) {
+for (const id of ["#tz", "#defEst", "#breakEvery", "#breakLen", "#theme"]) {
   $(id).addEventListener("change", saveSettingsNow);
 }
 /* ---- 自分のAPIキー（v8.2）---- */

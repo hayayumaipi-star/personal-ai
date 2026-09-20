@@ -44,6 +44,16 @@
   }
   async function sheetYes() { if (has("#cfYes")) { await click("#cfYes"); } }
   const firstAct = (panel, act) => document.querySelector(`${panel} [data-act="${act}"]`);
+  /* 「この原文を消す」は、設定タブの一覧から**会話の「原文」シートへ引っ越した**
+     （2026-09-20・本人の指示で「保存されている原文」の欄を外したため）。
+     消す道が残っていることを、**実際に開いて**確かめる。 */
+  async function openNoteSheet() {
+    await click('nav.tabs [data-tab="p-chat"]');
+    const src = firstAct("#p-chat", "shownote");
+    if (!src) return null;
+    await click(src);
+    return document.querySelector('#sheetHost [data-act="delnote"]');
+  }
 
   async function run() {
     for (let i = 0; i < 300 && !state.ready; i++) await wait(20);
@@ -281,21 +291,37 @@
       $$("#defEst").dispatchEvent(new Event("change", { bubbles: true }));
       if (!await waitFor(() => state.settings.defaultEstimate === 45)) throw new Error("その場で保存されない");
     });
-    await step("AIをオフにする", async () => {
-      $$("#useAI").checked = false;
-      $$("#useAI").dispatchEvent(new Event("change", { bubbles: true }));
-      if (!await waitFor(() => state.settings.useAI === false)) throw new Error("オフになっていない");
+    /* AIの「使うかどうか」は外した（2026-09-20・本人の指示「聞かずにAIを使う」）。
+       **欄が無いこと**と、**それでもAIが使われること**、そして
+       **何が送られるかが画面に残っていること**の3つを見る。
+       最後のひとつは「外部送信は画面に明記してから足す」の決まりで、欄を減らしても消さない。 */
+    await step("AIの入切の欄が無い", async () => {
+      if (has("#useAI")) throw new Error("切り替えが残っている");
+      if ("useAI" in state.settings) throw new Error("設定に残っている");
     });
-    await step("AIオフのまま話しかける", async () => {
+    await step("聞かずにAIを使い、何を送るかは画面に出ている", async () => {
+      const t = $$("#aiState").textContent;
+      if (!/AIを使っています|あなたのAPIキーで動いています/.test(t)) throw new Error("使っていることが出ない");
+      if (!/開いている用事/.test(t)) throw new Error("何を送るかが出ていない");
       await click('nav.tabs [data-tab="p-chat"]');
+      const n = state.items.length;
       type("#say", "明後日の10時から面談。");
-      await click("#btnSend"); await wait(300);
+      await click("#btnSend");
+      if (!await waitFor(() => state.items.length > n, 8000)) throw new Error("読み取られない");
+      const last = $$("#chatOut .turn.ai:last-of-type .stamp");
+      if (last && /ルールで読み取り$/.test(last.textContent.trim()))
+        throw new Error("AIが呼ばれていない");
       await click('nav.tabs [data-tab="p-set"]');
     });
-    await step("AIをオンに戻す", async () => {
-      $$("#useAI").checked = true;
-      $$("#useAI").dispatchEvent(new Event("change", { bubbles: true }));
-      if (!await waitFor(() => state.settings.useAI === true)) throw new Error("オンに戻らない");
+    await step("古い控えの useAI:false を持ち越さない", async () => {
+      /* 控えや古い保存先には `useAI:false` が残っていることがある。
+         画面に欄が無いのにAIが静かに止まると、原因をたどる道が無い。
+         **書くところで落とす**のがいちばん確実（決まり「書く側で止める」）。 */
+      await putSettings(Object.assign({}, state.settings, { useAI: false }));
+      if ("useAI" in state.settings) throw new Error("書くときに落としていない");
+      const got = await DB.doc("meta/settings").get();     // 保存先を読み直して確かめる
+      if (got.exists && "useAI" in (got.data() || {})) throw new Error("保存先に残っている");
+      renderSettings();
     });
     await step("「書き出す（JSON）」", async () => {
       await click("#btnExport"); await wait(300);
@@ -315,7 +341,7 @@
       lastError = null;
       const before = state.notes.length;
       try {
-        const b = firstAct("#p-set", "delnote");
+        const b = await openNoteSheet();
         if (!b) throw new Error("「この原文を消す」が無い");
         await click(b);
         if (!has("#cfYes")) throw new Error("確認シートが出ない");
@@ -328,8 +354,8 @@
       lastError = null;
     });
 
-    await step("原文を開いて1件消す", async () => {
-      const b = firstAct("#p-set", "delnote");
+    await step("会話の「原文」から1件消す", async () => {
+      const b = await openNoteSheet();
       if (!b) throw new Error("「この原文を消す」が無い");
       const n = state.notes.length;
       await click(b);
@@ -338,7 +364,7 @@
       if (state.notes.length !== n - 1) throw new Error("消えていない");
     });
     await step("原文を消そうとして「やめる」", async () => {
-      const b = firstAct("#p-set", "delnote");
+      const b = await openNoteSheet();
       if (!b) { R.push("（原文が残っていないので省略）"); return; }
       const n = state.notes.length;
       await click(b); await click("#cfNo"); await wait(150);
@@ -720,7 +746,9 @@
       /* ここだけAIを切る。**模擬AIの依頼文には「資料」の字が入っている**ので、
          どんな発言にも「資料を作る」の op が返り、ルールの読み取りまで届かない。
          決まり7（AIは任意）の道をそのまま測る。 */
-      await putSettings(Object.assign({}, state.settings, { useAI: false }));
+      /* **窓口そのものを外して測る**（2026-09-20）。設定の入切は無くなったので、
+         `SAMPLEFN` を空にするのが「AIが無いとき」の正しい再現になる。 */
+      const keepAI = SAMPLEFN; SAMPLEFN = null;
       type("#say", "昔から朝は頭が動かないタイプ。");
       await click("#btnSend");
       if (!await waitFor(() => state.items.some(i => i.kind === "profile" && i.status === "open"), 8000))
@@ -728,7 +756,7 @@
       if (!await waitFor(() => !view.ask, 3000)) throw new Error("質問が下りない");
       if (!$$("#sayAsk").hidden) throw new Error("帯が残る");
       if (telosGaps().length >= before) throw new Error("穴が減っていない");
-      await putSettings(Object.assign({}, state.settings, { useAI: true }));
+      SAMPLEFN = keepAI;
     });
 
     /* 留守のあいだに（v8.1）。`lifeos_results` は読んでいたのに画面に出していなかった。
@@ -753,13 +781,17 @@
       renderChat(false);
       if (document.querySelectorAll("#chatOut .turn.lifeos").length) throw new Error("消えない");
     });
-    await step("「閉じても動けるか」を測って出す", async () => {
+    /* 設定タブから3つの欄を外した（2026-09-20・本人の指示）。
+       **無くなったことと、そこにしか無かった入口が引っ越したこと**を一緒に見る
+       （決まり「画面から何かを消すときは、そこにしか入口が無いものを先に探して引っ越す」）。 */
+    await step("外した3つの欄が、設定タブに無い", async () => {
       await click('nav.tabs [data-tab="p-set"]');
-      if (!await waitFor(() => /Service Worker/.test($$("#resideOut").textContent), 4000))
-        throw new Error("測った結果が出ない");
-      const t = $$("#resideOut").textContent;
-      if (!/端末の通知/.test(t)) throw new Error("通知の行が無い");
-      if (!/タブを閉じると止まります/.test(t)) throw new Error("止まることを書いていない");
+      const t = $$("#p-set").textContent;
+      for (const [w, why] of [["AIの利用", "AIの入切"], ["保存されている原文", "原文の一覧"],
+                              ["このページについて", "このページについて"]])
+        if (t.includes(w)) throw new Error(why + "の欄が残っている");
+      if (has("#noteOut") || has("#noteCount")) throw new Error("原文の一覧の中身が残っている");
+      if (has("#resideOut")) throw new Error("常駐の測定欄が残っている");
     });
 
     /* 自分のAPIキー（v8.2）。**実際に押して**確かめる。
