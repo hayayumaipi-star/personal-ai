@@ -4,8 +4,8 @@
   Expo のサーバーで組み立ててもらい、スマホに直接入れられる APK を作ります。
   作ったあとは **パソコンは要りません**（黒い窓もQRも同じ Wi-Fi も不要）。
 
-  要るもの：Node.js と、Expo の無料アカウント（https://expo.dev/signup で先に作る）。
-  **ログインはブラウザではなく、この窓の中で聞かれます。**
+  要るもの：Node.js と、Expo の無料アカウント（https://expo.dev/signup ・Google でも可）。
+  ログインしていなければ、このファイルが `eas login` を呼びます（ブラウザが開きます）。
   かかる時間：10〜20分（混んでいるともっと待ちます）。
 #>
 $ErrorActionPreference = "Stop"
@@ -61,22 +61,33 @@ $who = ""
 try { $who = (npx eas-cli@latest whoami 2>&1 | Out-String).Trim() } catch { $who = "" }
 if ($LASTEXITCODE -ne 0 -or $who -match "Not logged in" -or $who -eq "") {
   Write-Host ""
-  Write-Host "Expo にログインしていません。" -ForegroundColor Yellow
+  Write-Host "Expo にログインしていないので、先にログインします。" -ForegroundColor Yellow
   Write-Host ""
-  Write-Host "  ① まだアカウントが無ければ、ブラウザでこちらから作ってください（無料）："
-  Write-Host "       https://expo.dev/signup" -ForegroundColor Cyan
-  Write-Host "     **ユーザー名を覚えておくこと。**ログインで使います。"
+  Write-Host "  ブラウザが開きます。**Google で登録した人は「Continue with Google」**を押してください。" -ForegroundColor Cyan
+  Write-Host "  （eas login は既定でブラウザを使います。確認済み: eas-cli 24.7.0）" -ForegroundColor DarkGray
   Write-Host ""
-  Write-Host "  ② できたら、この窓で："
-  Write-Host "       npx eas-cli@latest login" -ForegroundColor Cyan
-  Write-Host ""
-  Write-Host "     パスワードは画面に何も出ません（* も出ない）。" -ForegroundColor DarkGray
-  Write-Host "     打てていないように見えますが打てているので、" -ForegroundColor DarkGray
-  Write-Host "     打ち直さずに最後まで打って Enter。" -ForegroundColor DarkGray
-  Write-Host ""
-  Write-Host "  ③ そのあと、もう一度このファイルを実行してください。"
-  Write-Host ""
-  exit 1
+  npx eas-cli@latest login
+  $who = ""
+  try { $who = (npx eas-cli@latest whoami 2>&1 | Out-String).Trim() } catch { $who = "" }
+  if ($LASTEXITCODE -ne 0 -or $who -match "Not logged in" -or $who -eq "") {
+    Write-Host ""
+    Write-Host "ログインできませんでした。" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  ブラウザでうまくいかないときは、**合い言葉（トークン）**を使う道があります："
+    Write-Host "    ① https://expo.dev/settings/access-tokens を開く" -ForegroundColor Cyan
+    Write-Host "    ② 「Create token」で作り、出てきた文字をコピー（一度しか出ません）"
+    Write-Host "    ③ この窓で：" 
+    Write-Host "         set EXPO_TOKEN=コピーした文字" -ForegroundColor Cyan
+    Write-Host "    ④ そのあと、もう一度このファイルを実行"
+    Write-Host ""
+    Write-Host "  これは Google で登録した人でも必ず通ります" -ForegroundColor DarkGray
+    Write-Host "  （パスワードを使わないため）。" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  ※ トークンは**この窓を閉じると消えます**。毎回入れ直すか、" -ForegroundColor DarkGray
+    Write-Host "    ブラウザでのログインが通るなら、そちらのほうが楽です。" -ForegroundColor DarkGray
+    Write-Host ""
+    exit 1
+  }
 }
 Write-Host ("Expo: {0}" -f $who) -ForegroundColor DarkGray
 
@@ -100,6 +111,7 @@ if ($LASTEXITCODE -ne 0) {
   Write-Host "組み立てを頼めませんでした。" -ForegroundColor Red
   Write-Host "  「username, email, or password was incorrect」なら、ログインのやり直しです："
   Write-Host "     npx eas-cli@latest login" -ForegroundColor Cyan
+  Write-Host "  （Google で登録した人はパスワードが無いので、ブラウザの側で入ること）" -ForegroundColor DarkGray
   Write-Host "  それ以外なら、画面に出ている文字をそのまま貼って相談してください。" -ForegroundColor Yellow
   exit 1
 }
