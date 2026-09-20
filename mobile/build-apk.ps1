@@ -32,11 +32,18 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
   $ErrorActionPreference = $prev
 }
 
-# --- 初回だけ、要るものを入れる ---
-if (-not (Test-Path "node_modules")) {
-  Write-Host ""
-  Write-Host "初回の準備をしています（数分かかります）…" -ForegroundColor Yellow
-  npm install
+# --- 要るものを入れる ---
+# **「node_modules が有るか」で判断しないこと**（2026-09-20）。
+# 依存を1つ足したとき、フォルダは既に有るので飛ばされ、**足したものだけ入らない**。
+# `npm install` は、揃っていれば数秒で終わる。毎回通すほうが安全。
+{
+  if (-not (Test-Path "node_modules")) {
+    Write-Host ""
+    Write-Host "初回の準備をしています（数分かかります）…" -ForegroundColor Yellow
+  } else {
+    Write-Host "要るものが揃っているか確かめています…" -ForegroundColor DarkGray
+  }
+  npm install --no-audit --no-fund
   if ($LASTEXITCODE -ne 0) {
     Write-Host "準備でつまずきました。上のメッセージをそのまま貼って相談してください。" -ForegroundColor Red
     exit 1
