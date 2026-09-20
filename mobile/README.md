@@ -85,7 +85,7 @@ npx eas build -p android --profile preview
 | QRが出るところまで走るか | **確認済み**（`expo start` が QR と `exp://…:8081` を表示） |
 | スマホが受け取る中身 | **確認済み**（manifest が HTTP 200・`name: AI秘書`、bundle が HTTP 200・4,425,309バイト／775モジュール、その中に本体の文言が入っている） |
 | 使っている2つが Expo Go に入っているか | **確認済み**（「追加の設定が要る」一覧に載っていない） |
-| 画面が出るか | **未確認**（端末が要る） |
+| 画面が出るか | **確認済み**（2026-09-20・本人の Android。Expo Go で開けた） |
 | 記録が残るか | **未確認** |
 | AIが動くか | **未確認** |
 | 通知が鳴るか | **未確認** |
@@ -108,9 +108,15 @@ JSX を見るには `npx esbuild --loader=jsx < App.js` のように使います
 
 ## 分かっている落とし穴
 
-- **Expo Go では「プッシュ通知」が使えません**（サーバから送るもの。例外を投げます）。
-  この殻が使うのは**ローカル通知**（先に予約するもの）だけなので当たりませんが、
-  ここを取り違えると原因を探して迷子になります。
+- **`expo-notifications` を丸ごと `import` すると、Expo Go では起動前に落ちます**
+  （2026-09-20・実機で報告。`[runtime not ready]: Error: expo-notifications: Android Push
+  notifications … was removed from Expo Go`）。
+  本体の `index.js` が `DevicePushTokenAutoRegistration.fx` を読み込み、その中で
+  `addPushTokenListener(...)` を**モジュールの一番外側で**呼ぶためです。
+  **プッシュを1行も使っていなくても落ちます。**
+  だから `App.js` は `expo-notifications/build/…` から**要るものだけ**を直接読みます。
+  **ここには「ローカル通知だけだから当たらない」と書いてありました。間違いでした。**
+  使うかどうかではなく、**読み込むかどうか**で決まります。
 - **通知の予約の書き方は expo-notifications の版で変わります。**
   `App.js` の `scheduleOne` が新しい形と古い形を順に試すのは、そのためです。
 - **`SCHEDULE_EXACT_ALARM` は Expo Go では効きません**（`app.json` の設定は

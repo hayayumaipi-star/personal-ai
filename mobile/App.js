@@ -17,7 +17,27 @@
 import React, { useCallback, useEffect, useRef } from "react";
 import { Platform, StatusBar, StyleSheet, View } from "react-native";
 import { WebView } from "react-native-webview";
-import * as Notifications from "expo-notifications";
+/* **`expo-notifications` を丸ごと import しないこと**（2026-09-20・実機で報告）。
+   本体の `index.js` は `DevicePushTokenAutoRegistration.fx` を読み込み、その中で
+   `addPushTokenListener(...)` を**モジュールの一番外側で**呼ぶ。それが
+   `warnOfExpoGoPushUsage()` を通り、**Android の Expo Go では例外を投げる**
+   （SDK 53 でプッシュ通知が外されたため）。
+   つまり **プッシュを1行も使っていなくても、import しただけで起動前に落ちる。**
+   `[runtime not ready]: Error: expo-notifications: Android Push notifications …` がこれ。
+   この殻が使うのは「先に予約するローカル通知」だけなので、**要るものだけを直接読む**。
+   プッシュ側の仕組みには一切触らない。
+   版を上げたときは、この道が残っているかを必ず確かめること
+   （無くなっていれば Metro が組み立ての時点で止まるので、黙って壊れることはない）。 */
+import { setNotificationHandler } from "expo-notifications/build/NotificationsHandler";
+import { scheduleNotificationAsync } from "expo-notifications/build/scheduleNotificationAsync";
+import { cancelAllScheduledNotificationsAsync }
+  from "expo-notifications/build/cancelAllScheduledNotificationsAsync";
+import { getPermissionsAsync, requestPermissionsAsync }
+  from "expo-notifications/build/NotificationPermissions";
+import { setNotificationChannelAsync }
+  from "expo-notifications/build/setNotificationChannelAsync";
+import { SchedulableTriggerInputTypes } from "expo-notifications/build/Notifications.types";
+import { AndroidImportance } from "expo-notifications/build/NotificationChannelManager.types";
 /* アプリ本体。`node sync.js` が app/index.html から作る（直さないこと）。 */
 import APP_HTML from "./app-html";
 
@@ -26,7 +46,7 @@ import APP_HTML from "./app-html";
 const BASE_URL = "https://hitohi.local";
 const CHANNEL = "plan";
 
-Notifications.setNotificationHandler({
+setNotificationHandler({
   handleNotification: async () => ({
     // 新しい名前と古い名前の両方を渡す（知らない鍵は無視される）
     shouldShowBanner: true, shouldShowList: true,
@@ -38,15 +58,15 @@ Notifications.setNotificationHandler({
    ここで落とすと通知が1つも鳴らないので、黙って諦めないこと。 */
 async function scheduleOne(content, date) {
   const tryTriggers = [];
-  if (Notifications.SchedulableTriggerInputTypes) {
-    tryTriggers.push({ type: Notifications.SchedulableTriggerInputTypes.DATE, date,
+  if (SchedulableTriggerInputTypes) {
+    tryTriggers.push({ type: SchedulableTriggerInputTypes.DATE, date,
                        channelId: CHANNEL });
   }
   tryTriggers.push({ date, channelId: CHANNEL });
   tryTriggers.push(date);
   let last = null;
   for (const trigger of tryTriggers) {
-    try { await Notifications.scheduleNotificationAsync({ content, trigger }); return true; }
+    try { await scheduleNotificationAsync({ content, trigger }); return true; }
     catch (e) { last = e; }
   }
   console.warn("通知を予約できませんでした", last);
@@ -60,13 +80,13 @@ export default function App() {
     (async () => {
       try {
         if (Platform.OS === "android") {
-          await Notifications.setNotificationChannelAsync(CHANNEL, {
+          await setNotificationChannelAsync(CHANNEL, {
             name: "予定の知らせ",
-            importance: Notifications.AndroidImportance.DEFAULT
+            importance: AndroidImportance.DEFAULT
           });
         }
-        const cur = await Notifications.getPermissionsAsync();
-        if (cur.status !== "granted") await Notifications.requestPermissionsAsync();
+        const cur = await getPermissionsAsync();
+        if (cur.status !== "granted") await requestPermissionsAsync();
       } catch (e) { console.warn("通知の準備でつまずきました", e); }
     })();
   }, []);
@@ -99,7 +119,7 @@ export default function App() {
 
     if (m.kind === "notify") {
       try {
-        await Notifications.cancelAllScheduledNotificationsAsync();
+        await cancelAllScheduledNotificationsAsync();
         const list = Array.isArray(m.list) ? m.list.slice(0, 20) : [];
         for (const n of list) {
           const at = Number(n && n.at);
