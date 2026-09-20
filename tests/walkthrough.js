@@ -213,7 +213,7 @@
       await click('nav.tabs [data-tab="p-day"]');
       const html = $$("#dayOut").innerHTML;
       if (/次にすること/.test(html)) throw new Error("まだ出ている");
-      if (!/TIMELINE|今日の案/.test(html)) throw new Error("肝心の予定表が無い");
+      if (!/今日の案/.test(html)) throw new Error("肝心の予定表が無い");
     });
     await step("タブの名前がスケジュールになっている", async () => {
       const b = document.querySelector('nav.tabs [data-tab="p-day"]');
@@ -592,6 +592,19 @@
       } finally { db.doc = origDoc; }
       if (!lastError) throw new Error("不具合として記録されない");
       lastError = null;              // わざと起こした失敗なので、ここで消す
+    });
+    /* 消す操作は折りたたみの中へ移した（2026-09-20・本人の指示）。
+       `el.click()` はたたまれたままでも効いてしまうので、**人が辿れる道**を別に確かめる。
+       在ることの確認では代用できない（決まり「ボタンを足したら実際にクリックさせる」）。 */
+    await step("「記録を消す」を開くと、消す道が2つとも出てくる", async () => {
+      await click('nav.tabs [data-tab="p-set"]');
+      const fold = $$("#btnWipe").closest("details");
+      if (!fold) throw new Error("折りたたみの中に無い");
+      if (fold.open) throw new Error("最初から開いている");
+      await click(fold.querySelector("summary"));
+      if (!fold.open) throw new Error("押しても開かない");
+      for (const id of ["#btnTidy", "#btnWipe"])
+        if (!$$(id).getBoundingClientRect().height) throw new Error(id + " が出てこない");
     });
     await step("「全部消す」（確認 → 消す）", async () => {
       await click('nav.tabs [data-tab="p-set"]');

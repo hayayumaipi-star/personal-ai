@@ -5,37 +5,37 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700&family=Noto+Sans+JP:wght@400;500&family=JetBrains+Mono:wght@500;600&display=swap">
 <style>
 :root{
-  --paper:#F2F4F3; --surface:#FFFFFF; --surface-2:#E8ECEB;
-  --ink:#14201F; --ink-2:#55635F; --ink-3:#7D8B87;
-  --line:#D3DAD8; --line-strong:#B7C1BE;
-  --accent:#0D6E6B; --accent-soft:#D9EDEB; --accent-ink:#0A4E4C;
-  --warn:#A65A0B; --warn-soft:#F7E7D2; --warn-ink:#7A4208;
-  --done:#3D6B4A; --done-soft:#DEEBE1;
-  --alert:#A33A32; --alert-soft:#F6DFDC;
-  --shadow:0 1px 2px rgba(20,32,31,.06), 0 6px 18px rgba(20,32,31,.06);
+  --paper:#FAFAFA; --surface:#FFFFFF; --surface-2:#F4F4F4;
+  --ink:#121212; --ink-2:#5C5C5C; --ink-3:#8C8C8C;
+  --line:#E3E3E3; --line-strong:#BFBFBF;
+  --accent:#121212; --accent-soft:#F0F0F0; --accent-ink:#121212;
+  --warn:#6B6B6B; --warn-soft:#F0F0F0; --warn-ink:#2E2E2E;
+  --done:#5C5C5C; --done-soft:#F4F4F4;
+  --alert:#B3261E; --alert-soft:#FBEBEA;
+  --shadow:0 1px 2px rgba(0,0,0,.05), 0 6px 18px rgba(0,0,0,.05);
   --r:10px;
   --f-disp:"Zen Kaku Gothic New","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
   --f-body:"Noto Sans JP","Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;
   --f-mono:"JetBrains Mono","SFMono-Regular",Consolas,monospace;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --paper:#101615; --surface:#182120; --surface-2:#212C2A;
-  --ink:#E4EBE9; --ink-2:#94A5A1; --ink-3:#74857F;
-  --line:#2E3B39; --line-strong:#3F504D;
-  --accent:#4FC3BC; --accent-soft:#14332F; --accent-ink:#8BDBD5;
-  --warn:#E0A458; --warn-soft:#33291A; --warn-ink:#E0A458;
-  --done:#6FB587; --done-soft:#1B2E22;
-  --alert:#E0796F; --alert-soft:#331E1B;
+  --paper:#0F0F0F; --surface:#181818; --surface-2:#242424;
+  --ink:#F0F0F0; --ink-2:#A0A0A0; --ink-3:#787878;
+  --line:#2B2B2B; --line-strong:#464646;
+  --accent:#FAFAFA; --accent-soft:#242424; --accent-ink:#F0F0F0;
+  --warn:#9A9A9A; --warn-soft:#242424; --warn-ink:#D4D4D4;
+  --done:#A0A0A0; --done-soft:#242424;
+  --alert:#F08379; --alert-soft:#2E1917;
   --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.3);
 }}
 :root[data-theme="dark"]{
-  --paper:#101615; --surface:#182120; --surface-2:#212C2A;
-  --ink:#E4EBE9; --ink-2:#94A5A1; --ink-3:#74857F;
-  --line:#2E3B39; --line-strong:#3F504D;
-  --accent:#4FC3BC; --accent-soft:#14332F; --accent-ink:#8BDBD5;
-  --warn:#E0A458; --warn-soft:#33291A; --warn-ink:#E0A458;
-  --done:#6FB587; --done-soft:#1B2E22;
-  --alert:#E0796F; --alert-soft:#331E1B;
+  --paper:#0F0F0F; --surface:#181818; --surface-2:#242424;
+  --ink:#F0F0F0; --ink-2:#A0A0A0; --ink-3:#787878;
+  --line:#2B2B2B; --line-strong:#464646;
+  --accent:#FAFAFA; --accent-soft:#242424; --accent-ink:#F0F0F0;
+  --warn:#9A9A9A; --warn-soft:#242424; --warn-ink:#D4D4D4;
+  --done:#A0A0A0; --done-soft:#242424;
+  --alert:#F08379; --alert-soft:#2E1917;
   --shadow:0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.3);
 }
 
@@ -76,9 +76,7 @@ header.top{position:sticky;top:0;z-index:40;background:var(--paper);border-botto
   border:1px solid var(--line-strong);border-radius:8px;padding:9px 14px;background:var(--surface);
   min-height:40px;transition:background .12s,border-color .12s}
 .btn:hover{border-color:var(--ink-3)}
-.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
-:root[data-theme="dark"] .btn.pri,:root:not([data-theme="light"]) .btn.pri{color:#08201F}
-@media (prefers-color-scheme:light){:root:not([data-theme="dark"]) .btn.pri{color:#fff}}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--paper);font-weight:700}
 .btn.pri:hover{filter:brightness(1.08)}
 .btn.sm{font-size:12px;padding:5px 10px;min-height:32px;border-radius:7px}
 /* 会話の時刻の横に添える「原文」。画面幅で大きさを変えるので、インライン style にしない */
@@ -97,9 +95,7 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 .chip{display:inline-flex;align-items:center;gap:4px;font-family:var(--f-disp);font-size:10.5px;
   font-weight:500;letter-spacing:.03em;padding:1px 7px;border-radius:999px;border:1px solid var(--line-strong);
   color:var(--ink-2);background:transparent;white-space:nowrap;line-height:1.7}
-.chip.src-user{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
-:root[data-theme="dark"] .chip.src-user{color:#08201F}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .chip.src-user{color:#08201F}}
+.chip.src-user{background:var(--accent);border-color:var(--accent);color:var(--paper);font-weight:700}
 .chip.src-rule{border-color:var(--line-strong);color:var(--ink-2)}
 /* 文字は --warn ではなく --warn-ink。明るいときに --warn × --warn-soft だと 4.24 しか出ない */
 .chip.src-ai{border-style:dashed;border-color:var(--warn);color:var(--warn-ink);background:var(--warn-soft)}
@@ -123,8 +119,6 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 .evid{font-size:12.5px;color:var(--ink-2);background:var(--surface-2);border-radius:7px;
   padding:7px 9px;border-left:2px solid var(--line-strong)}
 .evid mark{background:var(--accent-soft);color:var(--accent-ink);padding:0 2px;border-radius:2px}
-:root[data-theme="dark"] .evid mark{color:var(--accent)}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .evid mark{color:var(--accent)}}
 
 /* timeline — 1本の時間軸の上に、長さに比例した枠が並ぶ。
    高さは JS では決めない。`--min`（分）だけ渡して、1分あたりの高さ（--tlscale）を
@@ -177,10 +171,7 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
   margin-right:7px;vertical-align:middle;flex:none}
 /* いま進行中の枠。赤い線を消した代わりに、この印が「いま」を引き受ける */
 .nowtag{flex:none;align-self:center;font-family:var(--f-disp);font-size:9.5px;font-weight:700;
-  letter-spacing:.08em;color:#fff;background:var(--alert);border-radius:4px;padding:2px 6px;line-height:1.4}
-/* 暗いときの --alert は明るいサーモン。白字だとコントラスト2.9まで落ちるので、字を暗くする */
-:root[data-theme="dark"] .nowtag{color:#2B1411}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .nowtag{color:#2B1411}}
+  letter-spacing:.08em;color:var(--paper);background:var(--ink);border-radius:4px;padding:2px 6px;line-height:1.4}
 /* いまの枠は、囲みを**足さずに**枠そのものの色を変える。
    外側に輪を重ねると、固定予定（青い枠）の上に赤い枠が乗って二重に見える（本人からの報告）。
    実線／破線はそのまま残るので、固定か動かせるかの区別は消えない。 */
@@ -188,10 +179,10 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 .blk.running.past{opacity:1}
 /* いまの位置（空いている時間にいるときだけ引く） */
 .tlrow.nowline{align-items:center;margin:2px 0 6px}
-.tlrow.nowline .tltime{padding-top:0;color:var(--alert);font-weight:600}
-.tlrow.nowline>div:last-child{position:relative;height:1px;background:var(--alert)}
+.tlrow.nowline .tltime{padding-top:0;color:var(--ink);font-weight:600}
+.tlrow.nowline>div:last-child{position:relative;height:1px;background:var(--ink)}
 .tlrow.nowline span{position:absolute;left:0;top:-8px;background:var(--paper);padding-right:7px;
-  font-family:var(--f-disp);font-size:10px;font-weight:700;color:var(--alert);letter-spacing:.08em}
+  font-family:var(--f-disp);font-size:10px;font-weight:700;color:var(--ink);letter-spacing:.08em}
 
 .next{background:var(--surface);border:1px solid var(--accent);border-radius:var(--r);
   border-top:3px solid var(--accent);padding:13px 14px;display:flex;flex-direction:column;gap:8px}
@@ -400,7 +391,6 @@ details.unconf>summary{color:var(--warn)}
 <!-- ============ 話す ============ -->
 <section class="panel" id="p-chat">
   <div class="chathead">
-    <span class="eyebrow">TALK</span>
     <span class="hint" id="chatDay"></span>
     <button class="btn sm" id="btnChatMenu" style="margin-left:auto">…</button>
   </div>
@@ -422,10 +412,8 @@ details.unconf>summary{color:var(--warn)}
 <!-- ============ わたしのこと ============ -->
 <section class="panel" id="p-me">
   <div class="sect" style="margin-top:6px">
-    <span class="eyebrow">ABOUT YOU</span>
     <h2>わたしのこと</h2>
-    <p class="hint">ずっと変わらない、あなたについての情報です。予定づくりと返事のときに、いつも参照されます。<br>
-    <strong>その日の体調や気分はここに入りません。</strong>あれは「スケジュール」タブに、その日の話として残ります。</p>
+    <p class="hint">日をまたいでも変わらないこと。その日の体調や気分は「スケジュール」に入ります。</p>
   </div>
   <div id="meOut" class="stack" style="margin-top:12px"></div>
 </section>
@@ -433,7 +421,6 @@ details.unconf>summary{color:var(--warn)}
 <!-- ============ 設定 ============ -->
 <section class="panel" id="p-set">
   <div class="sect" style="margin-top:6px">
-    <span class="eyebrow">SETTINGS</span>
     <h2>設定</h2>
   </div>
   <div class="stack" style="margin-top:11px">
@@ -468,7 +455,7 @@ details.unconf>summary{color:var(--warn)}
           <option value="light">明るく</option>
           <option value="dark">暗く</option>
         </select>
-        <p class="hint" style="margin-top:4px">「端末に合わせる」は、スマホやパソコンのダークモード設定に従います。</p></div>
+        </div>
       <span id="setMsg" class="hint"></span>
     </div>
 
@@ -480,9 +467,6 @@ details.unconf>summary{color:var(--warn)}
            **ただし「何が送られるか」は画面から消さない。**新しい外部送信を足すときの
            決まりそのもので、`refreshAiState` がその1行を書く。 -->
       <p class="hint" id="aiState">確認中…</p>
-      <p class="hint"><strong>APIキーは入れなくて構いません。</strong>入れなければ今までどおり動きます。<br>
-      入れると、claude.ai の窓口の代わりに<strong>あなたのキーで</strong>AIを呼びます。
-      独立したサイトやスマホのアプリにしたときは、<strong>これが唯一のAIの道</strong>になります。</p>
       <div class="grid2">
         <div><label class="fld" for="aiProv">どこのAI</label>
           <select id="aiProv">
@@ -493,8 +477,7 @@ details.unconf>summary{color:var(--warn)}
         <div><label class="fld" for="aiModel">モデル名</label>
           <input type="text" id="aiModel" placeholder="claude-opus-5" autocomplete="off"></div>
       </div>
-      <p class="hint">モデル名は<strong>書き換えられます</strong>。提供元が名前を変えることがあるので、
-      断られたらここを直してください。安いモデルを選べば費用は下がります。</p>
+      <p class="hint">断られたらモデル名を直してください。提供元が名前を変えることがあります。</p>
       <div><label class="fld" for="aiKey">APIキー</label>
         <input type="password" id="aiKey" placeholder="ここに貼り付ける" autocomplete="off"></div>
       <div class="note info" id="aiSendNote"></div>
@@ -506,8 +489,17 @@ details.unconf>summary{color:var(--warn)}
       <div id="aiKeyMsg"></div>
     </div>
 
+    <!-- 「データ」の1枚に操作が8つ並んでいたのを、性質で3つに割った
+         （2026-09-20・本人の指示「わちゃわちゃしているのでシンプルに」）。
+         **さがす**（毎日の操作）を上へ、**持ち出す・持ち込む**を次へ、
+         **消す**（取り返しがつかない）は折りたたみの中へ。
+         「全部消す」が「書き出す」の隣にあったので、指が滑ると終わりだった。
+         **道は1つも塞いでいない**（消す道を減らさない・決まり）。 -->
     <div class="card stack">
-      <h3 style="font-size:14px">データ</h3>
+      <h3 style="font-size:14px">記録</h3>
+      <div><label class="fld" for="findQ">さがす</label>
+        <input type="search" id="findQ" placeholder="言葉を入れる（例：歯医者）"></div>
+      <div id="findOut"></div>
       <p class="hint" id="dataState"></p>
       <!-- 記録がどこにあるかは、**開き方で変わる**（2026-09-20・APKを本物にした日）。
            ここに固定の文を書くと、Android アプリでは**まるごと嘘**になる
@@ -517,44 +509,47 @@ details.unconf>summary{color:var(--warn)}
       <div class="note warn" id="dataWarn" hidden></div>
       <!-- 作業に使える時間帯が狭いまま保存されている人の逃げ道（v6.3・実機で報告）。
            設定欄は v3.9 で外したので、古い値のままだと**画面から直す道が無かった**。
-           実機で 05:00〜11:00 のまま残っていて、11時より後に何も置けなくなっていた。
            入力欄は戻さない。戻すのは「一日じゅうに戻す」の1手だけ。 -->
       <div class="note warn" id="windowWarn" hidden></div>
+    </div>
+
+    <div class="card stack">
+      <h3 style="font-size:14px">持ち出す・持ち込む</h3>
       <div class="row">
         <button class="btn" id="btnExport">書き出す（JSON）</button>
         <button class="btn" id="btnImport">読み込む（JSON）</button>
-        <button class="btn danger" id="btnWipe">全部消す</button>
       </div>
-      <input type="file" id="impFile" accept=".json,application/json,text/plain" class="sr">
-      <input type="file" id="icsFile" accept=".ics,text/calendar,text/plain" class="sr">
-      <div class="row" style="margin-top:2px">
+      <div class="row">
         <button class="btn" id="btnIcsIn">カレンダーを読み込む（.ics）</button>
         <button class="btn" id="btnIcsOut">カレンダーに出す（.ics）</button>
       </div>
-      <p class="hint">Googleカレンダーなどから書き出した <code>.ics</code> を読み込めます。
-        <strong>認証も外部送信もありません。</strong>ファイルをこの端末で読むだけです。
-        出すほうは、この先の予定を <code>.ics</code> にします。</p>
-      <p class="hint">「読み込む」は、書き出したJSONを戻します。<strong>いまの記録は消しません。</strong>
-        同じものは二重に足しません。</p>
-      <div class="row" style="margin-top:2px">
-        <select id="tidyAge" style="max-width:200px">
-          <option value="90">3か月より前</option>
-          <option value="180">6か月より前</option>
-          <option value="365">1年より前</option>
-        </select>
-        <button class="btn" id="btnTidy">古い記録を整理する</button>
-      </div>
-      <p class="hint">整理で消えるのは、<strong>終わった・取り消した項目と、その原文・会話</strong>だけです。
-        やりかけのものは、どれだけ古くても残します。</p>
-      <div><label class="fld" for="findQ">記録をさがす</label>
-        <input type="search" id="findQ" placeholder="言葉を入れる（例：歯医者）"></div>
-      <div id="findOut"></div>
+      <input type="file" id="impFile" accept=".json,application/json,text/plain" class="sr">
+      <input type="file" id="icsFile" accept=".ics,text/calendar,text/plain" class="sr">
+      <p class="hint">読み込んでも<strong>いまの記録は消えません</strong>。同じものは二重に足しません。
+        <code>.ics</code> はこの端末で読むだけで、<strong>外へは送りません</strong>。</p>
       <div id="expOut"></div>
     </div>
 
+    <details class="allplan">
+      <summary>記録を消す</summary>
+      <div class="stack" style="margin-top:11px">
+        <div class="row">
+          <select id="tidyAge" style="max-width:190px">
+            <option value="90">3か月より前</option>
+            <option value="180">6か月より前</option>
+            <option value="365">1年より前</option>
+          </select>
+          <button class="btn" id="btnTidy">古い記録を整理する</button>
+        </div>
+        <p class="hint">消えるのは<strong>終わった・取り消した項目と、その原文・会話</strong>だけ。
+          やりかけのものは、どれだけ古くても残します。</p>
+        <div class="row"><button class="btn danger" id="btnWipe">全部消す</button></div>
+      </div>
+    </details>
+
     <div class="card stack" id="errCard" hidden>
       <h3 style="font-size:14px">最後に起きた不具合</h3>
-      <p class="hint">うまく動かなかったときの中身です。<strong>この文をそのまま伝えてもらえると、原因が特定できます。</strong></p>
+      <p class="hint">この文をそのまま伝えてもらえると、原因が特定できます。</p>
       <textarea id="errText" readonly style="min-height:70px;font-family:var(--f-mono);font-size:12px"></textarea>
       <div class="row"><button class="btn sm" id="btnErrClear">消す</button></div>
     </div>
@@ -2987,7 +2982,7 @@ function renderDay() {
         ${plan.winCapped ? '<span>夜は空けています</span>' : ""}
       </div>${tlHTML}</details>`;
   } else {
-    h += `<div class="sect"><span class="eyebrow">TIMELINE</span><h2>今日の案</h2>
+    h += `<div class="sect"><h2>今日の案</h2>
       <div class="legend" style="margin-top:5px">
         <span><i class="lf"></i>動かさない予定</span>
         <span><i class="lx"></i>動かせる作業</span>
@@ -3029,7 +3024,7 @@ function renderDay() {
     .sort((a, b) => (a.dayKey || "9999").localeCompare(b.dayKey || "9999"));
   const owedMin = owed.reduce((n, i) => n + (i.remainingMin != null ? i.remainingMin : (i.estimateMin || 0)), 0);
 
-  h += `<div class="sect"><span class="eyebrow">TODO</span><h2>この日にやること</h2></div>`;
+  h += `<div class="sect"><h2>この日にやること</h2></div>`;
   if (!owed.length) {
     h += `<div class="card empty">ありません。</div>`;
   } else {
@@ -3059,7 +3054,7 @@ function renderDay() {
     // 置けなかった理由は、この欄に持ってくる（「詰め込まず理由を示す」を守る）
     const reasonOf = id => (plan.unplaced.find(u => u.item.id === id) || {}).reason || "";
 
-    h += `<div class="sect"><span class="eyebrow">TASKS</span><h2>タスク</h2>
+    h += `<div class="sect"><h2>タスク</h2>
       <p class="hint" style="margin-top:4px">日付を決めていない、やること。${
         placed ? `このうち${placed}件は今日の案に入れています。` : ""}</p></div>`;
     h += rest.length
@@ -3218,9 +3213,8 @@ function renderChat(scroll) {
   if (!list.length && !lrows.length) {
     host.innerHTML = `<div class="card stack">
       <h3 style="font-size:15px">整理しないで、そのまま話してください</h3>
-      <p class="hint">予定も、気分も、思いつきも、混ぜたままで大丈夫です。話すたびに今日の案を作り直します。<br><br>
-      「資料できた」「あと1時間かかりそう」「15時じゃなくて14時だった」「今日は詰めすぎないで」——
-      こういう言い直しや要望も、そのまま言ってください。</p>
+      <p class="hint">予定も、気分も、思いつきも、混ぜたままで大丈夫です。<br>
+      「資料できた」「15時じゃなくて14時だった」——言い直しもそのまま言ってください。</p>
       <div class="row">
         <button class="btn" id="btnSample">例を入れてみる</button>
         <button class="btn" id="btnFileOpen">テキストファイルを取り込む</button>
@@ -3255,8 +3249,7 @@ function renderMe() {
   /* ---- 渡す欄 ---- */
   h += `<div class="card stack">
     <h3 style="font-size:14px">自分について渡す</h3>
-    <p class="hint">自己紹介、仕事や研究の背景、価値観、苦手なこと、昔の日記——なんでも構いません。
-    読み取って下の一覧に足します。<strong>資料そのものは残るので、あとから読み返せます。</strong></p>
+    <p class="hint">自己紹介でも、昔の日記でも構いません。読み取って下の一覧に足します。</p>
     <div><label class="fld" for="docTitle">これは何ですか（任意）</label>
       <input type="text" id="docTitle" placeholder="例：研究の背景メモ"></div>
     <div><label class="fld" for="docText">本文</label>
@@ -3271,10 +3264,9 @@ function renderMe() {
   </div>`;
 
   /* ---- ① 会話から集まったこと ---- */
-  h += `<div class="sect"><span class="eyebrow">FROM TALKING</span>
-    <h2>会話から集まったこと（${profs.length}件）</h2>
-    <p class="hint">話しているうちに出てきた、あなたについての情報です。${SAMPLEFN
-      ? "AIが会話の中から見つけたものも含みます。" : "いまAIを使っていないので、はっきりした言い方（「〜が苦手」「昔から〜」など）だけを拾っています。"}</p></div>`;
+  h += `<div class="sect"><h2>会話から集まったこと（${profs.length}件）</h2>
+    <p class="hint">${SAMPLEFN
+      ? "話の中から集まったものです。" : "AIを使っていないので、はっきりした言い方だけを拾っています。"}</p></div>`;
 
   if (unconf.length) {
     h += `<div class="note warn" style="margin-top:8px">${unconf.length}件が未確認です。合っていないものは「訂正」か「取り消す」で直してください。
@@ -3297,10 +3289,8 @@ function renderMe() {
      押しても保存はしない——チャットへ移って、本人が言葉で答える（会話が入口）。 */
   const gaps = telosGaps();
   if (gaps.length) {
-    h += `<div class="sect"><span class="eyebrow">NOT ASKED YET</span>
-      <h2>まだ聞いていないこと（${gaps.length}件）</h2>
-      <p class="hint">答えるほど、予定の組み方と返事があなたに合っていきます。
-      <strong>答えなくても構いません。</strong>質問だけがアプリに入っていて、答えはあなたの保存先にだけ残ります。</p></div>
+    h += `<div class="sect"><h2>まだ聞いていないこと（${gaps.length}件）</h2>
+      <p class="hint">答えるほど、予定の組み方があなたに合っていきます。答えなくても構いません。</p></div>
     <div class="stack">${gaps.map(a => `<div class="card row">
       <div style="flex:1 1 180px">${esc(a.q)}</div>
       <button class="btn sm" data-act="telosask" data-id="${a.key}" style="margin-left:auto">これを話す</button>
@@ -3308,8 +3298,7 @@ function renderMe() {
   }
 
   /* ---- ② 自分で渡したもの ---- */
-  h += `<div class="sect"><span class="eyebrow">UPLOADED</span>
-    <h2>自分で渡したもの（${state.docs.length}件）</h2>
+  h += `<div class="sect"><h2>自分で渡したもの（${state.docs.length}件）</h2>
     <p class="hint">あなたが渡した資料そのものです。ここから読み取ったものには「資料」の印が付きます。</p></div>`;
 
   if (!state.docs.length) {
@@ -3344,8 +3333,7 @@ function renderMe() {
   const prefItems = liveItems().filter(i => i.kind === "preference");
 
   if (goals.length || ideas.length || memos.length || prefItems.length) {
-    h += `<div class="sect"><span class="eyebrow">NOT ON THE SCHEDULE</span>
-      <h2>予定表に入らないもの</h2>
+    h += `<div class="sect"><h2>予定表に入らないもの</h2>
       <p class="hint">日付が無いので、スケジュールには置いていません。ここに貯まります。</p></div>`;
 
     if (goals.length) {
@@ -3373,8 +3361,9 @@ function renderMe() {
     }
   }
 
-  h += `<div class="sect"><p class="hint">AIに送られるのは、上の<strong>一覧にある短い文だけ</strong>です。
-    資料の全文は毎回は送りません（長すぎるため）。読み取りのときだけ送ります。</p></div>`;
+  // 何が外へ送られるかは、短くしても消さない（新しい外部送信の決まり）
+  h += `<div class="sect"><p class="hint">AIに送るのは<strong>一覧にある短い文だけ</strong>です。
+    資料の全文は、読み取りのときにしか送りません。</p></div>`;
 
   host.innerHTML = h;
 }

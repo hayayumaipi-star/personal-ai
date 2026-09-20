@@ -754,16 +754,16 @@
 
       view.day = "2026-09-11"; showTab("p-day"); renderDay();
       const html = document.querySelector("#dayOut").innerHTML;
-      const sect = html.slice(html.indexOf("TASKS"));
-      ok("スケジュールに「タスク」の欄がある", /TASKS/.test(html) && /<h2>タスク<\/h2>/.test(html));
+      const sect = html.slice(html.indexOf("<h2>タスク</h2>"));
+      ok("スケジュールに「タスク」の欄がある", /<h2>タスク<\/h2>/.test(html));
       ok("日付なしの用事が「タスク」に出る", /郵便局に行く/.test(sect), sect.length + "文字");
       ok("期限があいまいな用事も「タスク」に出る", /本棚を整理する/.test(sect));
       ok("日付が決まっている用事は「タスク」に出さない", !/資料を送る/.test(sect));
       ok("完了した用事は「タスク」に出さない", !/終わった用事/.test(sect));
       ok("思いつき（idea）は「タスク」に出さない", !/いつか旅行/.test(sect));
       ok("「タスク」はいちばん下（タイムラインより後ろ）",
-         html.indexOf("TASKS") > html.indexOf("TIMELINE"),
-         "TIMELINE=" + html.indexOf("TIMELINE") + " / TASKS=" + html.indexOf("TASKS"));
+         html.indexOf("<h2>タスク</h2>") > html.indexOf("<h2>今日の案</h2>"),
+         "今日の案=" + html.indexOf("<h2>今日の案</h2>") + " / タスク=" + html.indexOf("<h2>タスク</h2>"));
       ok("今日の案と重なる件数を、行ごとではなく見出しの下に1回だけ書く",
          (sect.match(/今日の案に入れています/g) || []).length <= 1,
          (sect.match(/今日の案に入れています/g) || []).length + "回");
@@ -811,7 +811,7 @@
       renderDay();
       const html2 = document.querySelector("#dayOut").innerHTML;
       ok("タスクが無いときは「ありません」と出す",
-         /<h2>タスク<\/h2>/.test(html2) && /ありません/.test(html2.slice(html2.indexOf("TASKS"))));
+         /<h2>タスク<\/h2>/.test(html2) && /ありません/.test(html2.slice(html2.indexOf("<h2>タスク</h2>"))));
 
       state.items = savedI; state.notes = savedN; lsWrite();
     }
@@ -838,7 +838,7 @@
 
       view.day = "2026-09-11"; showTab("p-day"); renderDay();
       const html = document.querySelector("#dayOut").innerHTML;
-      const from = html.indexOf("TODO"), to = html.indexOf("TASKS");
+      const from = html.indexOf("<h2>この日にやること</h2>"), to = html.indexOf("<h2>タスク</h2>");
       const sect = html.slice(from, to > from ? to : undefined);
 
       ok("今日が期限のものは、この欄に出す", /今日が期限のもの/.test(sect));
@@ -860,7 +860,7 @@
         duePrecision: "day", dueIsDeadline: true, estimateMin: 300, preferWindow: "morning" }));
       renderDay();
       const htmlR = document.querySelector("#dayOut").innerHTML;
-      const sectR = htmlR.slice(htmlR.indexOf("TODO"), htmlR.indexOf("TASKS"));
+      const sectR = htmlR.slice(htmlR.indexOf("<h2>この日にやること</h2>"), htmlR.indexOf("<h2>タスク</h2>"));
       ok("置き場所を言ったのに入らなかったものには、理由を付ける",
          /午前中にやりたい大仕事[\s\S]{0,400}置けない理由/.test(sectR),
          (sectR.match(/置けない理由：[^<]*/) || ["(理由が無い)"])[0]);
@@ -870,7 +870,7 @@
       state.items = state.items.filter(i => !/今日が期限|期限が切れ|今日やりたい/.test(i.title));
       renderDay();
       const html2 = document.querySelector("#dayOut").innerHTML;
-      const f2 = html2.indexOf("TODO"), t2 = html2.indexOf("TASKS");
+      const f2 = html2.indexOf("<h2>この日にやること</h2>"), t2 = html2.indexOf("<h2>タスク</h2>");
       const sect2 = html2.slice(f2, t2 > f2 ? t2 : undefined);
       ok("今日やるはずのものが無ければ、この欄は空になる",
          /ありません/.test(sect2) && !/三週間後/.test(sect2), sect2.replace(/<[^>]+>/g, " ").slice(0, 90));

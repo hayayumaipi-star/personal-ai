@@ -2851,18 +2851,31 @@
          **殻が無ければ何も起きない**・**形を確かめてから送る**の2つを固定する。 */
       {
         const keepTheme = state.settings.theme;
+        /* **色の値をここに直書きしない**（決まり7e）。書くと配色を変えるたびに
+           テストだけが古くなる（実際、黒と白にしたときにここだけ緑のままで落ちた）。
+           確かめるのは「本体の `--paper` がそのまま届くか」と「暗いときは本当に暗いか」。 */
+        const paperNow = () => String(getComputedStyle(document.documentElement)
+          .getPropertyValue("--paper") || "").trim().toLowerCase();
+        const lumOf = h => { const n = parseInt(h.slice(1), 16);
+          return 0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255); };
         sent.length = 0;
         applyTheme("dark");
         const dk = sent.find(m => m && m.kind === "chrome");
         ok("BG. 明暗を変えたら背景色を殻へ伝える", !!dk, JSON.stringify(sent));
         ok("BG. 伝えるのは色として読める形だけ",
            !!dk && /^#[0-9a-fA-F]{6}$/.test(dk.bg), dk && dk.bg);
-        ok("BG. 暗いときは暗い色を伝える", !!dk && dk.bg.toLowerCase() === "#101615", dk && dk.bg);
+        ok("BG. 暗いときは、本体の背景色をそのまま伝える",
+           !!dk && dk.bg.toLowerCase() === paperNow(), (dk && dk.bg) + " / 本体 " + paperNow());
+        ok("BG. 暗いときは本当に暗い色になっている",
+           !!dk && lumOf(dk.bg) < 90, dk && dk.bg + " 明るさ" + (dk ? Math.round(lumOf(dk.bg)) : "-"));
 
         sent.length = 0;
         applyTheme("light");
         const lt = sent.find(m => m && m.kind === "chrome");
-        ok("BG. 明るいときは明るい色を伝える", !!lt && lt.bg.toLowerCase() === "#f2f4f3", lt && lt.bg);
+        ok("BG. 明るいときは、本体の背景色をそのまま伝える",
+           !!lt && lt.bg.toLowerCase() === paperNow(), (lt && lt.bg) + " / 本体 " + paperNow());
+        ok("BG. 明るいときは本当に明るい色になっている",
+           !!lt && lumOf(lt.bg) > 160, lt && lt.bg + " 明るさ" + (lt ? Math.round(lumOf(lt.bg)) : "-"));
 
         /* 殻が無いときは、1件も送らない（ブラウザで動かしている人には何も起きない）。 */
         const keepRN2 = window.ReactNativeWebView;
@@ -2960,6 +2973,55 @@
          /Android アプリ/.test(shared), shared.slice(0, 60));
 
       DB = keepDB; renderWhere(); refreshAiState();
+    }
+
+    /* ===== BI. 黒と白の配色と、飾りの文字（2026-09-20・本人の指示） =====
+       「緑と白ではなく黒と白にしたい」「表示する必要のない文字列が多い」を受けた変更。
+       **色の値をここに直書きしない**（決まり7e・BG群で一度それをやって落ちた）。
+       確かめるのは「色みが無いこと」であって、どの灰色かではない。
+       色みを測るのは max(R,G,B) - min(R,G,B)。灰色なら 0 になる。
+       **`--alert` だけは別**——消す操作を見分けるための1色で、これは意図して残している。 */
+    {
+      const KEYS = ["--paper", "--surface", "--surface-2", "--ink", "--ink-2", "--ink-3",
+                    "--line", "--line-strong", "--accent", "--accent-soft", "--accent-ink",
+                    "--warn", "--warn-soft", "--warn-ink", "--done", "--done-soft"];
+      const chroma = h => { const m = /^#([0-9a-fA-F]{6})$/.exec(h.trim()); if (!m) return -1;
+        const n = parseInt(m[1], 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+        return Math.max(r, g, b) - Math.min(r, g, b); };
+      const before = document.documentElement.getAttribute("data-theme");
+      for (const theme of ["light", "dark"]) {
+        document.documentElement.setAttribute("data-theme", theme);
+        const cs = getComputedStyle(document.documentElement);
+        const bad = KEYS.map(k => [k, String(cs.getPropertyValue(k) || "").trim()])
+          .map(([k, v]) => [k, v, chroma(v)])
+          .filter(([, , c]) => c > 8 || c < 0);
+        ok("BI. 配色に色みが無い（" + theme + "）", bad.length === 0,
+           bad.map(([k, v, c]) => k + "=" + v + "(色み" + c + ")").join(" / ") || "全部グレー");
+      }
+      if (before) document.documentElement.setAttribute("data-theme", before);
+      else document.documentElement.removeAttribute("data-theme");
+
+      /* 飾りの英語ラベル（TIMELINE / TASKS / ABOUT YOU …）は外した。
+         日本語の見出しがすぐ下にあるので、同じことを2回書いていた。
+         **意味を持つ日本語のラベル**（変えたこと・次にすること等）は `.eyebrow` のまま残す。 */
+      const src = Array.from(document.scripts).map(x => x.textContent).join("")
+        + document.documentElement.innerHTML;
+      const strays = (src.match(/<span class="eyebrow">[A-Z][A-Z ]*<\/span>/g) || []);
+      ok("BI. 飾りの英語ラベルを画面に出さない", strays.length === 0, strays.join(" / "));
+      ok("BI. 意味のある日本語のラベルは残っている",
+         /<span class="eyebrow">変えたこと<\/span>/.test(src), "「変えたこと」が無い");
+
+      /* 「データ」1枚に8操作だったのを3つに割った。**消す操作は折りたたみの中**。 */
+      showTab("p-set");
+      const wipe = document.querySelector("#btnWipe");
+      const fold = wipe && wipe.closest("details");
+      ok("BI. 「全部消す」は折りたたみの中にある", !!fold, wipe ? "たたまれていない" : "ボタンが無い");
+      ok("BI. 折りたたみは閉じた状態から始まる", !!fold && !fold.open);
+      ok("BI. 消す道は1つも塞いでいない",
+         !!document.querySelector("#btnWipe") && !!document.querySelector("#btnTidy"));
+      ok("BI. 「さがす」が「全部消す」より上にある",
+         !!wipe && document.querySelector("#findQ").compareDocumentPosition(wipe)
+           === Node.DOCUMENT_POSITION_FOLLOWING);
     }
 
     const fails = R.filter(x => x.startsWith("FAIL"));
