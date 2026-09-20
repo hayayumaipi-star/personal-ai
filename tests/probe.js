@@ -2847,6 +2847,32 @@
       ok("BG. 知らない返事は捨てる", window.hitohiNative(JSON.stringify({ id: "zzz" })) === false, "拾った");
       ok("BG. 壊れた返事で落ちない", window.hitohiNative("{こわれた") === false, "落ちた");
 
+      /* 背景色を殻へ伝える（v8.4・実機で報告）。上下のシステムバーの裏に敷く色。
+         **殻が無ければ何も起きない**・**形を確かめてから送る**の2つを固定する。 */
+      {
+        const keepTheme = state.settings.theme;
+        sent.length = 0;
+        applyTheme("dark");
+        const dk = sent.find(m => m && m.kind === "chrome");
+        ok("BG. 明暗を変えたら背景色を殻へ伝える", !!dk, JSON.stringify(sent));
+        ok("BG. 伝えるのは色として読める形だけ",
+           !!dk && /^#[0-9a-fA-F]{6}$/.test(dk.bg), dk && dk.bg);
+        ok("BG. 暗いときは暗い色を伝える", !!dk && dk.bg.toLowerCase() === "#101615", dk && dk.bg);
+
+        sent.length = 0;
+        applyTheme("light");
+        const lt = sent.find(m => m && m.kind === "chrome");
+        ok("BG. 明るいときは明るい色を伝える", !!lt && lt.bg.toLowerCase() === "#f2f4f3", lt && lt.bg);
+
+        /* 殻が無いときは、1件も送らない（ブラウザで動かしている人には何も起きない）。 */
+        const keepRN2 = window.ReactNativeWebView;
+        window.ReactNativeWebView = undefined;
+        ok("BG. 殻が無ければ背景色を送らない", tellNativeTheme() === false, "送った");
+        window.ReactNativeWebView = keepRN2;
+
+        applyTheme(keepTheme);
+      }
+
       /* 殻が黙ったままでも、永久に待たない（送信欄が止まるのを防ぐ）。 */
       sent.length = 0;
       let timedOut = "";

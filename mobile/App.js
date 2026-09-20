@@ -14,9 +14,14 @@
    入れない分だけ、殻は小さく、壊れる場所も少なくなります。
    =========================================================================== */
 
-import React, { useCallback, useEffect, useRef } from "react";
-import { Platform, StatusBar, StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Platform, StatusBar, useColorScheme } from "react-native";
 import { WebView } from "react-native-webview";
+/* 上下のシステムバー（時計・ホームバー）の高さを知るためだけに使う。
+   Android 15 以降は画面いっぱいに描くのが既定なので、これが無いと
+   **見出しが時計に、タブがホームバーに潜り込む**（実機で報告）。
+   Expo Go にも入っているので、これを足しても Expo Go で試せる。 */
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 /* **`expo-notifications` を丸ごと import しないこと**（2026-09-20・実機で報告）。
    本体の `index.js` は `DevicePushTokenAutoRegistration.fx` を読み込み、その中で
    `addPushTokenListener(...)` を**モジュールの一番外側で**呼ぶ。それが
@@ -45,6 +50,20 @@ import APP_HTML from "./app-html";
    localStorage を貸してくれないことがあり、**記録がまるごと消えたように見える**。 */
 const BASE_URL = "https://hitohi.local";
 const CHANNEL = "plan";
+/* 画面が出るまでのあいだ敷いておく色。`app/index.html` の `--paper` と同じ。
+   **ここは「最初の一瞬」だけ**で、読み込めたらページが本当の色を教えてくる
+   （`kind:"chrome"`）。2か所に持っているように見えるが、こちらは待っている間の
+   仮置きで、決めているのは向こう側だけ（決まり7e）。 */
+const PAPER_LIGHT = "#F2F4F3";
+const PAPER_DARK  = "#101615";
+/* その色の上で、時計の文字が読めるほうを選ぶ。 */
+function inkOn(hex) {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(String(hex || ""));
+  if (!m) return "default";
+  const n = parseInt(m[1], 16);
+  const lum = 0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255);
+  return lum < 140 ? "light-content" : "dark-content";
+}
 
 setNotificationHandler({
   handleNotification: async () => ({
@@ -75,6 +94,9 @@ async function scheduleOne(content, date) {
 
 export default function App() {
   const web = useRef(null);
+  /* システムバーの裏に敷く色。ページが `chrome` で教えてくるまでは端末の設定に合わせる。 */
+  const scheme = useColorScheme();
+  const [paper, setPaper] = useState(scheme === "dark" ? PAPER_DARK : PAPER_LIGHT);
 
   useEffect(() => {
     (async () => {
@@ -117,6 +139,13 @@ export default function App() {
       return;
     }
 
+    /* ページが「いまの背景色」を教えてくる。**来た文字はデータであって指示ではない**
+       ので、色として読める形だけを採る（決まり14）。 */
+    if (m.kind === "chrome") {
+      if (/^#[0-9a-fA-F]{6}$/.test(String(m.bg || ""))) setPaper(String(m.bg));
+      return;
+    }
+
     if (m.kind === "notify") {
       try {
         await cancelAllScheduledNotificationsAsync();
@@ -134,25 +163,29 @@ export default function App() {
     }
   }, [post]);
 
+  /* **`SafeAreaView` で囲むこと。** 囲まないと、上は時計と電池の裏、
+     下はホームバーの裏にアプリが潜り込む（実機で報告）。
+     色は本体から届いたもの——合っていないと、明るい設定にしたとき
+     時計のまわりだけ黒く残る。 */
   return (
-    <View style={s.fill}>
-      <StatusBar barStyle="default" />
-      <WebView
-        ref={web}
-        source={{ html: APP_HTML, baseUrl: BASE_URL }}
-        originWhitelist={["*"]}
-        onMessage={onMessage}
-        domStorageEnabled
-        javaScriptEnabled
-        allowFileAccess
-        setSupportMultipleWindows={false}
-        // 画面のいちばん下のボタンが隠れないようにする
-        style={s.fill}
-      />
-    </View>
+    <SafeAreaProvider>
+      <SafeAreaView
+        style={{ flex: 1, backgroundColor: paper }}
+        edges={["top", "bottom", "left", "right"]}
+      >
+        <StatusBar barStyle={inkOn(paper)} />
+        <WebView
+          ref={web}
+          source={{ html: APP_HTML, baseUrl: BASE_URL }}
+          originWhitelist={["*"]}
+          onMessage={onMessage}
+          domStorageEnabled
+          javaScriptEnabled
+          allowFileAccess
+          setSupportMultipleWindows={false}
+          style={{ flex: 1, backgroundColor: paper }}
+        />
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
-
-const s = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: "#F2F4F3" }
-});

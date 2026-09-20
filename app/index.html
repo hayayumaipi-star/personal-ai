@@ -1795,6 +1795,26 @@ function applyTheme(t) {
   if (t === "light" || t === "dark") root.setAttribute("data-theme", t);
   else if (HOST_THEME) root.setAttribute("data-theme", HOST_THEME);
   else root.removeAttribute("data-theme");
+  tellNativeTheme();
+}
+
+/* いまの背景色を殻（Android）に伝える（v8.4・実機で報告）。
+   殻は上下のシステムバー（時計・ホームバー）の裏にこの色を敷く。
+   **色を伝えないと、明るい設定にしても時計の周りだけ暗いまま残る**——
+   殻は `index.html` の中を知らないので、聞かない限り分からない。
+   **殻が無ければ何も起きない**（決まり14）。ブラウザでは `nativeOn()` が false。
+   送るのは `--paper` の値だけで、返事は待たない（`nativeSend` は投げっぱなし）。
+   **形を確かめてから送ること**——CSS 変数は空や `rgb(...)` のこともあり、
+   そのまま渡すと殻の側で色として読めずに真っ黒になる。 */
+function tellNativeTheme() {
+  if (!nativeOn()) return false;
+  let bg = "";
+  try {
+    bg = String(getComputedStyle(document.documentElement)
+      .getPropertyValue("--paper") || "").trim();
+  } catch { return false; }
+  if (!/^#[0-9a-fA-F]{6}$/.test(bg)) return false;
+  return nativeSend({ kind: "chrome", bg });
 }
 
 /* 本人が言った「こうしてほしい」を、計画づくりが読む形にしたもの。
