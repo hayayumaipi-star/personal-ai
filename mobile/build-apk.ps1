@@ -24,12 +24,53 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 }
 Write-Host ("Node.js {0}" -f (node --version)) -ForegroundColor DarkGray
 
-# --- 最新に更新する（できなくても止めない）---
+# --- 最新に更新する ---
+# **ここで失敗したら、黙って古い中身の APK ができる。**
+# 前は灰色の小さい字で流すだけだったので気づけなかった。このプロジェクトで
+# いちばん避けたい壊れ方＝「直したのにスマホが古いまま」そのもの。
+# だから ①うまくいったか見る ②駄目なら赤で言って、続けるか聞く
+#        ③**この台本自身が新しくなったら、作らずに終わって「もう一度」と言う**。
+# ③が要るのは、PowerShell が**始めにファイルを全部読んでから**動くため——
+# `git pull` で新しくなっても、**いま動いているのは古いほうのまま**。
+# 気づかないと「聞かれるはずのAPIキーを聞かれない」まま、古い手順で作ってしまう。
+$selfPath = $PSCommandPath
+$selfBefore = ""
+if ($selfPath -and (Test-Path $selfPath)) { $selfBefore = (Get-FileHash $selfPath -Algorithm SHA256).Hash }
+
 if (Get-Command git -ErrorAction SilentlyContinue) {
+  Write-Host "最新に更新しています..." -ForegroundColor DarkGray
   $prev = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
-  git -C .. pull --ff-only 2>&1 | ForEach-Object { Write-Host $_ -ForegroundColor DarkGray }
+  $pullOut = (git -C .. pull --ff-only 2>&1 | Out-String)
+  $pullOk = ($LASTEXITCODE -eq 0)
   $ErrorActionPreference = $prev
+  if ($pullOut.Trim() -ne "") { Write-Host $pullOut.Trim() -ForegroundColor DarkGray }
+  if (-not $pullOk) {
+    Write-Host ""
+    Write-Host "最新に更新できませんでした。" -ForegroundColor Red
+    Write-Host "  このまま進めると、古い中身の APK ができます。" -ForegroundColor Yellow
+    Write-Host "  上の英語をそのまま貼って相談するのが確実です。" -ForegroundColor Yellow
+    Write-Host ""
+    $go = Read-Host "  それでも古いままで作りますか？ (y = 作る / それ以外 = やめる)"
+    if ($go -ne "y") { Write-Host "  やめました。" -ForegroundColor Yellow; exit 1 }
+  }
+} else {
+  Write-Host ""
+  Write-Host "git が入っていないので、最新かどうか確かめられませんでした。" -ForegroundColor Yellow
+  Write-Host "  いまパソコンにあるファイルで作ります（古いかもしれません）。" -ForegroundColor Yellow
+}
+
+# この台本自身が更新されたら、古い手順のまま作らない
+if ($selfBefore -ne "" -and (Test-Path $selfPath)) {
+  $selfAfter = (Get-FileHash $selfPath -Algorithm SHA256).Hash
+  if ($selfBefore -ne $selfAfter) {
+    Write-Host ""
+    Write-Host "作り方そのものが新しくなりました。" -ForegroundColor Cyan
+    Write-Host "  いま動いているのは古い手順なので、ここで止めます。" -ForegroundColor Cyan
+    Write-Host "  もう一度 APKを作る.cmd を実行してください（次は新しい手順で進みます）。" -ForegroundColor Green
+    Write-Host ""
+    exit 0
+  }
 }
 
 # --- 要るものを入れる ---
