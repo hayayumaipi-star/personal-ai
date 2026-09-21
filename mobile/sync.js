@@ -25,7 +25,9 @@ let html = fs.readFileSync(src, "utf8");
 function findKey() {
   const f = path.join(__dirname, "secret.json");
   if (fs.existsSync(f)) {
-    try { return JSON.parse(fs.readFileSync(f, "utf8")); }
+    /* **先頭の BOM を外す。** PowerShell から書くと付くことがあり、
+       付いたままだと `JSON.parse` が落ちる（書く側でも付けないようにしてあるが、両方で守る）。 */
+    try { return JSON.parse(fs.readFileSync(f, "utf8").replace(/^\uFEFF/, "")); }
     catch (e) { throw new Error("mobile/secret.json を読めませんでした（JSONの形を確かめてください）: " + e.message); }
   }
   if (process.env.HITOHI_AI_KEY) {

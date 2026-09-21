@@ -50,6 +50,43 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
   }
 }
 
+# --- APIキー（決まり13b）---
+# **ここで聞いて、ここで書く。** ファイルを自分で作らせない——
+# 「secret.example.json をコピーして名前を変えて…」は、いちばん躓きやすい所だった。
+# 1回入れたら `secret.json` に残るので、**次からは何も聞かない**。
+$secretPath = Join-Path $PSScriptRoot "secret.json"
+if (Test-Path $secretPath) {
+  Write-Host ""
+  Write-Host "APIキーは mobile\secret.json に入っています（このまま焼き込みます）。" -ForegroundColor DarkGray
+  Write-Host "  変えたい・やめたいときは、そのファイルを消してからもう一度実行してください。" -ForegroundColor DarkGray
+} else {
+  Write-Host ""
+  Write-Host "APIキーを焼き込みますか？" -ForegroundColor Cyan
+  Write-Host "  貼り付けて Enter … このAPKの中でAIが使えるようになります。"
+  Write-Host "  何も入れずに Enter … キー無しで作ります（AIは動かず、ルールだけで動きます）。"
+  Write-Host "  ※ このAPKを人に渡すと、キーも一緒に渡ります。" -ForegroundColor Yellow
+  $secInput = Read-Host "  APIキー" -AsSecureString
+  $plainKey = ""
+  if ($secInput -ne $null -and $secInput.Length -gt 0) {
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secInput)
+    try { $plainKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+  }
+  $plainKey = $plainKey.Trim()
+  if ($plainKey -ne "") {
+    # 提供元は、キーの見た目から決める（Anthropic は sk-ant… / Google は AIza…）。
+    # 分からなければ Claude として書く——違っていたら secret.json を直せる。
+    $prov = "claude"
+    if ($plainKey.StartsWith("AIza")) { $prov = "gemini" }
+    $obj = [ordered]@{ provider = $prov; key = $plainKey; model = "" }
+    # **BOM を付けずに書く。** 付くと Node の JSON.parse が落ちる（sync.js 側でも外しているが、両方で守る）
+    [IO.File]::WriteAllText($secretPath, ($obj | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
+    Write-Host "  保存しました（mobile\secret.json・$prov）。次からは聞きません。" -ForegroundColor Green
+  } else {
+    Write-Host "  キー無しで作ります。" -ForegroundColor Yellow
+  }
+}
+
 # --- 本体を写す（正は ../app/index.html）---
 # **これを忘れると、古い中身の APK ができる。**
 node sync.js

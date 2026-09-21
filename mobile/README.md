@@ -126,18 +126,31 @@ APK には claude.ai の窓口（`sample`）がありません。**キーを入�
 
 毎回スマホで貼り付けなくて済むように、**APKを作るときに焼き込めます。**
 
-1. `mobile/secret.example.json` を **`mobile/secret.json`** という名前でコピーする
-2. `key` に自分のAPIキーを貼る（`provider` は `claude` か `gemini`）
-3. いつもどおり `APKを作る.cmd` を実行する
-
-`node sync.js` が写しを作るときに入れます。入ったかどうかは、その場に出ます：
+**やることは、`APKを作る.cmd` を実行して、聞かれたら貼るだけです。**
 
 ```
-APIキーを焼き込みました: claude / ****9999 / claude-opus-5
+APIキーを焼き込みますか？
+  貼り付けて Enter … このAPKの中でAIが使えるようになります。
+  何も入れずに Enter … キー無しで作ります（AIは動かず、ルールだけで動きます）。
+  APIキー: ********
+  保存しました（mobile\secret.json・claude）。次からは聞きません。
 ```
 
-`secret.json` が無ければ、**今までと1バイトも変わりません**（何も入りません）。
-環境変数 `HITOHI_AI_KEY`（＋ `HITOHI_AI_PROVIDER` / `HITOHI_AI_MODEL`）でも同じことができます。
+- **聞かれるのは最初の1回だけ**です。`mobile/secret.json` に残るので、2回目からは素通りします。
+- **変えたい・やめたいとき**は `mobile/secret.json` を消して、もう一度実行してください（また聞かれます）。
+- 提供元は**キーの見た目から決めます**（`sk-ant…` なら Claude、`AIza…` なら Gemini）。
+  違っていたら `secret.json` の `provider` を直してください。
+
+入ったかどうかは、そのあと出ます：
+
+```
+APIキーを焼き込みました: claude / ****9999
+```
+
+手で用意したいときは、`mobile/secret.example.json` を `mobile/secret.json` という名前で
+コピーして `key` を貼っても同じです。環境変数 `HITOHI_AI_KEY`
+（＋ `HITOHI_AI_PROVIDER` / `HITOHI_AI_MODEL`）でも動きます。
+**どれも無ければ、今までと1バイトも変わりません**（何も入りません）。
 
 ### 先に知っておくこと
 
