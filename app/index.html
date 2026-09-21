@@ -4265,6 +4265,11 @@ async function applyOps(rawOps, note) {
   // 用事が1件だけのときに限り、ルールが読んだ日時をAIの項目へ足してよい（v5.5）
   const soleAdd = (Array.isArray(rawOps) ? rawOps : []).filter(o => o && o.op === "add").length === 1;
   const touch = k => { if (k && days.indexOf(k) < 0) days.push(k); };
+  /* **どの項目を触ったかも覚えておく**（2026-09-21・実機で報告）。
+     「別の日に入れた」と言うときに、**その日に本当に置かれたのか**を確かめるため。
+     日付だけ見ていると、締切が明日なだけの用事を「明日の予定に入れた」と言ってしまう。 */
+  const touched = [];
+  const touchId = it => { if (it && it.id && touched.indexOf(it.id) < 0) touched.push(it.id); };
   for (const o of (Array.isArray(rawOps) ? rawOps : [])) {
     if (!o || typeof o !== "object") continue;
     if (o.op === "_ambiguous_done") { asks.push("どれが終わったのか特定できませんでした。「スケジュール」タブの項目から「完了」を押してください。"); continue; }
@@ -4458,6 +4463,7 @@ async function applyOps(rawOps, note) {
       await putItem(it);
       touch(it.dayKey);
       touch(it.targetDay);   // 締切が明日でも、手を付けるのが今日なら今日の案を見せる
+      touchId(it);
       changes.push(`${KIND_JA[it.kind]}を追加：${it.title}${describeWhen(it, tz)}`);
       // AIが足した日付を引き戻したなら、黙っていない（v5.1）
       if (pulledBack) asks.push(pulledBackAsk(it, tz));
@@ -4484,7 +4490,7 @@ async function applyOps(rawOps, note) {
       if (pulledBack) asks.push(pulledBackAsk(target, tz));
       note2(target, "訂正：" + (d.join(" / ") || "変更なし"));
       await putItem(target);
-      touch(target.dayKey); touch(before.day);
+      touch(target.dayKey); touch(before.day); touchId(target);
       changes.push(`${target.title}：${d.join(" / ") || "変更なし"}`);
     }
     else if (o.op === "done") {
@@ -4502,7 +4508,7 @@ async function applyOps(rawOps, note) {
       target.dayKey = to; target.targetDay = null; target.corrected = true; target.confirmed = true;
       target.dedupeKey = dedupeKey(target);
       note2(target, `${cur} から ${to} へ延期した`); await putItem(target);
-      touch(cur); touch(to);
+      touch(cur); touch(to); touchId(target);
       changes.push(`後ろへ：${target.title}（${to.slice(5).replace("-", "/")}以降）`);
     }
     else if (o.op === "drop") {
@@ -4564,7 +4570,7 @@ async function applyOps(rawOps, note) {
       if (!bits.length) bits.push("進み具合を記録");
       target.corrected = true; target.confirmed = true;
       note2(target, "進捗：" + bits.join(" / "));
-      await putItem(target); touch(target.dayKey);
+      await putItem(target); touch(target.dayKey); touchId(target);
       changes.push(`${target.title}：${bits.join(" / ")}`);
     }
     else if (o.op === "idea") {
@@ -4604,7 +4610,7 @@ async function applyOps(rawOps, note) {
     }
     kinds.push(o.op);
   }
-  return { changes, asks: [...new Set(asks)], days, kinds, habitDay };
+  return { changes, asks: [...new Set(asks)], days, touched, kinds, habitDay };
 }
 
 /* AIが日付を付けてきたとき、その発言に**日付の言葉**が本当にあったかを確かめる。
@@ -5294,7 +5300,7 @@ async function sendTurn(text) {
     renderChat(true); renderSettings();
     return;
   }
-  const { changes, asks, days, kinds } = applied;
+  const { changes, asks, days, touched, kinds } = applied;
   /* 組み立てを頼まれたのに提案が返らなかったことを、黙らない（決まり10・v7.4と同じ理屈）。
      画面には枠だけが並ぶので、何も言わないと「考えてくれなかった」ことが分からない。 */
   if (usedAI && !habit && parseDayRequest(note, tz))
@@ -5321,7 +5327,22 @@ async function sendTurn(text) {
   const feelingOnly = RE_FEELINGONLY.test(clean.trim()) || (!changes.length && !answer && RE_MAYBE.test(halfWidth(clean)));
   const ctx = { changes, asks, kinds, plan, na, isToday: key === today, answer, feelingOnly, raw: clean, scheduleChanged, askedSchedule };
 
-  const dayNote = others.length ? `${others.map(d => fmtDayPlain(d, tz)).join("と")}の予定に入れたよ。` : "";
+  /* **「◯日の予定に入れたよ」は、本当にその日に置かれたときだけ**（2026-09-21・実機で報告）。
+     「明日までに資料を作る。できれば午前中に進めたい。」で、**明日には何も置いていない**のに
+     「9/22(火)＝明日の予定に入れたよ」と出ていた。明日なのは**締切**で、作業は今日に置いてある。
+     決まり6p で締切の日に枠を作るのをやめたぶん、この文は**はっきり嘘になった**。
+     だから日付だけで決めず、**その日の案にその項目があるか**を見る（`timeless` も予定のうち）。 */
+  const onThatDay = d => {
+    const p = planFor(d);
+    return p.blocks.some(b => b.item && touched.includes(b.item.id))
+        || (p.timeless || []).some(i => touched.includes(i.id));
+  };
+  const ja = list => list.map(d => fmtDayPlain(d, tz)).join("と");
+  const put = others.filter(onThatDay), due = others.filter(d => !onThatDay(d));
+  const dayNote = [
+    put.length ? `${ja(put)}の予定に入れたよ。` : "",
+    due.length ? `締切は${ja(due)}にしたよ。` : ""
+  ].filter(Boolean).join(" ");
   /* **吹き出しは、担当を分けて組み立てる**（2026-09-21・本人の指摘）。
      受け止め＝速いAI／事実＝コード／習慣の提案＝本体AI。
      前は本体AIにも文章を書かせ、重なったときだけ**文字列が一致すれば**落としていた。

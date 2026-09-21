@@ -3297,6 +3297,27 @@
          !!it2 && (planFor(d0, { nowMin: -1 }).blocks || []).some(b => b.item && b.item.id === it2.id),
          it2 ? `dayKey=${it2.dayKey} targetDay=${it2.targetDay}` : "用事が作られない");
 
+      /* **「◯日の予定に入れたよ」は、本当にその日に置かれたときだけ**（2026-09-21・実機で報告）。
+         上の直し（枠はその日だけ）で締切の日に枠を作らなくなったぶん、
+         **日付だけ見て書いていたこの1文が、はっきり嘘になった**。
+         どの日も「明日」なので、実際の時計に左右されない（今日の空き具合を見ない）。 */
+      const replyOf = async text => {
+        reset();
+        await sendTurn(text);
+        const t = (state.turns[d0] || []).filter(x => x.role === "assistant").pop();
+        return (t && t.text) || "";
+      };
+      const r1 = await replyOf("明日の15時から歯医者。");
+      ok("BM. その日に置いたのなら「予定に入れた」と言う",
+         /の予定に入れたよ/.test(r1) && !/締切は/.test(r1), r1.replace(/\n/g, " ⏎ "));
+      const r2 = await replyOf("明日までに資料を作る。1時間。できれば午前中に進めたい。");
+      ok("BM. 置いていない日を「予定に入れた」と言わない",
+         !/の予定に入れたよ/.test(r2), r2.replace(/\n/g, " ⏎ "));
+      ok("BM. 代わりに、締切だと言う", /締切は.*明日にしたよ/.test(r2), r2.replace(/\n/g, " ⏎ "));
+      const r3 = await replyOf("明日、資料を作る。2時間。");
+      ok("BM. 時刻を言っていない用事も「予定に入れた」とは言わない",
+         !/の予定に入れたよ/.test(r3) && /締切は/.test(r3), r3.replace(/\n/g, " ⏎ "));
+
       view.day = keepDay; showTab(keepTab2);
     }
 
