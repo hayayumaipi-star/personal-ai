@@ -5210,6 +5210,21 @@ const AI_ERR = {
   cancelled: "AIの返事が来なかったので、ルールだけで読み取りました。",
   timeout: "AIの返事が来なかったので、ルールだけで読み取りました。"
 };
+/* **理由を、定型文で塗りつぶさない**（2026-09-21・実機で報告）。
+   `AI_ERR` の鍵は `sample`（claude.ai の窓口）が返す `code` で、
+   **自分のキーで呼んだときの失敗には `code` が無い**（`ownAICall` はただの `Error` を投げる）。
+   そのため `AI_ERR[undefined]` が空振りして、`Gemini 400：API key not valid` のような
+   **本当の理由が捨てられ**、毎回「AIに接続できなかったので」だけが出ていた。
+   決まり13c で画面のAIの欄を外したとき、**理由が読めるのはここだけ**と書いたのに、
+   その届き先を確かめていなかった——「行き場を先に数える」の数え落とし（決まり7b）。
+   相手が返した言葉はそのまま見せる（決まり13「文言を薄くしない」）。 */
+function aiFailNote(e) {
+  const known = AI_ERR[e && e.code];
+  if (known) return known;
+  const m = String((e && e.message) || "").trim();
+  return m ? "ルールだけで読み取りました。AIを呼べなかった理由：" + m.slice(0, 300)
+           : "AIに接続できなかったので、ルールだけで読み取りました。";
+}
 
 /* 発話ひとつを処理する。どこで失敗しても、原文と既存の記録は必ず残る。 */
 async function sendTurn(text) {
@@ -5253,7 +5268,7 @@ async function sendTurn(text) {
   let habit = "";                    // 本体AIから受け取るのはこれだけ（文章も質問も受け取らない）
   if (useAI) {
     try { const r = await aiTurn(note); ops = r.ops; habit = r.habit; usedAI = true; }
-    catch (e) { err = AI_ERR[e && e.code] || "AIに接続できなかったので、ルールだけで読み取りました。"; }
+    catch (e) { err = aiFailNote(e); }
   }
   /* **AIが「何もしない」を返しても、ルールが読めたものは捨てない**（v5.4・実機で報告）。
      ここは `if (!ops)` だけだったので、AIが失敗したときにしかルールへ戻らなかった。
@@ -5674,8 +5689,10 @@ async function runDocAI(docId) {
     toast(added.length ? `AIが${added.length}件を追加しました（すべて未確認）。` : "AIからの追加はありませんでした。");
   } catch (e) {
     if (prog) prog.innerHTML = "";
-    const m = AI_ERR[e && e.code] || "AIに接続できませんでした。";
+    const m = aiFailNote(e);
     toast(m + " 資料とルールでの読み取りは残っています。");
+    lastError = m;                    // 長いと toast では読み切れない。設定タブにも残す
+    renderSettings();
   }
 }
 

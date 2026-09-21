@@ -2845,6 +2845,24 @@
          ownAIError(new Error("Claude 401：invalid x-api-key"), "h") === "Claude 401：invalid x-api-key",
          ownAIError(new Error("Claude 401：invalid x-api-key"), "h"));
 
+      /* **理由が、画面まで届くこと**（2026-09-21・実機で報告）。
+         `ownAICall` は `code` を持たない素の `Error` を投げるので、
+         `AI_ERR[e.code]` は必ず空振りする。そこで定型文に置き換えていたため、
+         `Gemini 400：API key not valid` が**捨てられていた**。
+         決まり13c で画面の欄を外した以上、**ここが唯一の読み口**。 */
+      ok("BF. 知っている理由は、やさしい文に訳す",
+         aiFailNote({ code: "rate_limited" }) === AI_ERR.rate_limited, aiFailNote({ code: "rate_limited" }));
+      ok("BF. 相手が返した理由を、定型文で塗りつぶさない",
+         /Gemini 400/.test(aiFailNote(new Error("Gemini 400：API key not valid"))),
+         aiFailNote(new Error("Gemini 400：API key not valid")));
+      ok("BF. 外部通信が禁じられている理由も、そのまま出す",
+         /外部への通信が禁じられている/.test(aiFailNote(new Error(ownAIError(new TypeError("Failed to fetch"), "api.example")))),
+         aiFailNote(new Error(ownAIError(new TypeError("Failed to fetch"), "api.example"))));
+      ok("BF. 何も分からないときだけ、既定の文にする",
+         /接続できなかった/.test(aiFailNote(new Error(""))), aiFailNote(new Error("")));
+      ok("BF. 発話の処理が、その訳を実際に使っている",
+         /aiFailNote/.test(String(sendTurn)), "定型文のままかもしれない");
+
       if (had === undefined) delete window.HITOHI_AI; else window.HITOHI_AI = had;
       SAMPLEFN = keepFn;
     }
