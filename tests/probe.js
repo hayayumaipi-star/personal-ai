@@ -3015,11 +3015,12 @@
 
         ok("BI. accent に色みがある（灰色に戻っていない・" + theme + "）",
            chroma(V("--accent")) >= 40, V("--accent") + " 色み" + chroma(V("--accent")));
-        // iOS の系統色は青が基調。青系＝青の成分がいちばん強い
-        ok("BI. accent は青系（" + theme + "）",
-           rgb(V("--accent"))[2] > rgb(V("--accent"))[0]
-           && rgb(V("--accent"))[2] > rgb(V("--accent"))[1],
-           V("--accent") + " 色相" + Math.round(hue(V("--accent"))));
+        /* **accent はこのアプリの緑（青緑）**（2026-09-21・本人の指示「配色はやっぱり緑にして」）。
+           一度 iOS の systemBlue にしたが、戻した。色相の帯で見る——
+           どの緑かは決めない（明暗で値が違うし、微調整も入る）。 */
+        const h = hue(V("--accent"));
+        ok("BI. accent は緑系（青緑・色相140〜200度）（" + theme + "）",
+           h >= 140 && h <= 200, V("--accent") + " 色相" + Math.round(h));
         // 意味の色が近すぎると、見分けが付かない
         const pairs = [["--accent", "--warn"], ["--accent", "--done"], ["--accent", "--alert"],
                        ["--warn", "--done"], ["--warn", "--alert"], ["--done", "--alert"]];
