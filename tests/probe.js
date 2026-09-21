@@ -3431,6 +3431,81 @@
          "light→" + scheme.light + " / dark→" + scheme.dark);
     }
 
+    /* ===== BN. 「◯時から◯時まで◯◯して、◯時から◯時まで予定を埋めて」（v8.6・実機で報告）=====
+       16:08 に「5時から7時まで勉強して8時から10まで適当に予定を埋めて」と言うと、
+       **後半がまるごと消えていた**（実測）。原因は3つ重なっていた：
+       ①「埋めて」が組み立ての言葉に入っていない
+       ②範囲の右側で「時」を省くと読めない（左は省けるのに**非対称**だった）
+       ③消したことを何も言っていない（決まり5「捨てるなら、言う」）。 */
+    {
+      const AT = zoned(2026, 9, 21, 16, 8, TZ).toISOString();
+      const mk = t => ({ id: uid(), text: normNote(t), hash: "bn" + Math.random(),
+        capturedAt: AT, source: "talk", createdAt: AT });
+      const feed = async t => { reset(); const n = mk(t); await putNote(n); return await applyOps(ruleOps(n), n); };
+
+      // ① 終わりの「時」を省いた範囲を読む
+      const w1 = parseWhen("8時から10まで適当に予定を埋めて", AT, TZ);
+      ok("BN. 「8時から10まで」を範囲として読む",
+         !!w1 && !!w1.end && fmtDT(w1.start, TZ).endsWith("20:00") && fmtDT(w1.end, TZ).endsWith("22:00"),
+         w1 ? fmtDT(w1.start, TZ) + "–" + fmtDT(w1.end, TZ) : "読めない");
+      // **左にも「時」が無いものは、時刻にしない**（ページ数・個数と区別できない）
+      ok("BN. 「3から5個」を時刻にしない", !parseWhen("3から5個買う", AT, TZ), "時刻として読んでしまった");
+      const w2 = parseWhen("5から7まで読む", AT, TZ);
+      ok("BN. 「5から7まで」を範囲にしない", !w2 || !w2.end, w2 ? JSON.stringify(w2.end) : "読まない");
+
+      // ② 「予定を埋めて」が組み立ての依頼になる
+      ok("BN. 「予定を埋めて」は組み立ての依頼", RE_BUILD_DAY.test("適当に予定を埋めて"), "拾えていない");
+      ok("BN. ただの「埋めて」では組み立てない", !RE_BUILD_DAY.test("穴を埋めて"), "拾いすぎ");
+
+      // ③ 前半は予定、後半は埋める時間帯。**どちらも消さない**
+      reset();
+      const r3 = await feed("5時から7時まで勉強して8時から10まで適当に予定を埋めて");
+      const ev = state.items.find(i => i.kind === "event");
+      ok("BN. 前半は、言われた時刻の予定として残る",
+         !!ev && fmtDT(ev.start, TZ).endsWith("17:00") && fmtDT(ev.end, TZ).endsWith("19:00"),
+         ev ? ev.title + " " + fmtDT(ev.start, TZ) + "–" + fmtDT(ev.end, TZ) : "作られなかった");
+      ok("BN. 前半の見出しが壊れていない", !!ev && ev.title === "勉強する", ev && ev.title);
+      const filled = state.items.filter(i => i.kind === "task" && i.suggested);
+      const inWin = filled.every(i => minOfDay(i.due, TZ) >= 20 * 60 && minOfDay(i.due, TZ) < 22 * 60);
+      ok("BN. 後半は、その時間帯を提案で埋める", filled.length > 0 && inWin,
+         filled.map(i => hhmm(minOfDay(i.due, TZ)) + " " + i.title).join(" / ") || "1件も埋めていない");
+      ok("BN. 依頼の言葉そのものを用事にしない",
+         !state.items.some(i => /埋めて/.test(i.title)),
+         state.items.map(i => i.title).join(" / "));
+      ok("BN. 組み立てたことを返事に書く",
+         r3.changes.some(c => /20:00〜22:00/.test(c)), JSON.stringify(r3.changes));
+
+      // ④ 日付を言われていたら、今日へ寄せない（前の範囲を伏せるときに落としやすい）
+      reset();
+      await feed("明日8時から10時まで適当に予定を埋めて");
+      const tomo = dayKey(new Date(keyToDate("2026-09-21", TZ).getTime() + 86400000), TZ);
+      const made4 = state.items.filter(i => i.kind === "task");
+      ok("BN. 「明日」と言われたら明日に組み立てる",
+         made4.length > 0 && made4.every(i => i.dayKey === tomo), made4.map(i => i.dayKey).join(","));
+      ok("BN. 「明日8時」は午前のまま（今夜20時に寄せない）",
+         made4.length > 0 && minOfDay(made4[0].due, TZ) < 12 * 60,
+         made4.length ? hhmm(minOfDay(made4[0].due, TZ)) : "なし");
+
+      // ⑤ 範囲を2つ言われたのに1つしか使えなかったら、黙らない
+      reset();
+      const r5 = await feed("5時から7時まで勉強して8時から10まで散歩する");
+      ok("BN. 使えなかった時間帯を、黙って捨てない",
+         r5.asks.some(a => /時刻の範囲を2つ/.test(a)), JSON.stringify(r5.asks));
+      // 行を分けたときは、両方とも入る（知らせの文が案内しているとおり）
+      reset();
+      await feed("5時から7時まで勉強する\n8時から10時まで散歩する");
+      ok("BN. 行を分ければ、両方とも入る", state.items.filter(i => i.kind === "event").length === 2,
+         state.items.map(i => i.title).join(" / "));
+
+      // ⑥ 「〜して」で止まった見出しを、言い切りにそろえる
+      ok("BN. 「勉強して」→「勉強する」", cleanTitle("勉強して", null) === "勉強する", cleanTitle("勉強して", null));
+      ok("BN. 「部屋の片付けをして」→「〜をする」",
+         cleanTitle("部屋の片付けをして", null) === "部屋の片付けをする", cleanTitle("部屋の片付けをして", null));
+      ok("BN. 「探して」は「探する」にしない", !/探する/.test(cleanTitle("資料を探して", null)), cleanTitle("資料を探して", null));
+      ok("BN. 「話して」は「話する」にしない", !/話する/.test(cleanTitle("友達と話して", null)), cleanTitle("友達と話して", null));
+      reset();
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;

@@ -866,9 +866,20 @@ function parseWhen(rawText, baseISO, tz) {
   const PERIOD = "(午前|午後|朝|昼|夕方|夜|晩|深夜|夜中)?";
   /* 左側の「時」は省かれる（「6〜9時」「6-9時」「6から9時」）。実機でこう書かれた。
      右側には必ず「時」か「:」が要るので、「3から5個」のような数え方には当たらない。 */
-  const rr = text.match(new RegExp(
+  let rr = text.match(new RegExp(
     PERIOD + "\\s*(\\d{1,2})\\s*(?:[:：時](?!間)(\\d{1,2})?\\s*分?(半)?)?\\s*(から|〜|～|-|–)\\s*"
     + PERIOD + "\\s*(\\d{1,2})\\s*[:：時](?!間)(\\d{1,2})?\\s*分?(半)?"));
+  /* **終わりの「時」を省いた言い方**（「8時から10まで」）も読む（v8.6・実機で報告）。
+     左の「時」は前から省略できたのに、右だけ必須で**非対称**だった。そのせいで
+     「5時から7時まで勉強して8時から10まで予定を埋めて」の**後半がまるごと消えた**（実測）。
+     **ただし左に「時」か「:」があるときだけ**許すこと。両方省けるようにすると
+     「3から5個」「5から7まで」（ページ数・個数）まで時刻になる。
+     さらに右の数字の直後に「まで」を求める——`(?=…まで)` は読まないので、
+     見出しから時刻を落とすときに「まで」が残り、既存の助詞の掃除がそれを片付ける。
+     捕まえる組は上と同じ並びにしておく（分と「半」は無いので 8・9 は undefined）。 */
+  if (!rr) rr = text.match(new RegExp(
+    PERIOD + "\\s*(\\d{1,2})\\s*[:：時](?!間)(\\d{1,2})?\\s*分?(半)?\\s*(から|〜|～|-|–)\\s*"
+    + PERIOD + "\\s*(\\d{1,2})\\s*(?=\\s*まで)"));
   if (rr) {
     let h1 = +rr[2], h2 = +rr[7];
     const m1 = rr[3] ? +rr[3] : (rr[4] ? 30 : 0), m2 = rr[8] ? +rr[8] : (rr[9] ? 30 : 0);
@@ -1173,7 +1184,10 @@ function cleanTitle(s, when) {
   t = t.replace(/^[\s、。,\.]+/, "").replace(/[\s、。,\.！？!?]+$/, "");
   for (let i = 0; i < 2; i++) {
     // 「なんだ」は「んだ」より先に置く（「タイプなんだよね」→「タイプ」）
-    t = t.replace(/(と思ってたんだった|と思っていたんだった|と思ってた|と思っていた|んだった|のだった|くらい|ぐらい|ほど|かかる|かかりそう|かかりそ|と思う|かな|よね|ね|なんだ|んだ|んです|のを|の|にして|して|だった|やっぱり|やはり|は)$/, "");
+    /* 「して」はここで落とさない（v8.6）。落とすと「勉強して」が**「勉強」**で止まり、
+       ほかの見出し（「勉強する」）と形がそろわない。`normalizeEnding` が言い切りに直す。
+       「にして」（「14時にして」）は今までどおり落とす。 */
+    t = t.replace(/(と思ってたんだった|と思っていたんだった|と思ってた|と思っていた|んだった|のだった|くらい|ぐらい|ほど|かかる|かかりそう|かかりそ|と思う|かな|よね|ね|なんだ|んだ|んです|のを|の|にして|だった|やっぱり|やはり|は)$/, "");
     t = t.replace(/[\s、。,\.]+$/, "");
   }
   t = t.replace(/\s+/g, " ").trim();
@@ -1209,6 +1223,15 @@ function normalizeEnding(t) {
   for (const [from, to] of VOLITION) {
     if (bare.length > from.length && bare.endsWith(from)) return bare.slice(0, -from.length) + to;
   }
+  /* 「5時から7時まで勉強して…」のように**文が続いていた**ものを切り出すと、
+     見出しが「勉強して」で終わる（v8.6・実機で報告）。「して」は次へつなぐ形であって、
+     言い切りではない。**漢字・カタカナが2文字以上すぐ前にあるときだけ**「する」に直す——
+     「試して」「探して」「話して」を「試する」にしないため（1文字の語は触らない）。
+     これも語尾をそろえるだけで中身の語は変わらない（決まり7cb）。 */
+  if (/[一-鿿々ヶァ-ヴー]{2,}して$/.test(bare)) return bare.slice(0, -2) + "する";
+  /* 「を」が前に付いていれば、「して」は必ずサ変（「部屋の片付けをして」「話をして」）。
+     1文字の動詞と取り違える心配が無いので、こちらは前の語を問わない。 */
+  if (/を\s*して$/.test(bare)) return bare.replace(/して$/, "する");
   return t;
 }
 
@@ -2153,7 +2176,23 @@ function normNote(t) {
    決まり8は崩さない：**時刻も並びもコードが決める。AIは文章だけ。**
    提案は**こちらが足したもの**なので `suggested:true` を立て、印を出し、1手で全部消せる。
    ======================================================================= */
-const RE_BUILD_DAY = /(組み立て|組みたて|くみたて|組んで)|((スケジュール|予定|一日|1日|日程).{0,8}(作って|つくって|立てて|考えて))|提案して/;
+/* **「予定を埋めて」も組み立ての依頼**（v8.6・実機で報告）。
+   拾っていたのは「組み立てて」「作って」「提案して」だけで、**「埋めて」が抜けていた**。
+   そのせいで「8時から10まで適当に予定を埋めて」が、組み立てとして一度も動かなかった。
+   足すのは**「スケジュール／予定／一日／日程」が前にあるとき**だけ——
+   単独の「埋めて」（穴を埋めて）まで拾わないため。 */
+const RE_BUILD_DAY = /(組み立て|組みたて|くみたて|組んで)|((スケジュール|予定|一日|1日|日程).{0,8}(作って|つくって|立てて|考えて|埋めて|うめて))|提案して/;
+/* 文のどこに「時刻の範囲」があるかを数える（決まり7e・同じ判定を2か所に書かない）。
+   使うのは2つ：①組み立ての時間帯を、依頼の言葉の**直前の範囲**から採るとき
+   ②範囲を2つ言われたのに1つしか使えなかったときに、**黙らずに言う**とき。 */
+const RE_RANGE_AT = new RegExp(
+  "(?:午前|午後|朝|昼|夕方|夜|晩|深夜|夜中)?\\s*\\d{1,2}\\s*[:：時](?!間)(?:\\s*\\d{1,2}\\s*分?|\\s*半)?\\s*(?:から|〜|～|-|–)\\s*"
+  + "(?:午前|午後|朝|昼|夕方|夜|晩|深夜|夜中)?\\s*\\d{1,2}\\s*(?:[:：時](?!間)|(?=\\s*まで))", "g");
+function rangeSpans(text) {
+  const out = []; RE_RANGE_AT.lastIndex = 0;
+  for (let m; (m = RE_RANGE_AT.exec(text));) { out.push({ i: m.index, len: m[0].length }); if (m.index === RE_RANGE_AT.lastIndex) RE_RANGE_AT.lastIndex++; }
+  return out;
+}
 const RE_DUR_TIMES = /(\d{1,3})\s*分\s*(?:かける|×|x|X|\*|＊)\s*(\d{1,2})\s*回?/;
 const RE_TIMES = /(\d{1,2})\s*回/;
 const RE_DAY_RANGE = new RegExp(
@@ -2287,6 +2326,10 @@ function wantsIn(sentence, atISO, tz) {
     if (part.length < 2 || part.length > 14) continue;
     if (/\s/.test(part)) continue;                                  // 空白が残っているのは壊れている
     if (/(かけ|使|ずつ|それぞれ|ください|ほしい|提案|組み立)/.test(part)) continue;
+    /* **依頼の言葉そのものを、活動の名前にしない**（v8.6・実測）。
+       「10まで適当に予定を埋めて」が「10まで適当に予定を埋めてをする」という
+       用事になって予定表に並んだ。判定はもう `RE_BUILD_DAY` が持っている（決まり7e）。 */
+    if (RE_BUILD_DAY.test(part)) continue;
     if (/^(これ|それ|あれ|もの|こと|時間|予定|習慣|スケジュール)$/.test(part)) continue;
     add(actTitle(part, atISO, tz), count);
   }
@@ -2325,7 +2368,46 @@ function parseDayRequest(note, tz) {
       for (const pc of pieces(bare)) for (const x of wantsIn(pc, note.capturedAt, tz)) wants.push(x);
     }
   }
-  if (!w || !w.between || !wants.length) return null;
+  /* **「の間に」と言っていない範囲も、時間帯として読む**（v8.6・実機で報告）。
+     「5時から7時まで勉強して**8時から10まで適当に予定を埋めて**」——
+     後半は明らかに「埋めてほしい時間帯」なのに、`between`（「〜の間に」）しか
+     見ていなかったので**まるごと落ちていた**（実測）。
+     **採るのは、依頼の言葉の直前にある範囲だけ。** この文には範囲が2つあり、
+     前の「5時から7時」は**勉強そのものの時刻**で、埋める先ではない。
+     **上の道で時間帯が決まったときは、ここへ来ない**——`between` の読み方は1文字も変えない。 */
+  let headLen = 0, fillOnly = false;
+  if (!w) {
+    const bi = text.search(RE_BUILD_DAY);
+    const spans = rangeSpans(text);
+    let at = -1;
+    if (bi >= 0) for (const r of spans) if (r.i < bi) at = r.i;
+    if (at >= 0) {
+      /* **切り出さずに、前の範囲だけを空白で伏せる**（v8.6・作った直後に実測して直した）。
+         最初は `text.slice(at)` を読ませたが、それだと **「明日の」が前に落ちる**ので、
+         「明日の夜8時から10時まで予定を埋めて」が**今日**に組み立てられた（実測）。
+         日付や「午前・午後」の言葉は範囲の前に付くので、**文はそのまま残す**こと。
+         伏せるのは前の範囲だけ。空白に置き換えるので、文字の位置はずれない。 */
+      let probe = text;
+      for (const r of spans) if (r.i < at) probe = probe.slice(0, r.i) + " ".repeat(r.len) + probe.slice(r.i + r.len);
+      const x = parseWhen(probe, note.capturedAt, tz);
+      if (x && x.start && x.end) {
+        const from = minOfDay(x.start, tz), to = minOfDay(x.end, tz);
+        // 日をまたぐ範囲（21:00〜0:00）は時間帯にならない。今までどおり組み立てない
+        if (to > from) {
+          w = Object.assign({}, x, { between: { from, to } });
+          headLen = at; fillOnly = true;
+          /* **言われたものは、その時間帯の文からだけ拾う。**
+             前半の「勉強」は別の時刻に置くものなので、埋める中身にしない。 */
+          wants.length = 0;
+          for (const pc of pieces(text.slice(at))) for (const y of wantsIn(pc, note.capturedAt, tz)) wants.push(y);
+        }
+      }
+    }
+  }
+  if (!w || !w.between) return null;
+  /* 「適当に埋めて」は**中身を1つも言っていない**のがふつうなので、そこだけ空を許す。
+     ほかの道は今までどおり、1件も拾えなければ組み立てない。 */
+  if (!wants.length && !fillOnly) return null;
   let win = [w.between.from, w.between.to], dk = dayKey(new Date(w.start), tz), movedFrom = null;
   /* **範囲は、終わりが過ぎていなければ「これから来る」**（v6.6・本人が「夕方6時」と確認した後に実測）。
      決まり4b は**一点の時刻**を「いちばん近いこれから来るほう」に寄せる。
@@ -2375,7 +2457,8 @@ function parseDayRequest(note, tz) {
     if (nowMin > win[0]) { startedAt = win[0]; win = [Math.ceil(nowMin / 5) * 5, win[1]]; }
   }
   if (win[1] - win[0] < 15) return null;        // 残りが15分を切るなら、組み立てるより言い直してもらう
-  return { win, wants, dayKey: dk, movedFrom, startedAt };
+  // `headLen`＝この時間帯より前に言ったこと。ふつうの読み取りへ回す（決まり0b「発言を捨てない」）
+  return { win, wants, dayKey: dk, movedFrom, startedAt, headLen };
 }
 
 /* 並べる。**入りきらなければ提案から落とす**（本人が言ったものは落とさない）。
@@ -4132,7 +4215,21 @@ function ruleOps(note) {
      依頼文が `goal` として保存され、活動は「その間にお風呂とご飯それぞれずつ使う」の
      ような1件のゴミ見出しになる（実測）。専用の道で受ける。 */
   const dayReq = parseDayRequest(note, state.settings.timezone);
-  if (dayReq) return [{ op: "buildday", req: dayReq, quote: q }];
+  if (dayReq) {
+    const out = [{ op: "buildday", req: dayReq, quote: q }];
+    /* **組み立ての時間帯より前に言ったことは、捨てない**（v8.6・実機で報告）。
+       「5時から7時まで勉強して8時から10まで適当に予定を埋めて」の**前半**は、
+       埋める中身ではなく**それ自体が予定**。組み立てだけを返していたので消えていた。
+       原文の先頭からの切り出しなので、根拠の位置は元のままずれない。 */
+    if (dayReq.headLen > 0) {
+      const head = Object.assign({}, note, { text: note.text.slice(0, dayReq.headLen) });
+      for (const it of extractByRule(head, state.settings)) {
+        if (it.kind === "condition") { out.push({ op: "condition", text: it.selfReport, quote: it.evidence.text }); continue; }
+        out.push({ op: "add", _built: it, quote: it.evidence.text });
+      }
+    }
+    return out;
+  }
   /* **頼まれたのに組み立てられなかったことを、黙らない**（v6.8・決まり5 と同じ理屈）。
      「9時から12時の間で」を17時に言うと 21:00〜翌0:00 と読めてしまい、時間帯が決まらない。
      何も言わないと、依頼文が目標として保存されるだけで**組み立てられなかったことが分からない**。 */
@@ -4237,6 +4334,16 @@ function ruleOps(note) {
      「さっきの勉強、23時からにして」が **どこにも引っかからず、まるごと黙って消えた**
      （ops 0件・変更0件・知らせ0件）。判定が2か所に分かれると、必ず片方だけ直す。 */
   if (looksRestating(text) && !ops.some(o => ["done", "update", "add"].includes(o.op))) ops.push({ op: "_needs_ai" });
+  /* **時間帯を2つ言われたのに1つしか使えなかったら、黙らない**（v8.6・実機で報告・決まり5）。
+     「5時から7時まで勉強して8時から10まで散歩する」のように句点が無いと、
+     行ぜんぶで1つの話題として読むので、**後ろの範囲がまるごと消える**。
+     画面には何も出ないので、本人からは「聞いてもらえなかった」ようにしか見えない。
+     数えるのは `rangeSpans` ひとつ（決まり7e）。作れた枠の数と突き合わせる。 */
+  const spans = rangeSpans(text);
+  if (spans.length >= 2) {
+    const made = ops.filter(o => o.op === "add" && o._built && o._built.start && o._built.end).length;
+    if (made < spans.length) ops.push({ op: "_lost_range", have: made, said: spans.length });
+  }
   return ops;
 }
 
@@ -4273,6 +4380,12 @@ async function applyOps(rawOps, note) {
   for (const o of (Array.isArray(rawOps) ? rawOps : [])) {
     if (!o || typeof o !== "object") continue;
     if (o.op === "_ambiguous_done") { asks.push("どれが終わったのか特定できませんでした。「スケジュール」タブの項目から「完了」を押してください。"); continue; }
+    /* 時間帯を2つ言われたのに、1つしか読み取れなかった（v8.6・決まり5「捨てるなら、言う」）。 */
+    if (o.op === "_lost_range") {
+      asks.push(`時刻の範囲を${o.said}つ言っていますが、${o.have}つしか読み取れませんでした。`
+        + "行を分けて（改行して）言うと、両方とも入ります。");
+      continue;
+    }
     /* 1日を組み立てる（v6.5）。**言われたものを言われた長さで置き、空いた所に提案を足す。**
      提案は `suggested:true` を立てる——こちらが決めたものと本人が言ったものを混ぜない（決まり2）。 */
     /* **外した提案を戻せること**（v7.1）。片道だけ作らない——
