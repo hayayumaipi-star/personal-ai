@@ -1728,7 +1728,22 @@ function ownAIError(e, host) {
   return `${host} へ通信できませんでした。この場所では外部への通信が禁じられている可能性があります`
     + `（claude.ai の中では呼べません）。${m ? "（" + m + "）" : ""}`;
 }
+/* **混み合っているときは、1回だけ待って入れ直す**（2026-09-21・実機で 503 が出た）。
+   `Gemini 503：This model is currently experiencing high demand.` は**本人のせいではない**。
+   画面から直せることが何ひとつ無い以上（決まり13c）、黙って1回だけやり直す。
+   **2回以上は試さない**——本当に落ちているときに、待ち時間だけが倍になる。
+   見分けるのは**番号**（429／503）で、文字ではない（提供元が文言を変えても効く）。 */
+const AI_BUSY_WAIT = 2000;
+const isBusy = e => !!(e && (e.status === 429 || e.status === 503));
 async function ownAICall(cfg, prompt, opts) {
+  try { return await ownAICallOnce(cfg, prompt, opts); }
+  catch (e) {
+    if (!isBusy(e)) throw e;
+    await new Promise(r => setTimeout(r, AI_BUSY_WAIT));
+    return ownAICallOnce(cfg, prompt, opts);
+  }
+}
+async function ownAICallOnce(cfg, prompt, opts) {
   const quick = !!(opts && opts.modelTier === "quick");
   const sig = opts && opts.signal;
   const P = AI_PROVIDERS[cfg.provider];
@@ -1740,7 +1755,9 @@ async function ownAICall(cfg, prompt, opts) {
         { contents: [{ parts: [{ text: prompt }] }] }, sig);
     } catch (e) { throw new Error(ownAIError(e, P.host)); }
     const d = r.data;
-    if (!r.ok) throw new Error(`Gemini ${r.status}：${(d && d.error && d.error.message) || "断られました"}`);
+    if (!r.ok) throw Object.assign(
+      new Error(`Gemini ${r.status}：${(d && d.error && d.error.message) || "断られました"}`),
+      { status: r.status });
     const parts = (d && d.candidates && d.candidates[0] && d.candidates[0].content
                    && d.candidates[0].content.parts) || [];
     return parts.map(x => (x && x.text) || "").join("");
@@ -1759,7 +1776,9 @@ async function ownAICall(cfg, prompt, opts) {
         "anthropic-dangerous-direct-browser-access": "true" }, body, sig);
   } catch (e) { throw new Error(ownAIError(e, P.host)); }
   const d = r.data;
-  if (!r.ok) throw new Error(`Claude ${r.status}：${(d && d.error && d.error.message) || "断られました"}`);
+  if (!r.ok) throw Object.assign(
+    new Error(`Claude ${r.status}：${(d && d.error && d.error.message) || "断られました"}`),
+    { status: r.status });
   if (d && d.stop_reason === "refusal") throw new Error("AIがこの依頼への返答を断りました");
   return ((d && d.content) || []).filter(b => b && b.type === "text")
     .map(b => b.text || "").join("");
@@ -5233,6 +5252,11 @@ function aiFailNote(e) {
   const known = AI_ERR[e && e.code];
   if (known) return known;
   const m = String((e && e.message) || "").trim();
+  /* 混雑（429／503）は**本人のせいではない**し、打つ手も違う（待てばよい）。
+     英語のまま出すと「壊れた」と読まれるので、先に日本語で言う。
+     相手の言葉は括弧に残す（決まり13「文言を薄くしない」）。 */
+  if (isBusy(e)) return "いまAIの提供元が混み合っているので、ルールだけで読み取りました。"
+    + "少し時間をおいて、もう一度話しかけてみてください。（" + m.slice(0, 200) + "）";
   return m ? "ルールだけで読み取りました。AIを呼べなかった理由：" + m.slice(0, 300)
            : "AIに接続できなかったので、ルールだけで読み取りました。";
 }

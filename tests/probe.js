@@ -2872,6 +2872,24 @@
       ok("BF. 発話の処理が、その訳を実際に使っている",
          /aiFailNote/.test(String(sendTurn)), "定型文のままかもしれない");
 
+      /* **混み合っているだけのときは、そう言う**（2026-09-21・実機で 503 が出た）。
+         本人のせいではないし、打つ手も違う（待てばよい）。
+         見分けるのは**番号**で、文字ではない——提供元が文言を変えても効くように。 */
+      const busy503 = Object.assign(new Error("Gemini 503：This model is currently experiencing high demand."), { status: 503 });
+      ok("BF. 混雑は、日本語で「待てばよい」と伝える",
+         /時間をおいて/.test(aiFailNote(busy503)), aiFailNote(busy503));
+      ok("BF. 混雑でも、相手の言葉は捨てない",
+         /Gemini 503/.test(aiFailNote(busy503)), aiFailNote(busy503));
+      ok("BF. 429 も同じ扱い",
+         /時間をおいて/.test(aiFailNote(Object.assign(new Error("Claude 429：rate limit"), { status: 429 }))), "扱えていない");
+      ok("BF. ほかの番号は、混雑あつかいにしない",
+         !/時間をおいて/.test(aiFailNote(Object.assign(new Error("Gemini 400：bad key"), { status: 400 }))),
+         aiFailNote(Object.assign(new Error("Gemini 400：bad key"), { status: 400 })));
+      ok("BF. 混み合ったときは、1回だけ入れ直す",
+         /ownAICallOnce/.test(String(ownAICall)) && /isBusy/.test(String(ownAICall)), "やり直していない");
+      ok("BF. 入れ直すのは1回だけ（何度も試さない）",
+         (String(ownAICall).match(/ownAICallOnce/g) || []).length === 2, "回数がおかしい");
+
       if (had === undefined) delete window.HITOHI_AI; else window.HITOHI_AI = had;
       SAMPLEFN = keepFn;
     }
