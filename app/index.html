@@ -1705,7 +1705,18 @@ function jsonFromText(t) {
   if (i > 0) x = x.slice(i);
   const j = Math.max(x.lastIndexOf("}"), x.lastIndexOf("]"));
   if (j >= 0) x = x.slice(0, j + 1);
-  return JSON.parse(x);
+  /* **読めなかったときは、何が返ってきたのかを書く**（2026-09-21・実機の調査中）。
+     素の `JSON.parse` の文（"Unexpected end of JSON input"）だけでは、
+     **空が返ったのか・文章が返ったのか**が区別できない。
+     画面のAIの欄を外した以上（決まり13c）、読み口はこの文だけ。
+     返事の先頭だけを添える——**鍵は入っていない**（これは相手の返事であって、送った中身ではない）。 */
+  try { return JSON.parse(x); }
+  catch (e) {
+    const head = String(t == null ? "" : t).trim().slice(0, 120);
+    throw new Error("AIの返事をJSONとして読めませんでした（"
+      + String((e && e.message) || e) + "）。返ってきたのは "
+      + (head ? "「" + head + "」" : "空っぽ") + "でした。");
+  }
 }
 /* 呼べなかった理由を、本人が打てる手に翻訳する（決まり6n と同じ理屈）。
    いちばん大事なのは「**この場所では外部通信が禁じられている**」を言い当てること——

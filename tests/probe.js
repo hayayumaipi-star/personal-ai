@@ -2834,6 +2834,15 @@
          jsonFromText('はい。\n```json\n{"ops":[],"reply":"あ"}\n```\nどうぞ').reply === "あ", "読めない");
       ok("BF. 裸のJSONも読める", jsonFromText('{"a":1}').a === 1, "読めない");
       ok("BF. 配列も読める", jsonFromText('[{"a":1}]')[0].a === 1, "読めない");
+      /* **読めなかったときは、何が返ってきたのかを書く**（2026-09-21・実機の調査中）。
+         素の JSON.parse の文だけでは「空が返った」と「文章が返った」を区別できない。 */
+      const parseFail = s => { try { jsonFromText(s); return ""; } catch (e) { return String(e.message || e); } };
+      ok("BF. 空が返ったときは、空だったと言う",
+         /空っぽ/.test(parseFail("")), parseFail(""));
+      ok("BF. 文章が返ったときは、その文章を見せる",
+         /ごめんなさい/.test(parseFail("ごめんなさい、それはできません")), parseFail("ごめんなさい、それはできません"));
+      ok("BF. 読めなかった理由そのものも残す",
+         /JSON/.test(parseFail("ごめんなさい")), parseFail("ごめんなさい"));
 
       /* 呼べなかった理由を、本人が打てる手に翻訳する（決まり6n と同じ理屈）。
          **画面にAIの欄が無くなったぶん、ここが理由を読める唯一の場所**になった
