@@ -3077,8 +3077,11 @@
         + document.documentElement.innerHTML;
       const strays = (src.match(/<span class="eyebrow">[A-Z][A-Z ]*<\/span>/g) || []);
       ok("BI. 飾りの英語ラベルを画面に出さない", strays.length === 0, strays.join(" / "));
+      /* 「変えたこと」の欄は 2026-09-21 に本人の指示で返信から外した（保存は続けている）。
+         目印は**いまも画面に出るラベル**に付け替える——消えたものを見張ってもしかたない。 */
       ok("BI. 意味のある日本語のラベルは残っている",
-         /<span class="eyebrow">変えたこと<\/span>/.test(src), "「変えたこと」が無い");
+         /<span class="eyebrow">この時間に置いた理由<\/span>/.test(src)
+         && /<span class="eyebrow">訂正の履歴<\/span>/.test(src), "日本語のラベルが消えている");
 
       /* 「データ」1枚に8操作だったのを3つに割った。**消す操作は折りたたみの中**。 */
       showTab("p-set");
@@ -3224,6 +3227,22 @@
       ok("BL. 理由を出す道は1つ（速い返事があってもなくても同じ関数）",
          /planNotes\(ctx\)/.test(String(sendTurn)) && /planNotes\(ctx\)/.test(String(templateReply)),
          "どちらかが呼んでいない");
+
+      /* **返信に「変えたこと」の一覧は出さない**（2026-09-21・本人の指示）。
+         数えるのも保存するのも今までどおりで、**出さないだけ**。
+         結果はスケジュールのタブと「タスク」に出ている。 */
+      const th = turnHTML({ role: "assistant", text: "うん。", at: T(9, 0),
+        changes: ["タスクを追加：郵便局に行く"], plan: null, ai: true });
+      ok("BL. 返信に「変えたこと」の一覧を出さない",
+         !/変えたこと/.test(th) && !/郵便局に行く/.test(th), th.replace(/\s+/g, " ").slice(0, 160));
+      ok("BL. 数えるのはやめていない（会話には残す）",
+         !!turn && (turn.changes || []).length > 0, "changes が空");
+      /* **そこにしか入口が無いものを、先に引っ越すこと。**
+         「提案した予定を全部消す」は、この欄の中にしか無かった（決まり10）。 */
+      const th2 = turnHTML({ role: "assistant", text: "うん。", at: T(9, 0),
+        changes: ["x"], plan: null, ai: true, habitDay: KEY });
+      ok("BL. 「提案した予定を全部消す」の道は塞がない",
+         /data-act="clearsug"/.test(th2), th2.replace(/\s+/g, " ").slice(0, 160));
     }
 
     /* ===== BM. 「この日にやる」と言った日があるなら、枠はその日だけ（2026-09-21・実機で報告） =====

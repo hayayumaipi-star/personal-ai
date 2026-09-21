@@ -3238,13 +3238,14 @@ function turnHTML(t) {
     return `<div class="turn me"><div class="bub">${esc(t.text)}</div>
       <span class="stamp">${stamp}${t.noteId ? ` · <button class="btn sm srcbtn" data-act="shownote" data-id="${t.noteId}">原文</button>` : ""}</span></div>`;
   }
-  // 変えたことが無いときは、わざわざ「変えていません」と出さない（返事に書いてある）
-  /* 組み立てた回だけ、**「変えたこと」の下に1つだけ**まとめて消す道を出す（v6.7）。
-     提案のための欄は作らない（本人の指示）。いま行った変更に付く操作なので、ここに置く。 */
-  const changes = (t.changes || []).length
-    ? `<div class="changes"><span class="eyebrow">変えたこと</span>${t.changes.map(c => `<div>・${esc(c)}</div>`).join("")}`
-      + (t.habitDay ? `<div style="margin-top:8px"><button class="btn sm" data-act="clearsug" data-id="${esc(t.habitDay)}">提案した予定を全部消す</button></div>` : "")
-      + `</div>` : "";
+  /* **返信に「変えたこと」の一覧は出さない**（2026-09-21・本人の指示）。
+     数えること自体はやめない——`t.changes` は今までどおり会話に保存する（あとから読める）。
+     出さないだけ。結果はスケジュールのタブと「タスク」に出ているので、会話に同じ列を並べない。
+     **そこにしか入口が無いものを、先に引っ越すこと。**「提案した予定を全部消す」は
+     この欄の中にしか無かったので、そのまま返信の下へ出す（新しい欄は作らない・決まり10）。 */
+  const changes = t.habitDay
+    ? `<div class="row"><button class="btn sm" data-act="clearsug" data-id="${esc(t.habitDay)}">提案した予定を全部消す</button></div>`
+    : "";
   const sn = t.plan;
   const nextLine = sn && sn.next
     ? `<div class="next"><span class="eyebrow">${sn.isToday === false ? "その日の最初" : "次にすること"}</span><div class="nt">${esc(sn.next.t)}</div>
