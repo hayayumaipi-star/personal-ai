@@ -5467,24 +5467,21 @@ function templateReply(ctx) {
   return bits.join(" ");
 }
 
-/* **置けなかった理由は、どの道でも出す**（2026-09-21・本人の報告「いろいろ表示されなくなった」）。
-   「詰め込まず理由を示す」は最初の約束（決まり6a・6f）なのに、この2文は `templateReply` の
-   中にしか無かった。速い返事があるときは `templateReply` を通らないので、
-   **AIがオンだと、置けなかった理由が吹き出しからまるごと消えていた。**
-   下の欄（「変えたこと」「次にすること」）も、これは出さない。だから文に書くしかない。
-   **両方の道から呼ぶこと**——同じ判定を2か所に書かない（決まり7e）。 */
+/* 返信に足す、コードが数えた事実。**どの道でも同じものを出す**（決まり7e）——
+   速い返事があるときは `templateReply` を通らないので、片方に書くと消える
+   （2026-09-21・本人の報告「いろいろ表示されなくなった」で実際にそうなっていた）。
+
+   **「◯◯は今日に入らなかった（理由）」は、ここから外した**（2026-09-21・本人の指示
+   「この文章はいらない」）。**理由そのものを消したのではない**——
+   スケジュールの「この日にやること」で、**その用事の行に**「置けない理由：…」として出る。
+   直せる場所のすぐ横にあるほうが読みやすく、会話に長い括弧が毎回並ばない。
+   「詰め込まず理由を示す」（決まり6a・6f）は、**場所を1つにしただけ**で守っている。 */
 function planNotes(ctx) {
-  const { plan, na, isToday, changes, answer } = ctx;
+  const { plan, na, isToday, answer } = ctx;
   const already = answer && na && answer.includes(blockTitle(na.block));
   if (!isToday || already) return [];
-  const out = [];
-  if (!na && plan.blocks.length) out.push("今日の作業時間はもう過ぎてるから、残りは明日に回そう。");
-  // 答えの中で既に触れているなら、同じことを繰り返さない
-  if (plan.unplaced.length && changes.length && !(answer && answer.includes(plan.unplaced[0].item.title))) {
-    const u = plan.unplaced[0];
-    out.push(`「${u.item.title}」は今日に入らなかった（${u.reason}）。`);
-  }
-  return out;
+  // これは項目の行には出ない（どの用事の話でもない）ので、文に書くしかない
+  return (!na && plan.blocks.length) ? ["今日の作業時間はもう過ぎてるから、残りは明日に回そう。"] : [];
 }
 
 /* 返事に予定表を添えるかどうか。毎回は出さない。 */

@@ -3215,10 +3215,12 @@
       const notes = planNotes({
         plan: { blocks: [{}], unplaced: [{ item: { title: "資料を作る" }, reason: "午前中に空きがありません" }] },
         na: null, isToday: true, changes: ["タスクを追加：資料を作る"], answer: null });
-      ok("BL. 置けなかった理由を文にする",
-         notes.some(x => /「資料を作る」は今日に入らなかった（午前中に空きがありません）/.test(x)),
-         notes.join(" / ") || "何も返らない");
-      ok("BL. 作業時間がもう過ぎていることも言う",
+      /* 「◯◯は今日に入らなかった（理由）」は 2026-09-21 に本人の指示で返信から外した。
+         **理由そのものは消えていない**——スケジュールの行に「置けない理由：」として出る
+         （`tests/harness.js` が5か所で見張っている）。 */
+      ok("BL. 置けなかった理由を、返信には書かない",
+         !notes.some(x => /今日に入らなかった/.test(x)), notes.join(" / "));
+      ok("BL. 作業時間がもう過ぎていることは言う",
          notes.some(x => /もう過ぎてる/.test(x)), notes.join(" / ") || "何も返らない");
       ok("BL. 今日でなければ、どちらも言わない",
          planNotes({ plan: { blocks: [{}], unplaced: [] }, na: null, isToday: false,
