@@ -291,18 +291,14 @@
       $$("#defEst").dispatchEvent(new Event("change", { bubbles: true }));
       if (!await waitFor(() => state.settings.defaultEstimate === 45)) throw new Error("その場で保存されない");
     });
-    /* AIの「使うかどうか」は外した（2026-09-20・本人の指示「聞かずにAIを使う」）。
-       **欄が無いこと**と、**それでもAIが使われること**、そして
-       **何が送られるかが画面に残っていること**の3つを見る。
-       最後のひとつは「外部送信は画面に明記してから足す」の決まりで、欄を減らしても消さない。 */
+    /* AIの「使うかどうか」は外した（2026-09-20）。**AIの欄そのもの**も外した
+       （2026-09-21・本人の指示「キーを埋め込みたい。そしてAIに関する項目ごと消したい」）。
+       ここで見るのは**欄が無いこと**と、**それでもAIが使われること**の2つ。 */
     await step("AIの入切の欄が無い", async () => {
       if (has("#useAI")) throw new Error("切り替えが残っている");
       if ("useAI" in state.settings) throw new Error("設定に残っている");
     });
-    await step("聞かずにAIを使い、何を送るかは画面に出ている", async () => {
-      const t = $$("#aiState").textContent;
-      if (!/AIを使っています|あなたのAPIキーで動いています/.test(t)) throw new Error("使っていることが出ない");
-      if (!/開いている用事/.test(t)) throw new Error("何を送るかが出ていない");
+    await step("聞かずにAIを使う（欄は無くても呼ばれる）", async () => {
       await click('nav.tabs [data-tab="p-chat"]');
       const n = state.items.length;
       type("#say", "明後日の10時から面談。");
@@ -873,53 +869,34 @@
       if (has("#resideOut")) throw new Error("常駐の測定欄が残っている");
     });
 
-    /* 自分のAPIキー（v8.2）。**実際に押して**確かめる。
-       いちばん大事なのは、キーが共有の保存先にも書き出しにも出ていかないこと。 */
+    /* APIキーの欄は、2026-09-21 に本人の指示でまるごと外した
+       （「キーを埋め込みたい。そしてAIに関する項目ごと消したい」）。
+       **入口は焼き込み（`window.HITOHI_AI`）だけ**になったので、ここで見るのは2つ：
+       ①欄が本当に画面から消えていること ②欄が無くても焼き込みで動き、
+       そのキーが共有の保存先にも書き出しにも出ていかないこと。
+       `el.click()` は隠れていても効くので、**画面の本文から探すこと**も併せてやる。 */
     const TESTKEY = "sk-ant-WALKTHROUGH-do-not-use";
-    await step("「どこのAI」を選ぶと、送信先と費用が出る", async () => {
+    await step("設定タブに、AIの欄がまるごと無い", async () => {
       await click('nav.tabs [data-tab="p-set"]');
-      if (!/外へは何も送りません/.test($$("#aiSendNote").textContent)) throw new Error("既定の説明が出ていない");
-      type("#aiProv", "claude");
-      const t = $$("#aiSendNote").textContent;
-      if (!/api\.anthropic\.com/.test(t)) throw new Error("送信先が出ない");
-      if (!/あなたのキーに請求されます/.test(t)) throw new Error("費用が出ない");
-      if (!$$("#aiModel").value) throw new Error("モデル名の既定が入らない");
+      for (const id of ["#aiState", "#aiProv", "#aiModel", "#aiKey", "#aiSendNote",
+                        "#btnAiTest", "#btnAiSave", "#btnAiClear", "#aiKeyMsg"])
+        if (has(id)) throw new Error(id + " が残っている");
+      if ($$("#p-set").querySelectorAll("input[type=password]").length)
+        throw new Error("キーの貼り付け欄が残っている");
+      if (/APIキー/.test($$("#p-set").textContent)) throw new Error("画面の文に残っている");
     });
-    await step("キーを入れずに保存すると、断られる", async () => {
-      $$("#aiKey").value = "";
-      await click("#btnAiSave");
-      if (!/貼り付けてから/.test($$("#aiKeyMsg").textContent)) throw new Error("黙って保存した");
-      if (readOwnAI()) throw new Error("空で保存された");
-    });
-    await step("キーを保存しても、共有の保存先と書き出しには出ない", async () => {
-      $$("#aiKey").value = TESTKEY;
-      await click("#btnAiSave");
-      if (!await waitFor(() => readOwnAI() && readOwnAI().key === TESTKEY, 3000))
-        throw new Error("保存されない");
+    await step("欄が無くても、焼き込んだキーで動く（そして外へ出ない）", async () => {
+      const had = window.HITOHI_AI, keepFn = SAMPLEFN;
+      window.HITOHI_AI = { provider: "claude", key: TESTKEY, model: "" };
+      if (applyOwnAI() !== true) throw new Error("焼き込みを拾わない");
+      if (!SAMPLEFN || SAMPLEFN.own !== "claude" || SAMPLEFN.builtIn !== true)
+        throw new Error("窓口が切り替わらない");
       if (JSON.stringify(state.settings).includes(TESTKEY)) throw new Error("設定に混ざった");
       if (exportPayload().includes(TESTKEY)) throw new Error("書き出しに混ざった");
       const got = await DB.doc("meta/settings").get();     // 保存先を読み直して確かめる
       if (got.exists && JSON.stringify(got.data()).includes(TESTKEY)) throw new Error("共有の保存先に入った");
-      if (!SAMPLEFN || SAMPLEFN.own !== "claude") throw new Error("窓口が切り替わらない");
-      if (!/あなたのAPIキーで動いています/.test($$("#aiState").textContent)) throw new Error("画面の印が変わらない");
-    });
-    await step("「つながるか試す」は、駄目なときに理由を出す", async () => {
-      await click("#btnAiTest");
-      if (!await waitFor(() => /つながりました|つながりませんでした/.test($$("#aiKeyMsg").textContent), 15000))
-        throw new Error("結果が出ない（黙って終わった）");
-      // この環境では外へ出られないので、理由が出ることまで確かめる
-      if (/つながりませんでした/.test($$("#aiKeyMsg").textContent)
-          && $$("#aiKeyMsg").textContent.length < 40) throw new Error("理由を書いていない");
-    });
-    await step("「消す」で、元の窓口に戻る", async () => {
-      const pr = act ? null : null;
-      await click("#btnAiClear");
-      if (!await waitFor(() => has("#cfYes"), 4000)) throw new Error("確認シートが出ない");
-      await click("#cfYes");
-      if (!await waitFor(() => !readOwnAI(), 4000)) throw new Error("消えない");
-      if (SAMPLEFN !== HOSTSAMPLE) throw new Error("元の窓口に戻らない");
-      if ($$("#aiKey").value) throw new Error("入力欄に残っている");
-      void pr;
+      if (had === undefined) delete window.HITOHI_AI; else window.HITOHI_AI = had;
+      SAMPLEFN = keepFn;
     });
 
     const fails = R.filter(x => x.startsWith("FAIL"));

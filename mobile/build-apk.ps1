@@ -102,8 +102,11 @@ if ($LASTEXITCODE -ne 0) {
 $secretPath = Join-Path $PSScriptRoot "secret.json"
 if (Test-Path $secretPath) {
   Write-Host ""
-  Write-Host "APIキーは mobile\secret.json に入っています（このまま焼き込みます）。" -ForegroundColor DarkGray
+  $cur = ""
+  try { $cur = (Get-Content $secretPath -Raw | ConvertFrom-Json).provider } catch {}
+  Write-Host ("APIキーは mobile\secret.json に入っています（{0}・このまま焼き込みます）。" -f $cur) -ForegroundColor DarkGray
   Write-Host "  変えたい・やめたいときは、そのファイルを消してからもう一度実行してください。" -ForegroundColor DarkGray
+  Write-Host "  ※ アプリの画面からは入れ替えられません（設定タブのAIの欄は外しました）。" -ForegroundColor DarkGray
 } else {
   Write-Host ""
   Write-Host "APIキーを焼き込みますか？" -ForegroundColor Cyan
@@ -118,14 +121,32 @@ if (Test-Path $secretPath) {
   if ($null -eq $plainKey) { $plainKey = "" }
   $plainKey = $plainKey.Trim()
   if ($plainKey -ne "") {
-    # 提供元は、キーの見た目から決める（Anthropic は sk-ant… / Google は AIza…）。
-    # 分からなければ Claude として書く——違っていたら secret.json を直せる。
-    $prov = "claude"
-    if ($plainKey.StartsWith("AIza")) { $prov = "gemini" }
+    # **提供元は、当てずに聞く**（2026-09-21・実機で外した）。
+    # 前はキーの見た目だけで決めていた（`AIza…` なら Gemini）。実機で
+    # **Gemini のキーが Claude として焼き込まれ**、api.anthropic.com へ送って
+    # 全部断られた。見た目は提供元が変えるので、当て推量の土台にしない。
+    # **画面から入れ替える道はもう無い**（設定タブのAIの欄を外した）ので、
+    # ここで間違えると、APKを作り直すまで直せない。だから必ず確かめる。
+    $guess = "claude"
+    if ($plainKey.StartsWith("AIza")) { $guess = "gemini" }
+    $guessNo = @{ claude = "1"; gemini = "2" }[$guess]
+    $guessName = @{ claude = "Claude（Anthropic）"; gemini = "Gemini（Google）" }[$guess]
+    Write-Host ""
+    Write-Host "  どこのAIのキーですか？" -ForegroundColor Cyan
+    Write-Host "    1 … Claude（Anthropic）— console.anthropic.com で作ったもの"
+    Write-Host "    2 … Gemini（Google）— aistudio.google.com で作ったもの"
+    Write-Host ("    そのまま Enter … {0}（キーの形から推測）" -f $guessName) -ForegroundColor DarkGray
+    $pick = (Read-Host "  1 か 2")
+    if ($null -eq $pick) { $pick = "" }
+    $pick = $pick.Trim()
+    if ($pick -eq "") { $pick = $guessNo }
+    $prov = if ($pick -eq "2") { "gemini" } elseif ($pick -eq "1") { "claude" } else { $guess }
     $obj = [ordered]@{ provider = $prov; key = $plainKey; model = "" }
     # **BOM を付けずに書く。** 付くと Node の JSON.parse が落ちる（sync.js 側でも外しているが、両方で守る）
     [IO.File]::WriteAllText($secretPath, ($obj | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
-    Write-Host "  保存しました（mobile\secret.json・$prov）。次からは聞きません。" -ForegroundColor Green
+    $provName = @{ claude = "Claude（Anthropic）"; gemini = "Gemini（Google）" }[$prov]
+    Write-Host ("  保存しました（mobile\secret.json・{0}）。次からは聞きません。" -f $provName) -ForegroundColor Green
+    Write-Host "  違っていたら、そのファイルを消してもう一度実行してください。" -ForegroundColor DarkGray
   } else {
     Write-Host "  キー無しで作ります。" -ForegroundColor Yellow
   }

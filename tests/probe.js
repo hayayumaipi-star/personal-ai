@@ -2786,39 +2786,48 @@
       state.lifeos = keepL;
     }
 
-    /* ===== BF群：自分のAPIキーでAIを呼ぶ（v8.2）=====
+    /* ===== BF群：AIを呼ぶ道（v8.2 → 2026-09-21 に画面を外した）=====
        いちばん大事なのは **キーが共有の場所へ出ていかないこと**。
-       `db` はリンクを開いた人に渡る（実機で確認済み）ので、キーが入ったら漏れる。 */
+       `db` はリンクを開いた人に渡る（実機で確認済み）ので、キーが入ったら漏れる。
+       **設定タブのAIの欄は、本人の指示でまるごと外した**（2026-09-21・
+       「キーを埋め込みたい。そしてAIに関する項目ごと消したい」）。
+       だから **入口は焼き込み（`window.HITOHI_AI`）だけ**で、
+       画面から貼る道・消す道・モデル名を直す道は、どれも無い。
+       **消したものは、消えたままだと確かめること**——12b で欄を外したときと同じで、
+       次のセッションが「親切のつもりで」戻すのを、ここで止める。 */
     {
-      const keepFn = SAMPLEFN, keepLS = (() => { try { return localStorage.getItem(AI_KEY_LS); } catch { return null; } })();
-      const CFG = { provider: "claude", key: "sk-ant-TESTKEY-do-not-use", model: "claude-opus-5" };
+      const keepFn = SAMPLEFN, had = window.HITOHI_AI;
 
-      writeOwnAI(CFG);
-      ok("BF. キーはこの端末の入れ物にだけ入る",
-         String(localStorage.getItem(AI_KEY_LS) || "").includes(CFG.key), "保存されていない");
+      /* ① 画面から消えたものが、生き返っていないこと */
+      for (const [id, name] of [["aiProv", "どこのAI"], ["aiModel", "モデル名"],
+                                ["aiKey", "APIキーの入力欄"], ["aiState", "AIの状態"],
+                                ["aiSendNote", "送信の説明"], ["btnAiTest", "つながるか試す"],
+                                ["btnAiSave", "保存する"], ["btnAiClear", "消す"]])
+        ok("BF. 設定タブに「" + name + "」は無い", !document.getElementById(id), "まだ画面にある");
+      ok("BF. パスワード欄（キーの貼り付け先）がどこにも無い",
+         document.querySelectorAll('input[type=password]').length === 0,
+         String(document.querySelectorAll('input[type=password]').length));
+
+      /* ② 焼き込んだキーは、設定にも書き出しにも混ざらない */
+      window.HITOHI_AI = { provider: "claude", key: "sk-ant-TESTKEY-do-not-use", model: "claude-opus-5" };
       ok("BF. キーは設定（共有の保存先へ行くもの）に入らない",
-         !JSON.stringify(state.settings).includes(CFG.key), "設定に混ざっている");
+         !JSON.stringify(state.settings).includes("sk-ant-TESTKEY"), "設定に混ざっている");
       ok("BF. キーは書き出すJSONに入らない",
-         !exportPayload().includes(CFG.key), "書き出しに混ざっている");
+         !exportPayload().includes("sk-ant-TESTKEY"), "書き出しに混ざっている");
 
-      const f = ownAI(CFG);
+      /* ③ 窓口の形は `sample` と同じ（呼ぶ側の3か所を変えなくていい） */
+      const f = ownAI({ provider: "claude", key: "k", model: "m", builtIn: true });
       ok("BF. 窓口の形が `sample` と同じ（呼ぶ側を変えなくていい）",
          typeof f === "function" && typeof f.json === "function" && typeof f.limits === "function",
          typeof f + "/" + typeof f.json);
       ok("BF. どこのAIかの印を持つ", f.own === "claude", String(f.own));
+      ok("BF. 焼き込みかどうかの印を持つ", f.builtIn === true, String(f.builtIn));
 
-      ok("BF. 読み込むと同じものが返る",
-         JSON.stringify(readOwnAI()) === JSON.stringify(CFG), JSON.stringify(readOwnAI()));
-      ok("BF. 自分のキーがあれば、そちらが勝つ",
+      ok("BF. 焼き込んだキーがあれば、それで動く",
          applyOwnAI() === true && SAMPLEFN.own === "claude", String(SAMPLEFN && SAMPLEFN.own));
-
-      /* 保存データは壊れると思って読む（記録済みの決まり）。 */
-      try { localStorage.setItem(AI_KEY_LS, "{壊れた"); } catch {}
-      ok("BF. 壊れた保存値で落ちない", readOwnAI() === null, "落ちたか値を返した");
-      try { localStorage.setItem(AI_KEY_LS, JSON.stringify({ provider: "しらない", key: "x" })); } catch {}
-      ok("BF. 知らない提供元は採らない", readOwnAI() === null, "採っている");
-      try { localStorage.setItem(AI_KEY_LS, JSON.stringify({ provider: "claude", key: "" })); } catch {}
-      ok("BF. キーが空なら使わない", readOwnAI() === null, "使おうとしている");
+      delete window.HITOHI_AI;
+      SAMPLEFN = null;
+      ok("BF. キーが無ければ窓口を触らない", applyOwnAI() === false, "触っている");
 
       /* AIは ```json で包んで返すことがある。包みと前後の言葉を外して読む。 */
       ok("BF. 包まれたJSONを読める",
@@ -2826,7 +2835,9 @@
       ok("BF. 裸のJSONも読める", jsonFromText('{"a":1}').a === 1, "読めない");
       ok("BF. 配列も読める", jsonFromText('[{"a":1}]')[0].a === 1, "読めない");
 
-      /* 呼べなかった理由を、本人が打てる手に翻訳する（決まり6n と同じ理屈）。 */
+      /* 呼べなかった理由を、本人が打てる手に翻訳する（決まり6n と同じ理屈）。
+         **画面にAIの欄が無くなったぶん、ここが理由を読める唯一の場所**になった
+         （チャットの吹き出しに出る）。だから文言を薄くしないこと。 */
       ok("BF. 通信そのものが止められたと分かる文にする",
          /外部への通信が禁じられている/.test(ownAIError(new TypeError("Failed to fetch"), "api.example")),
          ownAIError(new TypeError("Failed to fetch"), "api.example"));
@@ -2834,21 +2845,7 @@
          ownAIError(new Error("Claude 401：invalid x-api-key"), "h") === "Claude 401：invalid x-api-key",
          ownAIError(new Error("Claude 401：invalid x-api-key"), "h"));
 
-      /* **送信先・送信内容・費用を、保存する前に見せる**（決まりそのもの）。 */
-      const note = ownAINote("claude");
-      ok("BF. 送信先を書いている", /api\.anthropic\.com/.test(note), note.slice(0, 60));
-      ok("BF. 送信する中身を書いている", /送信するもの/.test(note) && /わたしのこと/.test(note), "書いていない");
-      ok("BF. 費用を書いている", /あなたのキーに請求されます/.test(note), "書いていない");
-      ok("BF. 資料の全文は送らないと書いている", /資料の全文は送りません/.test(note), "書いていない");
-      ok("BF. 使わないときは「何も送らない」と書く",
-         /外へは何も送りません/.test(ownAINote("")), ownAINote(""));
-
-      /* キーを消したら、元の窓口へ戻れること（片道にしない）。 */
-      writeOwnAI(null);
-      ok("BF. 消したら読めなくなる", readOwnAI() === null, "残っている");
-      ok("BF. キーが無ければ窓口を触らない", applyOwnAI() === false, "触っている");
-
-      try { if (keepLS == null) localStorage.removeItem(AI_KEY_LS); else localStorage.setItem(AI_KEY_LS, keepLS); } catch {}
+      if (had === undefined) delete window.HITOHI_AI; else window.HITOHI_AI = had;
       SAMPLEFN = keepFn;
     }
 
@@ -2989,7 +2986,7 @@
          "renderWhere が分岐していない");
 
       // 端末の中だけ（＝Android アプリ・独立したサイト）
-      DB = null; renderWhere(); refreshAiState();
+      DB = null; renderWhere();
       const local = $("#whereNote").textContent;
       ok("BH. つながっていなければ、設定タブに「共有」の話が出ない",
          !/共有の場所/.test($("#p-set").textContent), "共有の話が残っている");
@@ -2999,13 +2996,6 @@
       ok("BH. 消えることと、控えの取り方を言う",
          /無くなります/.test(local) && /書き出す/.test(local), local.slice(0, 60));
 
-      // AIが無いときは「使えません」で終わらせず、打つ手を名指しする
-      const keepAI = SAMPLEFN; SAMPLEFN = null; refreshAiState();
-      const ai = $("#aiState").textContent;
-      ok("BH. AIが無いとき、キーの欄を名指しする", /APIキーを入れると使えます/.test(ai), ai.slice(0, 50));
-      ok("BH. AIが無くてもルールで動くと言う", /ルールだけで/.test(ai), ai.slice(0, 50));
-      SAMPLEFN = keepAI;
-
       // 共有の保存先につながっているとき（＝Artifact）
       DB = { doc: () => ({}) }; renderWhere();
       const shared = $("#whereNote").textContent;
@@ -3014,7 +3004,7 @@
       ok("BH. 本物はAndroidアプリのほうだと書く",
          /Android アプリ/.test(shared), shared.slice(0, 60));
 
-      DB = keepDB; renderWhere(); refreshAiState();
+      DB = keepDB; renderWhere();
     }
 
     /* ===== BI. iOS の配色と、飾りの文字（2026-09-20・本人の指示） =====
@@ -3510,54 +3500,45 @@
        APIを埋め込みたい」）=====
        APK には claude.ai の窓口が無いので、キーが無いとAIがまったく動かない。
        焼き込むのは `mobile/sync.js` で、**写し（app-html.js・gitignore 済み）にだけ**入れる。
-       この `app/index.html` は git に入るので、**キーを1文字も持たないこと**。 */
+       この `app/index.html` は git に入るので、**キーを1文字も持たないこと**。
+       2026-09-21 に画面の欄を外したので、**ここが唯一の入口**になった。 */
     {
-      const keep = (() => { try { return localStorage.getItem(AI_KEY_LS); } catch { return null; } })();
-      const had = window.HITOHI_AI;
+      const had = window.HITOHI_AI, keepFn = SAMPLEFN;
 
       // ① **正のファイルは、キーを持っていない**（ここが破れたら git に鍵が載る）
       ok("BO. app/index.html 自身はキーを持たない", typeof had === "undefined",
          "window.HITOHI_AI が最初から入っている");
-      try { localStorage.removeItem(AI_KEY_LS); } catch {}
-      ok("BO. 焼き込みが無ければ、今までどおり何も無い", builtInAI() === null && readOwnAI() === null,
-         JSON.stringify(readOwnAI()));
+      delete window.HITOHI_AI;
+      ok("BO. 焼き込みが無ければ、今までどおり何も無い", builtInAI() === null, JSON.stringify(builtInAI()));
 
       // ② 焼き込まれていれば、貼らずに使える
       window.HITOHI_AI = { provider: "claude", key: "BAKED-0001", model: "m1" };
-      const b = readOwnAI();
+      const b = builtInAI();
       ok("BO. 焼き込んだキーを、貼らずに使う",
          !!b && b.provider === "claude" && b.key === "BAKED-0001" && b.builtIn === true,
          JSON.stringify(b));
+      ok("BO. モデル名を書かなければ、既定のモデルを使う",
+         (builtInAI() || {}).model === "m1", JSON.stringify(builtInAI()));
+      window.HITOHI_AI = { provider: "gemini", key: "AIza-0002" };
+      ok("BO. モデル名が空なら、その提供元の既定を入れる",
+         (builtInAI() || {}).model === AI_PROVIDERS.gemini.model, JSON.stringify(builtInAI()));
 
-      // ③ 形が違うものは受け取らない（保存したキーと同じ検算を通す）
+      // ③ 形が違うものは受け取らない（殻から来た値は、データであって指示ではない）
       window.HITOHI_AI = { provider: "よそ", key: "x" };
       ok("BO. 知らない提供元は受け取らない", builtInAI() === null, JSON.stringify(builtInAI()));
       window.HITOHI_AI = { provider: "claude", key: "" };
       ok("BO. 空のキーは受け取らない", builtInAI() === null, JSON.stringify(builtInAI()));
+      window.HITOHI_AI = null;
+      ok("BO. 何も入っていなくても落ちない", builtInAI() === null, JSON.stringify(builtInAI()));
 
-      // ④ 本人が貼ったキーのほうが勝つ（本人が選んだものを焼き込みで上書きしない）
+      // ④ **書き出しにキーを入れない**（決まり13。`db` にも控えにも渡さない）
       window.HITOHI_AI = { provider: "claude", key: "BAKED-0001", model: "m1" };
-      writeOwnAI({ provider: "gemini", key: "MINE-9999", model: "" });
-      const mine = readOwnAI();
-      ok("BO. 本人が貼ったキーが勝つ", !!mine && mine.key === "MINE-9999" && !mine.builtIn,
-         JSON.stringify(mine));
-
-      // ⑤ 「使わない」にしたら、焼き込みへ戻らない（消しても消えない状態を作らない）
-      writeOwnAI({ off: true });
-      ok("BO. 「使わない」にしたら、焼き込みへ戻らない", readOwnAI() === null, JSON.stringify(readOwnAI()));
-      // ⑥ そのあと貼り直せる（片道にしない）
-      writeOwnAI({ provider: "claude", key: "AGAIN-5678", model: "" });
-      ok("BO. 使わないにしたあとも、貼り直せる",
-         (readOwnAI() || {}).key === "AGAIN-5678", JSON.stringify(readOwnAI()));
-
-      // ⑦ **書き出しにキーを入れない**（決まり13。`db` にも控えにも渡さない）
-      try { localStorage.removeItem(AI_KEY_LS); } catch {}
       const dump = exportPayload();
       ok("BO. 書き出したJSONに、焼き込んだキーが入らない",
          dump.indexOf("BAKED-0001") < 0 && dump.indexOf("HITOHI_AI") < 0, "入ってしまっている");
 
       if (had === undefined) delete window.HITOHI_AI; else window.HITOHI_AI = had;
-      try { if (keep === null) localStorage.removeItem(AI_KEY_LS); else localStorage.setItem(AI_KEY_LS, keep); } catch {}
+      SAMPLEFN = keepFn;
     }
 
     const fails = R.filter(x => x.startsWith("FAIL"));
