@@ -2657,7 +2657,7 @@
            (pAll.split("【まだ聞けていないこと】")[1] || "").split("【")[0]
              .split("\n").filter(l => /^- .+か。$/.test(l)).length === 3, "3つではない");
         ok("BD. 毎回は聞かないよう頼んでいる",
-           /1回の返事につき\*\*1つまで|1回の返事につき/.test(pAll) && /毎回は聞かないでください/.test(pAll),
+           /「ask」に1つだけ|1回の返事につき/.test(pAll) && /毎回は聞かないでください/.test(pAll),
            "頼んでいない");
         ok("BD. 推測で埋めるなと頼んでいる",
            /推測で埋めないでください/.test(pAll), "頼んでいない");
@@ -3130,6 +3130,52 @@
       ok("BJ. ふだんは、つまみを出さない", !say.classList.contains("more"));
       say.value = keepV; say.dispatchEvent(new Event("input", { bubbles: true }));
       showTab(keepTab);
+    }
+
+    /* ===== BL. 2つめのAIからは、文章を受け取らない（2026-09-21・本人の指摘） =====
+       「2回目のAIが1回目と同じようなことを話す」。実際そうで、本体AIの3文は
+       速い返事と「変えたこと」5件の言い換えだった。直し方は**注意書きではなく、返す形**——
+       本体から受け取るのを habit（習慣の提案）と ask（まだ聞けていないこと）だけにする。 */
+    {
+      const nb = { id: uid(), text: "30分勉強する", hash: "bl", capturedAt: T(9, 0),
+                   source: "talk", sourceName: null, createdAt: T(9, 0) };
+      const pr = buildPrompt(nb, contextForAI(nb));
+      ok("BL. 依頼文が求める形は ops / habit / ask",
+         /\{"ops":\[ \.\.\. \],"habit":"","ask":""\}/.test(pr), "");
+      ok("BL. 依頼文が「reply」を返すなと言っている", /「reply」は返さないでください/.test(pr));
+      ok("BL. 依頼文が「文章は書くな」と言っている", /文章（reply）は書かないでください/.test(pr));
+      const AT = String(aiTurn);
+      ok("BL. 受け取るのは ops / habit / ask だけ（reply を読まない）",
+         /out\.habit/.test(AT) && /out\.ask/.test(AT) && !/out\.reply/.test(AT), "");
+
+      /* **形だけ見て終わらせない。実際に1回流す。**（決まり14・道具が本当に見ているか）
+         AIを差し替えて、本体が文章を返してきても使われないことを確かめる。 */
+      const keepAI = SAMPLEFN, keepView = view.day, keepChat = view.chatDay;
+      const QUICK = "受け止めの一言。", BODY = "本体が書いた文章。郵便局の件、記録しました。";
+      const HABIT = "寝る前に白湯を一杯飲んでみるのはどうですか？";
+      const stub = () => Promise.resolve({ text: QUICK });
+      stub.json = () => Promise.resolve({
+        ops: [{ op: "add", kind: "task", title: "郵便局に行く", dueDate: null,
+                duePrecision: "none", quote: "郵便局に行く" }],
+        reply: BODY, habit: HABIT, ask: "" });
+      SAMPLEFN = stub;
+      reset();
+      await sendTurn("郵便局に行く。");
+      const today = dayKey(new Date(), state.settings.timezone);
+      const turn = (state.turns[today] || []).filter(t => t.role === "assistant").pop();
+      SAMPLEFN = keepAI; view.day = keepView; view.chatDay = keepChat;
+
+      ok("BL. 返事がある", !!turn, "会話に何も入っていない");
+      const txt = turn ? turn.text : "";
+      ok("BL. 本体AIの文章は使わない", !txt.includes(BODY), txt.slice(0, 60));
+      ok("BL. 受け止めは、速い返事の一言", txt.startsWith(QUICK), txt.slice(0, 40));
+      ok("BL. 習慣の提案は、本体AIのものを出す", txt.includes(HABIT), txt.slice(0, 80));
+      /* **ここが本題**：「変えたこと」は吹き出しの下の欄が出すので、文には書かない。 */
+      const first = (turn && turn.changes && turn.changes[0]) || "";
+      ok("BL. 変えたことを、文にも書いていない（欄と二重にならない）",
+         !!first && !txt.includes(first), first + " / " + txt.slice(0, 60));
+      ok("BL. 「変えたこと」の欄そのものは残っている",
+         !!turn && (turn.changes || []).length > 0, "");
     }
 
     /* ===== BK. 指で触ったときの手ざわりと、文字の大きさの段数（2026-09-21） =====

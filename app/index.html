@@ -4918,11 +4918,12 @@ function buildPrompt(note, cx) {
 ${already.length ? `この時間帯には、本人が言った次のものが**すでに入ります**：
 ${already.map(x => "  - " + x).join("\n")}
 **これらと同じもの・似たものは出さないでください。**（同じことが2回並びます）
-` : ""}- 返事の最後の「習慣の提案」も、**この時間帯に合うもの**にしてください。
+` : ""}- 「habit」の「習慣の提案」も、**この時間帯に合うもの**にしてください。
 - ここに書いた日付と時刻は、**返事に書かないでください**（アプリが表示します）。
 ` : "";
   return `あなたは本人専属の秘書です。本人は整理せずに、予定・気分・思いつきを混ぜて話します。
-その発話を読んで、(1) 予定とタスクへの操作 と (2) 短い返事 を返してください。
+その発話を読んで、**予定とタスクへの操作（ops）**を返してください。
+**受け止めの言葉は、別のところで既に返しています。ここで文章を書く必要はありません。**
 ${buildBlock}
 
 【いまの日時】${cx.p.y}年${cx.p.mo}月${cx.p.d}日(${DOW_JA[cx.p.dow]}) ${pad2(cx.p.h)}:${pad2(cx.p.mi)}（${tz}）
@@ -4962,7 +4963,7 @@ estimateMin は 30 のように返してください（開始時刻を決めな�
   よく眠れる／気持ちが軽くなる／体が楽になる／人とのつながり／自然に触れる／
   好きなことの時間が残る、といったものを混ぜる。
 - 夜の時間帯なら、**最後は就寝に向かう枠**で締める。朝なら入れない。
-そのうえで、**返事の最後に「習慣の提案」を1つだけ**書いてください。
+そのうえで、**「habit」に「習慣の提案」を1つだけ**書いてください。
 - **1つだけ。** 2つ以上は書かない。箇条書きにしない。
 - 「〜のはどうですか？」のように、**やってみないかと誘う形**にする。
 - **その人の話に合わせて、その都度考える。**毎回同じことを言わない。
@@ -4987,8 +4988,8 @@ ${cx.asking ? `【いま画面で聞いている質問】${cx.asking}
 ` : ""}${cx.gaps.length ? `【まだ聞けていないこと】
 ${cx.gaps.map(s => "- " + s).join("\n")}
 - ここが埋まるほど、予定の組み方がその人に合っていきます。
-- **毎回は聞かないでください。** 話の流れが自然に触れたときだけ、**1回の返事につき1つまで**。
-- 習慣の提案をする回には聞かないでください（返事が長くなります）。
+- **毎回は聞かないでください。** 話の流れが自然に触れたときだけ、**「ask」に1つだけ**。
+- 習慣の提案をする回には聞かないでください（長くなります）。
 - 答えを**推測で埋めないでください。** 聞いていないことは、聞いていないままにします。
 ` : ""}
 【いま開いている用事（言い直しはこのidを使う）】
@@ -5005,12 +5006,13 @@ ${cx.recent || "（なし）"}
   取り除いてよいのは日時の表現と言いよどみだけ。
 - **日付を言っていないのに日付を作らない。** 「そのうち」「近いうちに」に日付を付けない。
 - 体調・気分・集中について、点数や診断や推定値を作らない。本人の言葉をそのまま text に入れる。
-- 返事に時刻・時間割・表を書かない。予定表はアプリが計算して表示する。
-- **返事に「今日」「明日」「あさって」「◯日」「◯曜」などの日付の言葉も書かない。**
-  日付もアプリが計算して出す。ここを書かれると、**予定表は今日なのに返事は明日**になる
+- **文章（reply）は書かないでください。**受け止めの一言はもう返してあり、
+  変えたこと・次にすること・予定表は**アプリが出します**。ここで書くと、
+  同じ内容が吹き出しの中と下に2回並びます（実際にそうなっていた）。
+- 「habit」「ask」に時刻・時間割・表を書かない。予定表はアプリが計算して表示する。
+- **「今日」「明日」「あさって」「◯日」「◯曜」などの日付の言葉も書かない。**
+  日付もアプリが計算して出す。ここを書かれると、**予定表は今日なのに文は明日**になる
   （日付を言っていないとき、アプリは話した日に引き戻すため）。実機で起きた。
-- **返事は2〜4文。** 変えたことを短く伝え、必要なときだけ次の一手を一つ。
-  毎回の分析・タスク一覧・予定表を書かない。確認が要らないなら質問で終わらせない。
 - **全部をタスクにしない。**
   「迷っている」「いつか」「面白そう」「気になる」は idea。やると決めたことではない。
   質問（「何を後回しにできる？」「夜ごはんどうしよう」）には ops を作らず、答えるだけ。
@@ -5027,7 +5029,11 @@ ${cx.recent || "（なし）"}
   返事で「カレンダーに入れた」と書かない（外部カレンダーには繋がっていない）。
 
 【返すJSON（これだけ返す）】
-{"ops":[ ... ],"reply":"短い返事"}
+{"ops":[ ... ],"habit":"","ask":""}
+- **「reply」は返さないでください。**使いません。
+- 「habit」は**組み立てを頼まれたときだけ**（上の指示）。ふだんは空文字 "" のままにしてください。
+- 「ask」は、下に「まだ聞けていないこと」が挙がっていて、かつ聞くときだけ。
+  ふだんは空文字 "" のままにしてください。
 
 opsに使える形：
 {"op":"add","kind":"task|event|goal","title":"短い言い切り","dueDate":"YYYY-MM-DD|null","dueTime":"HH:MM|null","duePrecision":"exact|day|week|none","estimateMin":数値|null,"estimateUncertain":true|false,"targetDate":"YYYY-MM-DD|null","preferWindow":"morning|afternoon|evening|null","window":"HH:MM-HH:MM|null","travelMin":数値|null,"prepMin":数値|null,"quote":"発話からの正確な引用"}
@@ -5073,7 +5079,13 @@ async function aiTurn(note) {
   finally { g.done(); }
   // 形が違うなら、黙って「何もしない」で終わらせずにルールへ戻す
   if (!out || typeof out !== "object" || !Array.isArray(out.ops)) throw { code: "invalid_json", message: "返事の形が違います" };
-  return { ops: out.ops, reply: typeof out.reply === "string" ? out.reply.trim() : "" };
+  /* **`reply` は受け取らない**（2026-09-21・本人の指摘「2回目のAIが1回目と同じことを話す」）。
+     本体のAIが文章まで書くと、速い返事・「変えたこと」・「次にすること」を
+     言い換えただけの段落が挟まる（実測：本体の3文が、コードが数えた5件の言い換えだった）。
+     受け取るのは **習慣の提案（habit）と、まだ聞けていないことの問いかけ（ask）だけ**。
+     **注意書きで禁じるのではなく、返す形から外す**——禁じただけで守られたと思わない（決まり9）。 */
+  const one = v => (typeof v === "string" ? v.trim().slice(0, 200) : "");
+  return { ops: out.ops, habit: one(out.habit), ask: one(out.ask) };
 }
 
 /* 速い返事に渡す「時間帯」。ルール抽出は一瞬で終わるので、AIより先に答えを出せる。
@@ -5189,8 +5201,9 @@ async function sendTurn(text) {
   }
 
   let ops = null, reply = "", usedAI = false, err = null, aiSaidNothing = false;
+  let habit = "", telosAsk = "";      // 本体AIから受け取るのは、この2つだけ（文章は受け取らない）
   if (useAI) {
-    try { const r = await aiTurn(note); ops = r.ops; reply = r.reply; usedAI = true; }
+    try { const r = await aiTurn(note); ops = r.ops; habit = r.habit; telosAsk = r.ask; usedAI = true; }
     catch (e) { err = AI_ERR[e && e.code] || "AIに接続できなかったので、ルールだけで読み取りました。"; }
   }
   /* **AIが「何もしない」を返しても、ルールが読めたものは捨てない**（v5.4・実機で報告）。
@@ -5244,6 +5257,10 @@ async function sendTurn(text) {
     return;
   }
   const { changes, asks, days, kinds } = applied;
+  /* 組み立てを頼まれたのに提案が返らなかったことを、黙らない（決まり10・v7.4と同じ理屈）。
+     画面には枠だけが並ぶので、何も言わないと「考えてくれなかった」ことが分からない。 */
+  if (usedAI && !habit && parseDayRequest(note, tz))
+    asks.push("AIから習慣の提案が返らなかったので、今回は出していません。");
   // 別の日のことだけを話したなら、その日の予定表を見せる（今日の表を出しても反映が見えない）
   const others = days.filter(d => d && d !== today);
   const key = (others.length === 1 && !days.includes(today)) ? others[0] : today;
@@ -5267,16 +5284,24 @@ async function sendTurn(text) {
   const ctx = { changes, asks, kinds, plan, na, isToday: key === today, answer, feelingOnly, raw: clean, scheduleChanged, askedSchedule };
 
   const dayNote = others.length ? `${others.map(d => fmtDayPlain(d, tz)).join("と")}の予定に入れたよ。` : "";
-  if (!reply) reply = templateReply(ctx) + (dayNote ? " " + dayNote : "");
-  else {
-    if (answer) reply = answer + "\n" + reply;
-    if (dayNote) reply += "\n" + dayNote;
-    if (asks.length) reply += "\n" + asks.join("\n");
-  }
-  // 先に返した一言は、そのまま返事の頭に残す（同じことを二度言わない）
-  if (quickText && !reply.startsWith(quickText)) {
-    const dup = quickText.replace(/[。、！!？?\s]/g, "");
-    reply = reply.replace(/[。、！!？?\s]/g, "").startsWith(dup) ? reply : quickText + "\n" + reply;
+  /* **吹き出しは、担当を分けて組み立てる**（2026-09-21・本人の指摘）。
+     受け止め＝速いAI／事実＝コード／習慣の提案＝本体AI。
+     前は本体AIにも文章を書かせ、重なったときだけ**文字列が一致すれば**落としていた。
+     「おはよう」と「おはようございます」は一致しないので、すり抜けていた。
+     **言う担当を分ければ、重なりようがない。** 注意書きではなく形で防ぐ（決まり9）。
+     変えたこと・次にすることは、この下の欄（`.changes` / `.next`）が出すので**文には書かない**。 */
+  const tail = [habit, telosAsk].filter(x => x && x.trim());
+  if (quickText) {
+    const bits = [quickText];
+    if (answer) bits.push(answer);
+    if (dayNote) bits.push(dayNote);
+    if (asks.length) bits.push(...asks);
+    reply = bits.concat(tail).join("\n");
+  } else {
+    /* 速い一言が無い（AIを使っていない／速い返事が落ちた）。コードが全部書く。
+       この道は今までどおり——**AIが無くても全部動く**（決まり7）。 */
+    reply = templateReply(ctx) + (dayNote ? " " + dayNote : "");
+    if (tail.length) reply += "\n" + tail.join("\n");
   }
 
   const t = document.getElementById("thinking"); if (t) t.remove();

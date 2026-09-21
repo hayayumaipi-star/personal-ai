@@ -313,6 +313,33 @@
         throw new Error("AIが呼ばれていない");
       await click('nav.tabs [data-tab="p-set"]');
     });
+    await step("吹き出しに同じことを2回書かない（受け止め・事実・提案で担当が分かれる）", async () => {
+      /* 本体AIに文章まで書かせると、速い返事と「変えたこと」を言い換えただけの段落が挟まる
+         （2026-09-21・本人の指摘）。mock は今も `reply` を返し続けているので、
+         **返ってきても使われない**ことをここで確かめる。
+         組み立てそのもの（変えたことを文に書かない）は probe の BL群 が見張る。 */
+      await click('nav.tabs [data-tab="p-chat"]');
+      /* **前の送信が終わりきるまで待つ。** `doSend` は `sending` の間は黙って戻るので、
+         待たずに押すと**何も起きないまま**落ちる（実際に落ちた）。 */
+      if (!await waitFor(() => sending === false, 8000)) throw new Error("前の送信が終わらない");
+      const before = document.querySelectorAll("#chatOut .turn.ai").length;
+      type("#say", "明日の11時から打ち合わせ。");
+      await click("#btnSend");
+      if (!await waitFor(() => sending === false
+            && document.querySelectorAll("#chatOut .turn.ai").length > before, 8000))
+        throw new Error("返事が出ない");
+      const turn = [...document.querySelectorAll("#chatOut .turn.ai")].pop();
+      const bub = turn.querySelector(".bub").textContent;
+      if (/わかった、入れておくね/.test(bub)) throw new Error("本体AIの文章が使われている");
+      if (!bub.startsWith("うん、聞いたよ。")) throw new Error("速い返事が頭に無い：" + bub.slice(0, 30));
+      if (!/部屋を暗く/.test(bub)) throw new Error("習慣の提案が出ていない：" + bub.slice(-40));
+      const panel = turn.querySelector(".changes");
+      if (panel) {
+        const first = panel.querySelector("div").textContent.replace(/^・/, "");
+        if (bub.includes(first)) throw new Error("吹き出しにも同じ文が出ている：" + first);
+      }
+      await click('nav.tabs [data-tab="p-set"]');
+    });
     await step("古い控えの useAI:false を持ち越さない", async () => {
       /* 控えや古い保存先には `useAI:false` が残っていることがある。
          画面に欄が無いのにAIが静かに止まると、原因をたどる道が無い。

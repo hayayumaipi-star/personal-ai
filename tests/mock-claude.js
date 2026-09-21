@@ -55,7 +55,10 @@
       if(/面談/.test(s)) ops.push({op:"add",kind:"event",title:"面談",dueDate:"2026-09-14",dueTime:"10:00",quote:"面談"});
       if(/打ち合わせ/.test(s)) ops.push({op:"add",kind:"event",title:"打ち合わせ",dueDate:"2026-09-13",dueTime:"11:00",quote:"打ち合わせ"});
       if(/眠|寝てない/.test(s)) ops.push({op:"condition",text:"あんまり寝ていなくて眠い",quote:"眠い"});
-      return Promise.resolve({ops:ops,reply:"わかった、入れておくね。"});
+      /* `reply` はわざと返し続ける。**本体AIが文章を返してきても使われない**ことを
+         walkthrough が確かめるため（2026-09-21）。受け取るのは habit と ask だけ。 */
+      return Promise.resolve({ops:ops,reply:"わかった、入れておくね。",
+        habit:"寝る前に少しだけ部屋を暗くしてみるのはどうですか？",ask:""});
     };
     f.limits=function(){return Promise.resolve({maxPromptBytes:65536});};
     return f;
