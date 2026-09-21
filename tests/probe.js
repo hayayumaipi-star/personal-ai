@@ -2679,24 +2679,20 @@
         /* 画面と依頼文が**同じ関数**を見ていること（決まり7e・片方だけ直される穴）。 */
         state.items = [];
         const pAll = pr(mk("2026-09-14T12:30:00Z", "ちょっと疲れた。"));
-        ok("BD. まだ聞けていないことを依頼文に渡している",
-           /【まだ聞けていないこと】/.test(pAll), "渡していない");
-        ok("BD. 渡すのは3つまで（返事が長くなるため）",
-           (pAll.split("【まだ聞けていないこと】")[1] || "").split("【")[0]
-             .split("\n").filter(l => /^- .+か。$/.test(l)).length === 3, "3つではない");
-        ok("BD. 毎回は聞かないよう頼んでいる",
-           /「ask」に1つだけ|1回の返事につき/.test(pAll) && /毎回は聞かないでください/.test(pAll),
-           "頼んでいない");
-        ok("BD. 推測で埋めるなと頼んでいる",
-           /推測で埋めないでください/.test(pAll), "頼んでいない");
-
-        /* 全部答えていれば、依頼文からまるごと消える（用が無いのに見出しを出さない）。 */
-        state.items = TELOS_ASKS.map((a, n) => a.cat === "goal"
-          ? { id: "bg" + n, kind: "goal", title: "続けたいこと", status: "open" }
-          : { id: "bp" + n, kind: "profile", category: a.cat, title: "答え" + n, status: "open" });
-        ok("BD. 全部答えたら、依頼文から見出しごと消える",
-           !/【まだ聞けていないこと】/.test(pr(mk("2026-09-14T12:30:00Z", "ちょっと疲れた。"))),
-           "残っている");
+        /* **AIからは聞かせない**（2026-09-21・本人の指示
+           「まだ聞けていないことの問いかけの機能を消して」）。
+           聞く場所は「わたしのこと」タブの欄だけ——押すかどうかは本人が決める。
+           `telosGaps()` はその欄が今までどおり使うので、上の判定は生きている。 */
+        ok("BD. まだ聞けていないことを、AIには渡さない",
+           !/【まだ聞けていないこと】/.test(pAll), "まだ渡している");
+        ok("BD. AIから質問させない", /こちらから質問をしないでください/.test(pAll), "頼んでいない");
+        ok("BD. 返す形に「ask」を残していない", !/"ask"/.test(pAll), "まだ求めている");
+        /* **欄そのものは残っている。**消したのは「AIが聞いてくること」だけ。 */
+        state.items = [];
+        showTab("p-me"); renderMe();
+        const meTxt = $("#meOut").textContent.replace(/\s+/g, " ");
+        ok("BD. 「まだ聞いていないこと」の欄は残す",
+           /まだ聞いていないこと/.test(meTxt) && /これを話す/.test(meTxt), meTxt.slice(0, 80));
 
         /* 画面で聞いている質問は、聞いているあいだだけ渡す。 */
         state.items = [];
@@ -3171,13 +3167,13 @@
       const nb = { id: uid(), text: "30分勉強する", hash: "bl", capturedAt: T(9, 0),
                    source: "talk", sourceName: null, createdAt: T(9, 0) };
       const pr = buildPrompt(nb, contextForAI(nb));
-      ok("BL. 依頼文が求める形は ops / habit / ask",
-         /\{"ops":\[ \.\.\. \],"habit":"","ask":""\}/.test(pr), "");
+      ok("BL. 依頼文が求める形は ops / habit だけ",
+         /\{"ops":\[ \.\.\. \],"habit":""\}/.test(pr), "");
       ok("BL. 依頼文が「reply」を返すなと言っている", /「reply」は返さないでください/.test(pr));
       ok("BL. 依頼文が「文章は書くな」と言っている", /文章（reply）は書かないでください/.test(pr));
       const AT = String(aiTurn);
-      ok("BL. 受け取るのは ops / habit / ask だけ（reply を読まない）",
-         /out\.habit/.test(AT) && /out\.ask/.test(AT) && !/out\.reply/.test(AT), "");
+      ok("BL. 受け取るのは ops / habit だけ（reply も ask も読まない）",
+         /out\.habit/.test(AT) && !/out\.ask/.test(AT) && !/out\.reply/.test(AT), "");
 
       /* **形だけ見て終わらせない。実際に1回流す。**（決まり14・道具が本当に見ているか）
          AIを差し替えて、本体が文章を返してきても使われないことを確かめる。 */

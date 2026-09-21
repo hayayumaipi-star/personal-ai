@@ -4915,12 +4915,14 @@ function contextForAI(note) {
      これが「会話を閉じても残り、次回また使われる」の実体。 */
   const los = (state.lifeos.memory || []).slice(0, 40)
     .map(m => String(m && m.text || "")).filter(Boolean);
-  /* まだ聞けていないことも渡す。**判定は `telosGaps()` ひとつ**——
-     画面と依頼文で別々に数えない（決まり7e）。 */
-  const gaps = telosGaps();
+  /* **「まだ聞けていないこと」はAIに渡さない**（2026-09-21・本人の指示
+     「まだ聞けていないことの問いかけの機能を消して」）。
+     **聞く場所は「わたしのこと」タブの欄だけ**にした——押すか押さないかは本人が決める。
+     `telosGaps()` はその欄（`renderMe`）が今までどおり使う。
+     `asking` は残す。あれは**本人が「これを話す」を押したとき**に、
+     その答えを `profile` として覚えてもらうための案内で、AIから聞かせる仕組みではない。 */
   const asking = (TELOS_ASKS.find(x => x.key === view.ask) || {}).q || "";
-  return { key, p, open, plan, pf, me, recent, lifeos: los, winS: pl.winS, winE: pl.winE,
-           gaps: gaps.slice(0, 3).map(g => g.q), asking,
+  return { key, p, open, plan, pf, me, recent, lifeos: los, winS: pl.winS, winE: pl.winE, asking,
            omitted: Math.max(0, allOpen.length - open.length) };
 }
 
@@ -5029,12 +5031,6 @@ ${cx.asking ? `【いま画面で聞いている質問】${cx.asking}
 - この発言は、その答えのつもりかもしれません。答えになっていたら
   「わたしのこと」として覚えてください（op は profile、続けたいことなら goal）。
 - **答えていなければ、聞き直さないでください。** 話したいことが変わっただけです。
-` : ""}${cx.gaps.length ? `【まだ聞けていないこと】
-${cx.gaps.map(s => "- " + s).join("\n")}
-- ここが埋まるほど、予定の組み方がその人に合っていきます。
-- **毎回は聞かないでください。** 話の流れが自然に触れたときだけ、**「ask」に1つだけ**。
-- 習慣の提案をする回には聞かないでください（長くなります）。
-- 答えを**推測で埋めないでください。** 聞いていないことは、聞いていないままにします。
 ` : ""}
 【いま開いている用事（言い直しはこのidを使う）】
 ${JSON.stringify(cx.open, null, 0)}
@@ -5073,11 +5069,10 @@ ${cx.recent || "（なし）"}
   返事で「カレンダーに入れた」と書かない（外部カレンダーには繋がっていない）。
 
 【返すJSON（これだけ返す）】
-{"ops":[ ... ],"habit":"","ask":""}
+{"ops":[ ... ],"habit":""}
 - **「reply」は返さないでください。**使いません。
+- **こちらから質問をしないでください。**聞きたいことは画面の欄から本人が選びます。
 - 「habit」は**組み立てを頼まれたときだけ**（上の指示）。ふだんは空文字 "" のままにしてください。
-- 「ask」は、下に「まだ聞けていないこと」が挙がっていて、かつ聞くときだけ。
-  ふだんは空文字 "" のままにしてください。
 
 opsに使える形：
 {"op":"add","kind":"task|event|goal","title":"短い言い切り","dueDate":"YYYY-MM-DD|null","dueTime":"HH:MM|null","duePrecision":"exact|day|week|none","estimateMin":数値|null,"estimateUncertain":true|false,"targetDate":"YYYY-MM-DD|null","preferWindow":"morning|afternoon|evening|null","window":"HH:MM-HH:MM|null","travelMin":数値|null,"prepMin":数値|null,"quote":"発話からの正確な引用"}
@@ -5126,10 +5121,10 @@ async function aiTurn(note) {
   /* **`reply` は受け取らない**（2026-09-21・本人の指摘「2回目のAIが1回目と同じことを話す」）。
      本体のAIが文章まで書くと、速い返事・「変えたこと」・「次にすること」を
      言い換えただけの段落が挟まる（実測：本体の3文が、コードが数えた5件の言い換えだった）。
-     受け取るのは **習慣の提案（habit）と、まだ聞けていないことの問いかけ（ask）だけ**。
+     受け取るのは **習慣の提案（habit）だけ**（`ask` は 2026-09-21 に本人の指示で外した）。
      **注意書きで禁じるのではなく、返す形から外す**——禁じただけで守られたと思わない（決まり9）。 */
   const one = v => (typeof v === "string" ? v.trim().slice(0, 200) : "");
-  return { ops: out.ops, habit: one(out.habit), ask: one(out.ask) };
+  return { ops: out.ops, habit: one(out.habit) };
 }
 
 /* 速い返事に渡す「時間帯」。ルール抽出は一瞬で終わるので、AIより先に答えを出せる。
@@ -5245,9 +5240,9 @@ async function sendTurn(text) {
   }
 
   let ops = null, reply = "", usedAI = false, err = null, aiSaidNothing = false;
-  let habit = "", telosAsk = "";      // 本体AIから受け取るのは、この2つだけ（文章は受け取らない）
+  let habit = "";                    // 本体AIから受け取るのはこれだけ（文章も質問も受け取らない）
   if (useAI) {
-    try { const r = await aiTurn(note); ops = r.ops; habit = r.habit; telosAsk = r.ask; usedAI = true; }
+    try { const r = await aiTurn(note); ops = r.ops; habit = r.habit; usedAI = true; }
     catch (e) { err = AI_ERR[e && e.code] || "AIに接続できなかったので、ルールだけで読み取りました。"; }
   }
   /* **AIが「何もしない」を返しても、ルールが読めたものは捨てない**（v5.4・実機で報告）。
@@ -5350,7 +5345,7 @@ async function sendTurn(text) {
      「おはよう」と「おはようございます」は一致しないので、すり抜けていた。
      **言う担当を分ければ、重なりようがない。** 注意書きではなく形で防ぐ（決まり9）。
      変えたこと・次にすることは、この下の欄（`.changes` / `.next`）が出すので**文には書かない**。 */
-  const tail = [habit, telosAsk].filter(x => x && x.trim());
+  const tail = [habit].filter(x => x && x.trim());
   if (quickText) {
     const bits = [quickText];
     if (answer) bits.push(answer);
