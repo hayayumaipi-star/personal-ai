@@ -618,6 +618,23 @@
       type("#say", "");
       await wait(60);
     });
+    await step("下までたどっても、日付バーが見出しに潜り込まない", async () => {
+      await click('nav.tabs [data-tab="p-day"]');
+      await wait(120);
+      const top = document.querySelector("header.top"), bar = document.querySelector(".datebar");
+      if (!top || !bar) throw new Error("見出しか日付バーが無い");
+      window.scrollTo({ top: 900 });
+      await wait(120);
+      const h = top.getBoundingClientRect(), d = bar.getBoundingClientRect();
+      // 貼り付いたままであること（スクロールしても画面の中に残る）
+      if (d.top < 0 || d.bottom > window.innerHeight)
+        throw new Error(`日付バーが画面から出た（${Math.round(d.top)}〜${Math.round(d.bottom)}）`);
+      // 見出しの下にあること（重なると日付が読めない）
+      if (d.top < h.bottom - 1)
+        throw new Error(`見出しに${Math.round(h.bottom - d.top)}px 潜り込んでいる`);
+      window.scrollTo({ top: 0 });
+      await wait(60);
+    });
     await step("「記録を消す」を開くと、消す道が2つとも出てくる", async () => {
       await click('nav.tabs [data-tab="p-set"]');
       const fold = $$("#btnWipe").closest("details");

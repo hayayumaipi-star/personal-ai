@@ -1,10 +1,10 @@
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>AI秘書</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700&family=Noto+Sans+JP:wght@400;500&family=JetBrains+Mono:wght@500;600&display=swap">
 <style>
 :root{
+  color-scheme:light;
+  --scrim:rgba(0,0,0,.38);
   --paper:#F2F2F7; --surface:#FFFFFF; --surface-2:#E5E5EA;
   --ink:#1C1C1E; --ink-2:#5F5F63; --ink-3:#8E8E93;
   --line:#D9D9DE; --line-strong:#C6C6C8;
@@ -16,9 +16,11 @@
   --r:12px;
   --f-disp:-apple-system,BlinkMacSystemFont,"SF Pro Display","Hiragino Sans","Zen Kaku Gothic New","Noto Sans JP","Yu Gothic",sans-serif;
   --f-body:-apple-system,BlinkMacSystemFont,"SF Pro Text","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;
-  --f-mono:"JetBrains Mono","SFMono-Regular",Consolas,monospace;
+  --f-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Roboto Mono","Noto Sans Mono",monospace;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark;
+  --scrim:rgba(0,0,0,.6);
   --paper:#000000; --surface:#1C1C1E; --surface-2:#2C2C2E;
   --ink:#FFFFFF; --ink-2:#A1A1A6; --ink-3:#8E8E93;
   --line:#38383A; --line-strong:#48484A;
@@ -29,6 +31,8 @@
   --shadow:0 1px 2px rgba(0,0,0,.5), 0 6px 20px rgba(0,0,0,.4);
 }}
 :root[data-theme="dark"]{
+  color-scheme:dark;
+  --scrim:rgba(0,0,0,.6);
   --paper:#000000; --surface:#1C1C1E; --surface-2:#2C2C2E;
   --ink:#FFFFFF; --ink-2:#A1A1A6; --ink-3:#8E8E93;
   --line:#38383A; --line-strong:#48484A;
@@ -39,12 +43,14 @@
   --shadow:0 1px 2px rgba(0,0,0,.5), 0 6px 20px rgba(0,0,0,.4);
 }
 
-*{box-sizing:border-box}
-body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.75;-webkit-text-size-adjust:100%}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.75;
+  -webkit-text-size-adjust:100%;overscroll-behavior-y:contain}
 h1,h2,h3{font-family:var(--f-disp);font-weight:700;line-height:1.35;margin:0;letter-spacing:-.02em;text-wrap:balance}
 p{margin:0}
 button,input,textarea,select{font:inherit;color:inherit}
-button{cursor:pointer;background:none;border:none;padding:0}
+button{cursor:pointer;background:none;border:none;padding:0;
+  user-select:none;-webkit-user-select:none;touch-action:manipulation}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
@@ -55,46 +61,49 @@ header.top{position:sticky;top:0;z-index:40;background:var(--paper);border-botto
 .brand{font-family:var(--f-disp);font-weight:700;font-size:17px;letter-spacing:.02em}
 .brand .dot{color:var(--accent)}
 .brandsub{font-size:11px;color:var(--ink-3);letter-spacing:.06em}
-.sync{margin-left:auto;font-family:var(--f-mono);font-size:10px;letter-spacing:.04em;
+.sync{margin-left:auto;font-family:var(--f-mono);font-size:11px;letter-spacing:.04em;
   color:var(--ink-3);border:1px solid var(--line);border-radius:999px;padding:1px 8px;white-space:nowrap}
 .sync.ok{color:var(--accent);border-color:var(--accent)}
 .sync.local{color:var(--warn-ink);border-color:var(--warn)}
 
-.eyebrow{font-family:var(--f-disp);font-size:10px;font-weight:700;letter-spacing:.16em;
+.eyebrow{font-family:var(--f-disp);font-size:11px;font-weight:700;letter-spacing:.16em;
   color:var(--ink-3);text-transform:uppercase}
 .sect{margin:22px 0 0}
 .sect>.eyebrow{display:block;margin-bottom:7px}
 .sect>h2{font-size:20px;margin-bottom:5px}
-.hint{font-size:12.5px;color:var(--ink-2);line-height:1.65}
+.hint{font-size:13px;color:var(--ink-2);line-height:1.65}
 
 .card{background:var(--surface);border:1px solid transparent;border-radius:var(--r);padding:14px}
 .stack{display:flex;flex-direction:column;gap:10px}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
-  font-family:var(--f-disp);font-weight:600;font-size:13.5px;letter-spacing:-.01em;
+  font-family:var(--f-disp);font-weight:600;font-size:13px;letter-spacing:-.01em;
   border:1px solid transparent;border-radius:10px;padding:9px 14px;background:var(--surface-2);
   color:var(--accent-ink);
   min-height:40px;transition:background .12s,opacity .12s}
-.btn:hover{opacity:.7}
 .btn.pri{background:var(--accent);border-color:var(--accent);color:var(--paper);font-weight:700}
-.btn.pri:hover{filter:brightness(1.08)}
+/* 押した手ごたえは :active で出す。:hover はマウスのある画面だけ——
+   スマホでは押したあと hover が貼りついて、押しっぱなしに見える（v8.5） */
+.btn:active{opacity:.55}
+.btn.pri:active{filter:brightness(.9);opacity:1}
+@media (hover:hover){.btn:hover{opacity:.7}.btn.pri:hover{filter:brightness(1.08)}}
 .btn.sm{font-size:12px;padding:5px 12px;min-height:32px;border-radius:999px}
 /* 会話の時刻の横に添える「原文」。画面幅で大きさを変えるので、インライン style にしない */
-.btn.sm.srcbtn{min-height:auto;padding:0 6px;font-size:10px}
+.btn.sm.srcbtn{min-height:auto;padding:0 6px;font-size:11px}
 .btn[disabled]{opacity:.45;cursor:not-allowed}
 .btn.danger{color:var(--alert-ink)}
 
 textarea,input[type=text],input[type=date],input[type=time],input[type=number],
 input[type=password],input[type=search],select{
   width:100%;background:var(--surface-2);border:1px solid transparent;border-radius:10px;
-  padding:10px 11px;font-family:var(--f-body);font-size:15px}
+  padding:10px 11px;font-family:var(--f-body);font-size:16px}
 textarea{min-height:170px;resize:vertical;line-height:1.8}
-label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
+label.fld{display:block;font-size:11px;font-weight:500;color:var(--ink-2);
   font-family:var(--f-disp);letter-spacing:.04em;margin-bottom:3px}
 
 /* provenance chips — the core idea: every fact shows where it came from */
-.chip{display:inline-flex;align-items:center;gap:4px;font-family:var(--f-disp);font-size:10.5px;
+.chip{display:inline-flex;align-items:center;gap:4px;font-family:var(--f-disp);font-size:11px;
   font-weight:500;letter-spacing:.03em;padding:1px 7px;border-radius:999px;border:1px solid var(--line-strong);
   color:var(--ink-2);background:transparent;white-space:nowrap;line-height:1.7}
 .chip.src-user{background:var(--accent);border-color:var(--accent);color:var(--paper);font-weight:700}
@@ -112,13 +121,13 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
   display:flex;flex-direction:column;gap:7px}
 .item.unconfirmed{border-color:var(--line-strong);border-style:dashed}
 .item.isdone .ttl{text-decoration:line-through;color:var(--ink-3)}
-.item .ttl{font-family:var(--f-disp);font-weight:500;font-size:14.5px;line-height:1.5}
-.meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--ink-2)}
-.meta .mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:11.5px}
+.item .ttl{font-family:var(--f-disp);font-weight:500;font-size:15px;line-height:1.5}
+.meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--ink-2)}
+.meta .mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:12px}
 .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:1px}
 
 /* evidence */
-.evid{font-size:12.5px;color:var(--ink-2);background:var(--surface-2);border-radius:7px;
+.evid{font-size:13px;color:var(--ink-2);background:var(--surface-2);border-radius:7px;
   padding:7px 9px;border-left:2px solid var(--line-strong)}
 .evid mark{background:var(--accent-soft);color:var(--accent-ink);padding:0 2px;border-radius:2px}
 
@@ -143,17 +152,17 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 .blk.thin{border-radius:6px;padding:0 11px;justify-content:center;gap:0;
   min-height:max(calc(var(--min,10) * var(--tlscale)), 22px)}
 .blk.thin .bhead{gap:8px}
-.blk.thin .bttl{font-size:12.5px;font-weight:400;color:var(--ink-2)}
-.blk.thin .bdur{font-size:10.5px}
+.blk.thin .bttl{font-size:13px;font-weight:400;color:var(--ink-2)}
+.blk.thin .bdur{font-size:11px}
 /* 空き時間。長さのぶんだけ本当に空ける */
 .tlrow.gaprow{align-items:stretch}
 .tlrow.gaprow .tltime{padding-top:0;align-self:center}
 .gapline{display:flex;align-items:center;margin:4px 0 5px;padding-left:2px;
   border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);
   min-height:max(calc(var(--min,20) * var(--tlscale)), 26px)}
-.gapline span{font-family:var(--f-mono);font-size:10.5px;color:var(--ink-3)}
-.blk .bttl{font-family:var(--f-disp);font-weight:500;font-size:14px;line-height:1.45}
-.blk .brange{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:11px;color:var(--ink-2)}
+.gapline span{font-family:var(--f-mono);font-size:11px;color:var(--ink-3)}
+.blk .bttl{font-family:var(--f-disp);font-weight:500;font-size:15px;line-height:1.45}
+.blk .brange{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:12px;color:var(--ink-2)}
 
 /* 見出しの行だけを常に見せ、理由と操作はたたんでおく */
 .bhead{display:flex;align-items:baseline;gap:10px;width:100%;text-align:left;padding:0;
@@ -172,7 +181,7 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 .bdot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--warn);
   margin-right:7px;vertical-align:middle;flex:none}
 /* いま進行中の枠。赤い線を消した代わりに、この印が「いま」を引き受ける */
-.nowtag{flex:none;align-self:center;font-family:var(--f-disp);font-size:9.5px;font-weight:700;
+.nowtag{flex:none;align-self:center;font-family:var(--f-disp);font-size:11px;font-weight:700;
   letter-spacing:.06em;color:var(--paper);background:var(--accent);border-radius:999px;padding:2px 8px;line-height:1.4}
 /* いまの枠は、囲みを**足さずに**枠そのものの色を変える。
    外側に輪を重ねると、固定予定（青い枠）の上に赤い枠が乗って二重に見える（本人からの報告）。
@@ -184,27 +193,31 @@ label.fld{display:block;font-size:11.5px;font-weight:500;color:var(--ink-2);
 .tlrow.nowline .tltime{padding-top:0;color:var(--alert-ink);font-weight:600}
 .tlrow.nowline>div:last-child{position:relative;height:1px;background:var(--alert)}
 .tlrow.nowline span{position:absolute;left:0;top:-8px;background:var(--paper);padding-right:7px;
-  font-family:var(--f-disp);font-size:10px;font-weight:700;color:var(--alert-ink);letter-spacing:.06em}
+  font-family:var(--f-disp);font-size:11px;font-weight:700;color:var(--alert-ink);letter-spacing:.06em}
 
 .next{background:var(--surface);border:1px solid var(--accent);border-radius:var(--r);
   border-top:3px solid var(--accent);padding:13px 14px;display:flex;flex-direction:column;gap:8px}
 .next .nt{font-family:var(--f-disp);font-weight:700;font-size:17px;line-height:1.45}
-.next .nr{font-size:12.5px;color:var(--ink-2);line-height:1.7}
+.next .nr{font-size:13px;color:var(--ink-2);line-height:1.7}
 .reasons{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:3px}
-.reasons li{font-size:12.5px;color:var(--ink-2);padding-left:14px;position:relative;line-height:1.65}
+.reasons li{font-size:13px;color:var(--ink-2);padding-left:14px;position:relative;line-height:1.65}
 .reasons li::before{content:"—";position:absolute;left:0;color:var(--ink-3)}
 
-.note{border-radius:8px;padding:9px 11px;font-size:12.5px;line-height:1.7}
+.note{border-radius:8px;padding:9px 11px;font-size:13px;line-height:1.7}
 .note.warn{background:var(--warn-soft);color:var(--warn-ink)}
 .note.info{background:var(--surface-2);color:var(--ink-2)}
 .note.bad{background:var(--alert-soft);color:var(--alert-ink)}
 .note strong{font-weight:700}
 
-.quote{border-left:3px solid var(--line-strong);padding:4px 0 4px 11px;font-size:13.5px;color:var(--ink)}
+.quote{border-left:3px solid var(--line-strong);padding:4px 0 4px 11px;font-size:13px;color:var(--ink)}
 .quote .who{display:block;font-size:11px;color:var(--ink-3);font-family:var(--f-mono);margin-top:3px}
 
-.datebar{display:flex;align-items:center;gap:8px}
-.datebar .d{font-family:var(--f-disp);font-weight:700;font-size:16px;flex:1}
+/* 下までたどっても「どの日の予定か」を見失わないよう、見出しのすぐ下に貼り付ける。
+   見出しの高さは端末と文字の大きさで変わるので、`fitTopbar()` が実寸を `--topbar` に入れる
+   （数字を決め打ちにすると、文字を大きくした人の画面で日付が見出しに重なる）。 */
+.datebar{display:flex;align-items:center;gap:8px;
+  position:sticky;top:var(--topbar,44px);z-index:30;background:var(--paper);padding:6px 0 7px}
+.datebar .d{font-family:var(--f-disp);font-weight:700;font-size:17px;flex:1}
 .datebar .d .dow{font-size:12px;color:var(--ink-2);font-weight:500;margin-left:5px}
 /* 日付を飛ぶ入口（v4.3）。日付の表示は左のラベルが受け持っているので、
    入力欄そのものは見せない。小さなボタンの上に、透明なまま重ねて置く。 */
@@ -218,9 +231,10 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--surf
   border-top:1px solid var(--line);padding:5px 6px calc(5px + env(safe-area-inset-bottom,0px));
   display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
 nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px;border-radius:8px;
-  font-family:var(--f-disp);font-size:10.5px;font-weight:500;color:var(--ink-3);min-height:46px;justify-content:center}
-nav.tabs button .ic{font-size:16px;line-height:1.1}
+  font-family:var(--f-disp);font-size:11px;font-weight:500;color:var(--ink-3);min-height:46px;justify-content:center}
+nav.tabs button .ic{font-size:17px;line-height:1.1}
 nav.tabs button[aria-current="page"]{color:var(--accent-ink);font-weight:700}
+nav.tabs button:active{opacity:.5}
 @media (min-width:720px){
   nav.tabs{max-width:520px;margin:0 auto 14px;border:1px solid var(--line);border-radius:999px;
     padding:5px;box-shadow:var(--shadow)}
@@ -230,15 +244,19 @@ nav.tabs button[aria-current="page"]{color:var(--accent-ink);font-weight:700}
 .panel[hidden]{display:none!important}
 
 /* sheet — 下端のシステムUIにタップを取られないよう、タブバーより上で終える */
-.sheet{position:fixed;inset:0;z-index:60;background:rgba(10,20,19,.5);display:flex;align-items:flex-end;
-  justify-content:center;padding-bottom:calc(64px + env(safe-area-inset-bottom,0px))}
-.sheet .inner{background:var(--surface);width:100%;max-width:640px;max-height:78vh;overflow-y:auto;
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+@keyframes sheetin{from{transform:translateY(16px);opacity:.4}to{transform:none;opacity:1}}
+.sheet{position:fixed;inset:0;z-index:60;background:var(--scrim);display:flex;align-items:flex-end;
+  justify-content:center;padding-bottom:calc(64px + env(safe-area-inset-bottom,0px));
+  animation:fadein .16s ease-out}
+.sheet .inner{background:var(--surface);width:100%;max-width:640px;max-height:78vh;max-height:78dvh;overflow-y:auto;
+  overscroll-behavior:contain;animation:sheetin .22s cubic-bezier(.32,.72,0,1);
   border-radius:16px;padding:10px 15px 14px;display:flex;flex-direction:column;gap:12px;
-  box-shadow:0 -6px 28px rgba(10,20,19,.25)}
+  box-shadow:0 -6px 28px var(--scrim)}
 .sheet .foot{position:sticky;bottom:-14px;background:var(--surface);padding:10px 0 4px;margin-top:2px;
   border-top:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .sheet .foot .wide{flex:1 1 100%;justify-content:center;margin-left:0!important}
-@media (min-width:720px){.sheet{align-items:center;padding-bottom:0}.sheet .inner{max-height:84vh}}
+@media (min-width:720px){.sheet{align-items:center;padding-bottom:0}.sheet .inner{max-height:84vh;max-height:84dvh}}
 /* シートが開いている間、後ろの画面を動かさない（v4.3）。
    動くと、閉じたときに全然ちがう場所に戻っていて、どこを見ていたか分からなくなる。 */
 body.sheetopen{overflow:hidden}
@@ -248,11 +266,15 @@ body.sheetopen{overflow:hidden}
 
 /* toast */
 #toast{position:fixed;left:50%;transform:translateX(-50%);z-index:70;pointer-events:none;
+  animation:fadein .14s ease-out;
   bottom:calc(126px + env(safe-area-inset-bottom,0px));
   background:var(--ink);color:var(--paper);font-family:var(--f-disp);font-size:13px;font-weight:500;
   padding:9px 15px;border-radius:999px;box-shadow:var(--shadow);max-width:92vw;text-align:center}
 #toast[hidden]{display:none!important}
-.sheet h3{font-size:16px}
+.sheet h3{font-size:17px}
+/* カードの中の小見出し。インライン style で大きさを書かないこと（画面幅で変えられなくなる） */
+.cardttl{font-size:15px}
+.errta{min-height:70px;font-family:var(--f-mono)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
 
 .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--ink-2);align-items:center}
@@ -269,26 +291,24 @@ body.sheetopen{overflow:hidden}
   /* 時刻の欄を詰めて、予定の中身に幅を回す */
   .tlrow{grid-template-columns:44px 1fr;gap:8px}
   .tl::before{left:48px}
-  .tltime{font-size:11.5px}
+  .tltime{font-size:11px}
   /* 縮尺だけを下げる。比例は崩さない（1時間 ≈ 78px） */
   :root{--tlscale:1.3px}
   .blk{padding:9px 11px}
-  .blk .bttl{font-size:14.5px}
   /* 横は詰めて1行に収め、縦は指で押せる高さを確保する */
-  .btn.sm{font-size:11.5px;padding:7px 11px;min-height:36px;border-radius:999px}
-  .btn.sm.srcbtn{padding:4px 8px;font-size:10.5px;min-height:26px}
+  .btn.sm{padding:7px 11px;min-height:36px;border-radius:999px}
+  .btn.sm.srcbtn{padding:4px 8px;min-height:26px}
   .acts{gap:5px}
   /* たたんである枠は、見出しだけでなく枠全体を押せるようにする */
   .tlrow .bhead{min-height:28px}
   .tlrow:not(.open) .bhead{flex:1}
-  .legend{gap:9px;font-size:10.5px}
-  .eyebrow{font-size:9.5px;letter-spacing:.12em}
-  section>h2{font-size:18px}
-  nav.tabs button{font-size:9.5px}
-  nav.tabs button .ic{font-size:15px}
+  .legend{gap:9px}
+  .eyebrow{letter-spacing:.12em}
+  section>h2{font-size:17px}
+  nav.tabs button .ic{font-size:16px}
   .brandsub{display:none}          /* 名前と接続状態だけで足りる */
   .kinds{grid-template-columns:1fr 1fr;gap:7px}
-  .bub{max-width:90%;font-size:15.5px}
+  .bub{max-width:90%}
   /* 16px を下回ると、入力欄に触れた瞬間に画面が拡大される端末がある */
   .saybar textarea{font-size:16px}
   .turn .extra{max-width:94%}
@@ -301,18 +321,18 @@ body.sheetopen{overflow:hidden}
 .chat{display:flex;flex-direction:column;gap:14px;padding:6px 0 4px}
 .turn{display:flex;flex-direction:column;gap:6px;max-width:100%}
 .turn.me{align-items:flex-end}
-.bub{border-radius:13px;padding:9px 12px;max-width:86%;white-space:pre-wrap;line-height:1.75;font-size:14.5px}
+.bub{border-radius:13px;padding:9px 12px;max-width:86%;white-space:pre-wrap;line-height:1.75;font-size:15px}
 .turn.me .bub{background:var(--accent);color:var(--paper);border-bottom-right-radius:5px}
 .turn.ai .bub{background:var(--surface);border:1px solid var(--line);border-bottom-left-radius:4px}
-.turn .stamp{font-family:var(--f-mono);font-size:10px;color:var(--ink-3);padding:0 4px}
+.turn .stamp{font-family:var(--f-mono);font-size:11px;color:var(--ink-3);padding:0 4px}
 .turn.thinking .bub{color:var(--ink-3);letter-spacing:.3em;animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.45}50%{opacity:.9}}
 @media (prefers-reduced-motion:reduce){.turn.thinking .bub{animation:none}}
-#reading{color:var(--ink-3);font-size:10px}
+#reading{color:var(--ink-3);font-size:11px}
 .turn .extra{width:100%;max-width:86%;display:flex;flex-direction:column;gap:7px}
 
 .changes{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;
-  background:var(--surface);padding:8px 10px;font-size:12.5px;display:flex;flex-direction:column;gap:3px}
+  background:var(--surface);padding:8px 10px;font-size:13px;display:flex;flex-direction:column;gap:3px}
 .changes .eyebrow{margin-bottom:2px}
 .changes b{font-weight:700}
 .changes .none{color:var(--ink-3)}
@@ -320,7 +340,7 @@ body.sheetopen{overflow:hidden}
 .miniplan{border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden}
 .miniplan .mh{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line);
   font-family:var(--f-disp);font-size:12px;font-weight:700}
-.miniplan table{width:100%;border-collapse:collapse;font-size:12.5px}
+.miniplan table{width:100%;border-collapse:collapse;font-size:13px}
 .miniplan td{padding:5px 10px;border-bottom:1px solid var(--line);vertical-align:top}
 .miniplan tr:last-child td{border-bottom:none}
 .miniplan td.t{font-family:var(--f-mono);font-variant-numeric:tabular-nums;color:var(--ink-2);white-space:nowrap;width:1%}
@@ -354,7 +374,7 @@ body.talking .saybar{display:block}
    `#sayNote` は入力のたびに書き換わるので、そこに置くと打った瞬間に消える。別の場所にする。 */
 .saybar-ask{max-width:640px;margin:0 auto 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
   background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;
-  font-size:12.5px;line-height:1.6;color:var(--ink-2)}
+  font-size:13px;line-height:1.6;color:var(--ink-2)}
 .saybar-ask .q{flex:1 1 180px}
 /* **下の余白を固定値にしないこと**（2026-09-21・実機で報告）。
    入力欄が伸びると入力バーも伸びるが、ここが 190px 固定だったので
@@ -372,8 +392,10 @@ body.talking .wrap{padding-bottom:calc(var(--saybar, 100px) + 58px + env(safe-ar
 .blk.brk{background:var(--surface-2);border:1px solid var(--line);border-left:4px solid var(--line-strong)}
 .blk.buf{background:transparent;border:1px dashed var(--line);border-left:4px dashed var(--line-strong)}
 .blk.brk .bttl,.blk.buf .bttl{color:var(--ink-2);font-weight:500}
-details.allplan{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:9px 11px}
-details.allplan>summary{cursor:pointer;font-family:var(--f-disp);font-size:13px;font-weight:500;list-style:none}
+details.allplan{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:6px 11px}
+details.allplan>summary{cursor:pointer;font-family:var(--f-disp);font-size:13px;font-weight:500;list-style:none;
+  display:flex;align-items:center;min-height:32px}
+details.allplan>summary:active{opacity:.55}
 details.allplan>summary::-webkit-details-marker{display:none}
 details.allplan>summary::before{content:"▸ ";color:var(--ink-3)}
 details.allplan[open]>summary::before{content:"▾ "}
@@ -387,11 +409,11 @@ details.unconf>summary{color:var(--warn-ink)}
 /* わたしのこと */
 .catgroup{display:flex;flex-direction:column;gap:8px}
 .cathead{display:flex;align-items:baseline;gap:8px;margin-top:4px}
-.cathead h3{font-size:13.5px;font-weight:700;font-family:var(--f-disp)}
+.cathead h3{font-size:13px;font-weight:700;font-family:var(--f-disp)}
 .cathead .n{font-family:var(--f-mono);font-size:11px;color:var(--ink-3)}
 .doccard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
   padding:11px 12px;display:flex;flex-direction:column;gap:7px}
-.doccard .dtitle{font-family:var(--f-disp);font-weight:700;font-size:14.5px}
+.doccard .dtitle{font-family:var(--f-disp);font-weight:700;font-size:15px}
 .doccard .dpeek{font-size:12px;color:var(--ink-2);background:var(--surface-2);border-radius:7px;
   padding:7px 9px;max-height:86px;overflow:hidden;position:relative;white-space:pre-wrap;line-height:1.7}
 .doccard .dpeek::after{content:"";position:absolute;left:0;right:0;bottom:0;height:26px;
@@ -448,7 +470,7 @@ details.unconf>summary{color:var(--warn-ink)}
   </div>
   <div class="stack" style="margin-top:11px">
     <div class="card stack">
-      <h3 style="font-size:14px">基本</h3>
+      <h3 class="cardttl">基本</h3>
       <div><label class="fld" for="tz">タイムゾーン</label>
         <select id="tz">
           <option value="Asia/Tokyo">Asia/Tokyo（日本）</option>
@@ -483,7 +505,7 @@ details.unconf>summary{color:var(--warn-ink)}
     </div>
 
     <div class="card stack">
-      <h3 style="font-size:14px">AI</h3>
+      <h3 class="cardttl">AI</h3>
       <!-- 「AIを使うかどうか」の切り替えは外した（2026-09-20・本人の指示
            「聞かずにAIを使う設定にする」）。使えるなら使う。押し忘れで
            静かに効かなくなる欄を残さない（決まり「設定に保存ボタンを置かない」と同じ理屈）。
@@ -519,7 +541,7 @@ details.unconf>summary{color:var(--warn-ink)}
          「全部消す」が「書き出す」の隣にあったので、指が滑ると終わりだった。
          **道は1つも塞いでいない**（消す道を減らさない・決まり）。 -->
     <div class="card stack">
-      <h3 style="font-size:14px">記録</h3>
+      <h3 class="cardttl">記録</h3>
       <div><label class="fld" for="findQ">さがす</label>
         <input type="search" id="findQ" placeholder="言葉を入れる（例：歯医者）"></div>
       <div id="findOut"></div>
@@ -537,7 +559,7 @@ details.unconf>summary{color:var(--warn-ink)}
     </div>
 
     <div class="card stack">
-      <h3 style="font-size:14px">持ち出す・持ち込む</h3>
+      <h3 class="cardttl">持ち出す・持ち込む</h3>
       <div class="row">
         <button class="btn" id="btnExport">書き出す（JSON）</button>
         <button class="btn" id="btnImport">読み込む（JSON）</button>
@@ -571,9 +593,9 @@ details.unconf>summary{color:var(--warn-ink)}
     </details>
 
     <div class="card stack" id="errCard" hidden>
-      <h3 style="font-size:14px">最後に起きた不具合</h3>
+      <h3 class="cardttl">最後に起きた不具合</h3>
       <p class="hint">この文をそのまま伝えてもらえると、原因が特定できます。</p>
-      <textarea id="errText" readonly style="min-height:70px;font-family:var(--f-mono);font-size:12px"></textarea>
+      <textarea id="errText" class="errta" readonly></textarea>
       <div class="row"><button class="btn sm" id="btnErrClear">消す</button></div>
     </div>
   </div>
@@ -3235,7 +3257,7 @@ function renderChat(scroll) {
   const list = turnsFor(key), lrows = lifeosRows(key, tz), host = $("#chatOut");
   if (!list.length && !lrows.length) {
     host.innerHTML = `<div class="card stack">
-      <h3 style="font-size:15px">整理しないで、そのまま話してください</h3>
+      <h3 class="cardttl">整理しないで、そのまま話してください</h3>
       <p class="hint">予定も、気分も、思いつきも、混ぜたままで大丈夫です。<br>
       「資料できた」「15時じゃなくて14時だった」——言い直しもそのまま言ってください。</p>
       <div class="row">
@@ -3271,7 +3293,7 @@ function renderMe() {
 
   /* ---- 渡す欄 ---- */
   h += `<div class="card stack">
-    <h3 style="font-size:14px">自分について渡す</h3>
+    <h3 class="cardttl">自分について渡す</h3>
     <p class="hint">自己紹介でも、昔の日記でも構いません。読み取って下の一覧に足します。</p>
     <div><label class="fld" for="docTitle">これは何ですか（任意）</label>
       <input type="text" id="docTitle" placeholder="例：研究の背景メモ"></div>
@@ -3485,18 +3507,18 @@ function refreshAiState() {
   const el = $("#aiState"); if (!el) return;
   el.innerHTML = SAMPLEFN && SAMPLEFN.own
     ? `<strong>あなたのAPIキーで動いています（${esc(AI_PROVIDERS[SAMPLEFN.own].label)}）。</strong>`
-      + "料金は<strong>あなたのキーに請求されます</strong>。やめたいときは、下の欄で「消す」を押してください。<br>"
+      + "料金はあなたのキーに請求されます。やめたいときは、下の欄で「消す」を押してください。<br>"
       + AI_SENDS
     : SAMPLEFN
     ? "<strong>AIを使っています。</strong>あなたのClaudeアカウントの利用枠を使うので、"
-      + "<strong>別のAPI契約や追加の支払いは不要</strong>です。<br>" + AI_SENDS
+      + "別のAPI契約や追加の支払いは要りません。<br>" + AI_SENDS
     /* **「使えません」で終わらせない**（2026-09-20・APKを本物にした日）。
        Android アプリには claude.ai の窓口が無いので、**ここが既定の状態**になる。
        「未許可」とだけ言われても打つ手が分からない。下の欄を名指しすること。 */
     : "<strong>いまAIは使っていません。</strong>"
       + (DB ? "この開き方ではAIの窓口が渡っていません。" : "この開き方には claude.ai の窓口がありません。")
-      + "<strong>下の欄にAPIキーを入れると使えます。</strong>"
-      + "入れなくても、<strong>追加・計画・訂正・再計画はルールだけで全部動きます</strong>（外へは何も送りません）。";
+      + "下の欄にAPIキーを入れると使えます。"
+      + "入れなくても、追加・計画・訂正・再計画はルールだけで全部動きます（外へは何も送りません）。";
 }
 
 /* 記録がどこにあるかを、**いまつながっている先から**書く（決まり7e・判定を2か所に書かない）。
@@ -3507,15 +3529,14 @@ function renderWhere() {
   const el = $("#whereNote"); if (!el) return;
   el.innerHTML = DB
     ? "<strong>この記録は claude.ai の共有の場所にあります。</strong>"
-      + "<code>notes</code> や <code>items</code> は共有のパスなので、"
-      + "<strong>このページのリンクを開いた人には、予定・会話・体調がそのまま見えます</strong>"
+      + "このページのリンクを開いた人には、予定・会話・体調がそのまま見えます"
       + "（2026-09-13 に別の人に開いてもらって確かめました）。"
-      + "<strong>共有している間は、見られて困ることを入れないでください。</strong><br>"
-      + "本当の予定として使うなら、<strong>Android アプリのほう</strong>を使ってください。"
+      + "共有している間は、見られて困ることを入れないでください。<br>"
+      + "本当の予定として使うなら、Android アプリのほうを使ってください。"
       + "あちらは記録がこの端末の中だけに残り、誰にも渡りません。"
     : "<strong>この記録は、この端末の中だけにあります。</strong>"
       + "外にも、ほかの誰にも渡っていません。"
-      + "<strong>端末を変えたり、アプリを消したりすると無くなります。</strong>"
+      + "端末を変えたり、アプリを消したりすると無くなります。"
       + "残しておきたいときは、下の「書き出す（JSON）」で控えを取ってください。";
 }
 
@@ -3542,6 +3563,7 @@ function showTab(id) {
     if (b.dataset.tab === id) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   }
   document.body.classList.toggle("talking", id === "p-chat");
+  fitTopbar();   // 見出しの高さは文字の大きさで変わる。日付バーが貼り付く位置のもと
   // タブを開いたら必ず描き直す（前の操作の結果が古いまま残らないように）
   if (id === "p-day") renderDay();
   else if (id === "p-me") renderMe();
@@ -5380,6 +5402,11 @@ let sending = false;
    **末尾を見ていた人は、伸びたぶんを追いかける**——そうしないと、
    打つたびに自分の最後の発言が少しずつ下へ潜っていく。
    スクロールするのは会話タブを見ているときだけ（別のタブを下端へ飛ばさない）。 */
+/* 見出し（sticky）の実寸を `--topbar` に渡す。日付バーはこの下に貼り付く。 */
+function fitTopbar() {
+  const top = document.querySelector("header.top");
+  if (top) document.documentElement.style.setProperty("--topbar", top.offsetHeight + "px");
+}
 function fitSaybar() {
   const bar = document.querySelector(".saybar");
   if (!bar) return;
@@ -5457,6 +5484,7 @@ document.addEventListener("click", async e => {
 });
 
 /* 画面のどこで落ちても、黙って消えないようにする */
+window.addEventListener("resize", () => { fitTopbar(); fitSaybar(); });
 window.addEventListener("error", ev => { lastError = describeError(ev.error || ev.message); renderSettings(); });
 window.addEventListener("unhandledrejection", ev => { lastError = describeError(ev.reason); renderSettings(); });
 

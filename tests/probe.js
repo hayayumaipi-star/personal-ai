@@ -3132,6 +3132,103 @@
       showTab(keepTab);
     }
 
+    /* ===== BK. 指で触ったときの手ざわりと、文字の大きさの段数（2026-09-21） =====
+       見るのは「性質」であって「値」ではない（決まり15）。
+       配色のときと同じで、px の値を書き写すと、直すたびにテストだけが古くなる。 */
+    {
+      const sheets = Array.from(document.styleSheets);
+      const flat = [];
+      /* **`if (r.cssRules)` で枝分かれさせないこと。** いまのブラウザは入れ子のCSSに対応したので、
+         ふつうの規則（CSSStyleRule）にも空の `cssRules` が生えている。そこで分けると
+         **1件も集まらないまま、テストが全部 PASS する**（実際にそうなった）。
+         見分けるのは `style` と `selectorText` を持っているかどうか。 */
+      const walk = (rules, cond) => {
+        for (const r of rules) {
+          if (r.style && r.selectorText !== undefined)
+            flat.push({ sel: r.selectorText || "", css: r.cssText || "", cond, style: r.style });
+          if (r.cssRules && r.cssRules.length) walk(r.cssRules, cond + " " + (r.conditionText || ""));
+        }
+      };
+      for (const sh of sheets) { let rs; try { rs = sh.cssRules; } catch { continue; } walk(rs, ""); }
+      const all = flat.map(r => r.css).join("\n");
+
+      // ① 画面の幅を端末に合わせる。これが無いと Android の WebView は 980px の紙として描き、
+      //    430px 以下の指定がまるごと効かない（スマホ向けの調整が全部むだになる）。
+      const vp = document.querySelector('meta[name="viewport"]');
+      ok("BK. 画面の幅を端末に合わせる指定がある",
+         !!vp && /width\s*=\s*device-width/.test(vp.content), vp ? vp.content : "meta が無い");
+      // env(safe-area-inset-*) は viewport-fit=cover が無いと必ず 0 を返す。
+      ok("BK. 端の余白（safe-area）を測れる指定になっている",
+         !!vp && /viewport-fit\s*=\s*cover/.test(vp.content) && /env\(safe-area-inset/.test(all),
+         vp ? vp.content : "meta が無い");
+
+      // ② 開くたびに外へ取りに行くものを持たない（電波が無いと画面が出ない・記録は端末から出さない約束）
+      const ext = Array.from(document.querySelectorAll('link[rel="stylesheet"],link[rel="preconnect"]'))
+        .map(l => l.getAttribute("href") || "").filter(h => /^https?:/.test(h));
+      ok("BK. 外から読み込むフォント・スタイルを持たない", ext.length === 0, ext.join(" / "));
+
+      // ③ タップの灰色の点滅を消す（Android で押すたびに四角く光る）
+      ok("BK. タップの灰色の点滅を消している", /tap-highlight-color\s*:\s*transparent/.test(all));
+      // ④ 押した手ごたえ。:hover はマウスのある画面だけ——
+      //    スマホでは押したあと hover が貼りついて、押しっぱなしに見える。
+      const hovers = flat.filter(r => /:hover/.test(r.sel));
+      ok("BK. 押した手ごたえ（:active）がある", flat.some(r => /:active/.test(r.sel)));
+      ok("BK. :hover はマウスのある画面の中だけ",
+         hovers.length > 0 && hovers.every(r => /hover\s*:\s*hover/.test(r.cond)),
+         hovers.map(r => r.sel + " ← " + (r.cond.trim() || "（囲いなし）")).join(" / "));
+      // ⑤ 引ききったときに、後ろの画面ごと動かない
+      ok("BK. 端まで引いても全体が動かない（overscroll-behavior）", /overscroll-behavior/.test(all));
+
+      // ⑥ 入力欄は16px以上。下回ると、触れた瞬間に画面を拡大する端末がある。
+      const small = [];
+      for (const el of document.querySelectorAll("textarea,input,select")) {
+        if (el.type === "hidden") continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 20 || r.height < 20) continue;   // 目に見えない欄（.sr）は触れないので数えない
+        const fs = parseFloat(getComputedStyle(el).fontSize);
+        if (fs < 16) small.push((el.id || el.tagName.toLowerCase()) + " " + fs + "px");
+      }
+      ok("BK. 入力欄の文字が16px以上（触れた瞬間に拡大されない）", small.length === 0, small.join(" / "));
+
+      /* ⑥b 横へのはみ出し。**画面ごとに見ること**——タブを1つ開いただけでは見つからない
+         （実際、目に見えない `.sr` の欄が幅いっぱいに広がって、わたしのこと／設定だけ
+         35px 横へずれていた）。スクリーンショットの右端が切れるのとは別の話で、
+         確かめるのは `scrollWidth <= clientWidth`（記録済みの落とし穴）。 */
+      {
+        const keep2 = view.tab, wide = [];
+        for (const t of ["p-chat", "p-day", "p-me", "p-set"]) {
+          showTab(t);
+          const de = document.documentElement;
+          if (de.scrollWidth > de.clientWidth) wide.push(t + " " + de.scrollWidth + ">" + de.clientWidth);
+        }
+        showTab(keep2);
+        ok("BK. どの画面も横へはみ出していない", wide.length === 0, wide.join(" / "));
+      }
+
+      // ⑦ 文字の大きさの段数。多いほど散らかって見える。
+      //    段数だけを見る——どの px にするかは決めない（配色を帯で見るのと同じ理屈）。
+      const sizes = new Set();
+      for (const r of flat) { const v = r.style && r.style.fontSize; if (v && /px$/.test(v)) sizes.add(v); }
+      ok("BK. 文字の大きさが8段以内にそろっている", sizes.size <= 8,
+         Array.from(sizes).sort((a, b) => parseFloat(b) - parseFloat(a)).join(" "));
+      // ⑧ 大きさをインライン style で書かない（画面幅で変えられなくなる）
+      const inl = Array.from(document.querySelectorAll('[style*="font-size"]')).map(e => e.tagName.toLowerCase());
+      ok("BK. 文字の大きさをインライン style で書いていない", inl.length === 0, inl.join(" / "));
+
+      // ⑨ 端末の部品（選択の一覧・日付の選択・スクロールバー）も明暗に合わせる
+      const keepTheme = document.documentElement.getAttribute("data-theme");
+      const scheme = {};
+      for (const t of ["light", "dark"]) {
+        applyTheme(t);
+        scheme[t] = getComputedStyle(document.documentElement).colorScheme;
+      }
+      if (keepTheme) document.documentElement.setAttribute("data-theme", keepTheme);
+      else document.documentElement.removeAttribute("data-theme");
+      ok("BK. 端末の部品の明暗を、設定と合わせている",
+         /light/.test(scheme.light) && /dark/.test(scheme.dark),
+         "light→" + scheme.light + " / dark→" + scheme.dark);
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;
