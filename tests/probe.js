@@ -1318,19 +1318,21 @@
         ok("AL. 日付を言っていれば、その日付を使う", !!a4 && a4.dayKey === tom, a4 && a4.dayKey);
         ok("AL. そのときは推測の印を付けない", !!a4 && !a4.dateInferred);
 
-        /* AM. 引き戻したことを黙らない（v5.1・実機で報告）。
-           日付は今日に直るのに、AIの文章だけ「明日」のまま残っていた。
-           文章は書き換えず、こちらの言葉で `asks` に足す。 */
+        /* AM. 引き戻しは今までどおり効く。ただし**返事では知らせない**
+           （2026-09-21・本人の指示「日付は言っていなかったので〜の文章はいらない」）。
+           消したのは文章だけで、日付を直す動き（決まり7d）はそのまま。
+           直った日付は項目の行に出ていて、そこから直せる。 */
         reset();
         const n5 = mkNote("6〜9時の間に30分勉強する"); await putNote(n5);
         const r5 = await applyOps([{ op: "add", kind: "task", title: "勉強する", dueDate: tom,
           duePrecision: "day", estimateMin: 30, quote: "30分勉強する" }], n5);
-        ok("AM. 日付を引き戻したら、返事で知らせる",
-           r5.asks.some(a => /日付は言っていなかったので/.test(a)), JSON.stringify(r5.asks));
-        ok("AM. どの日にしたかを、その場に書く",
-           r5.asks.some(a => a.includes(KEY.slice(5).replace("-", "/"))), JSON.stringify(r5.asks));
+        const a5 = state.items.find(i => i.kind === "task");
+        ok("AM. 日付は今までどおり引き戻す", !!a5 && a5.dayKey === KEY, a5 && a5.dayKey);
+        ok("AM. 引き戻した印は残す", !!a5 && a5.dateInferred === true, a5 && String(a5.dateInferred));
+        ok("AM. 引き戻したことを、返事には書かない",
+           !r5.asks.some(a => /日付は言っていなかったので/.test(a)), JSON.stringify(r5.asks));
 
-        // 日付を言っているときは、よけいなことを言わない
+        // 日付を言っているときも、もちろん何も言わない
         reset();
         const n6 = mkNote("明日までに資料を出す"); await putNote(n6);
         const r6 = await applyOps([{ op: "add", kind: "task", title: "資料を出す", dueDate: tom,
@@ -1338,7 +1340,7 @@
         ok("AM. 日付を言っていれば、断りを入れない",
            !r6.asks.some(a => /日付は言っていなかったので/.test(a)), JSON.stringify(r6.asks));
 
-        // 言い直し（時刻だけ）でも知らせる
+        // 言い直し（時刻だけ）でも、日付は守るが文章は出さない
         reset();
         const ev3 = { id: uid(), kind: "event", title: "打ち合わせ", fixed: true,
           start: zoned(...tom.split("-").map(Number), 15, 0, TZ).toISOString(),
@@ -1348,11 +1350,18 @@
         ev3.dedupeKey = dedupeKey(ev3); await putItem(ev3);
         const n7 = mkNote("15時じゃなくて14時だった"); await putNote(n7);
         const r7 = await applyOps([{ op: "update", id: ev3.id, dueDate: KEY, dueTime: "14:00", quote: "14時" }], n7);
-        ok("AM. 言い直しで日付を守ったときも、そう言う",
-           r7.asks.some(a => /日付は言っていなかったので/.test(a)), JSON.stringify(r7.asks));
-        /* 月は1桁にも2桁にもなる。`fmtDT` を文字位置で切ると「9/14 14:00」が「4:00」になる。 */
-        ok("AM. 時刻は切り落とさずに書く",
-           r7.asks.some(a => /14:00/.test(a)), JSON.stringify(r7.asks));
+        const e7 = findItem(ev3.id);
+        ok("AM. 言い直しでは日付を守り、時刻だけ直す",
+           !!e7 && e7.dayKey === tom && parts(new Date(e7.start), TZ).h === 14,
+           e7 && (e7.dayKey + " " + fmtDT(e7.start, TZ)));
+        ok("AM. そのときも返事には書かない",
+           !r7.asks.some(a => /日付は言っていなかったので/.test(a)), JSON.stringify(r7.asks));
+        /* 消した文章が、どこかで生き返っていないこと（ソース全文は検索しない＝決まり）。
+           関数ごと消したので、名前が残っていないかを見る。 */
+        ok("AM. 断り文を作る関数は、もう無い",
+           typeof pulledBackAsk === "undefined"
+           && !/日付は言っていなかったので/.test(String(applyOps) + String(applyFields)),
+           "まだ残っている");
 
         /* AN. 同じものが既にあって足さなかったとき、黙らない（v5.2・実機で報告）。
            「追加すらされなかった」に見えるのは、ここで何も言わずに捨てていたから。 */
@@ -1617,7 +1626,16 @@
             const n = mk4(text); await putNote(n);
             const r = await applyOps([{ op: "add", kind: "task", title: "なにか",
               dueDate: tom, duePrecision: "day", quote: "x" }], n);
-            const pulled = r.asks.some(a => /日付は言っていなかったので/.test(a));
+            /* 観測するのは**実際の引き戻し**。断りの文章は 2026-09-21 に本人の指示で
+               消したので、目印には使えない。
+               **「日付が tom から動いたか」で見てはいけない**——引き戻した先が
+               たまたま tom になることがある（「6〜9時の間に」を11時に言うと、
+               決まり4b が翌日へ送る）。実際それで2件すべった。
+               引き戻したかどうかは `dateInferred` が持っている。
+               ここの op は `dueTime` を渡していないので、
+               12時間ズレの直し（あれも `dateInferred` を立てる）とは混ざらない。 */
+            const made = state.items.find(i => i.title === "なにか");
+            const pulled = !!made && made.dateInferred === true;
             const spoken = dateWasSpoken(n, TZ);
             if (pulled === spoken) { agree = false; }       // 引き戻した＝言っていない、が正しい
             detail.push(`${text}:${spoken ? "言った" : "言ってない"}/${pulled ? "引き戻した" : "そのまま"}`);

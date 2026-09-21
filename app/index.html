@@ -4425,7 +4425,7 @@ async function applyOps(rawOps, note) {
     }
 
     if (o.op === "add") {
-      let it = o._built, pulledBack = false;
+      let it = o._built;
       if (!it) {
         const kind = ["task", "event", "goal"].includes(o.kind) ? o.kind : "task";
         /* AIが付けた見出しにも、**こちらと同じ掃除**を通す（v4.6）。
@@ -4442,7 +4442,7 @@ async function applyOps(rawOps, note) {
           origin: "ai", corrected: false, confirmed: false, status: "open",
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: []
         };
-        pulledBack = applyFields(it, o, tz, note, { soleAdd });
+        applyFields(it, o, tz, note, { soleAdd });
       }
       // AIが「ご飯食べに行こうかな」のような言い方で返してきても、食事は名前を揃える
       const mt = mealTitle(it.title, note.capturedAt, tz) || mealTitle(o.quote || "", note.capturedAt, tz);
@@ -4465,8 +4465,6 @@ async function applyOps(rawOps, note) {
       touch(it.targetDay);   // 締切が明日でも、手を付けるのが今日なら今日の案を見せる
       touchId(it);
       changes.push(`${KIND_JA[it.kind]}を追加：${it.title}${describeWhen(it, tz)}`);
-      // AIが足した日付を引き戻したなら、黙っていない（v5.1）
-      if (pulledBack) asks.push(pulledBackAsk(it, tz));
       // 午前とも午後とも読める時刻だった。選んだほうを書いて、もう一方を出して聞き返す
       if (it.whenAlt) {
         asks.push(`「${it.title}」は ${fmtDT(it.start || it.due, tz)} と読みました。`
@@ -4475,7 +4473,7 @@ async function applyOps(rawOps, note) {
     }
     else if (o.op === "update") {
       const before = { title: target.title, day: target.dayKey, est: target.estimateMin, start: target.start };
-      const pulledBack = applyFields(target, o, tz, note);
+      applyFields(target, o, tz, note);
       if (typeof o.title === "string" && o.title.trim()) target.title = cleanTitle(o.title.trim(), null).slice(0, 80);
       target.corrected = true; target.confirmed = true; target.whenAlt = null;   // 本人が決めたので、もう一方は要らない
       target.dedupeKey = dedupeKey(target);
@@ -4487,7 +4485,6 @@ async function applyOps(rawOps, note) {
       if (o.travelMin != null) d.push(`移動 ${target.travelMin}分を確保`);
       if (o.prepMin != null) d.push(`準備 ${target.prepMin}分を確保`);
       if (o.targetDate) d.push(`${target.targetDay.slice(5).replace("-", "/")}までに終えたい、として扱う`);
-      if (pulledBack) asks.push(pulledBackAsk(target, tz));
       note2(target, "訂正：" + (d.join(" / ") || "変更なし"));
       await putItem(target);
       touch(target.dayKey); touch(before.day); touchId(target);
@@ -4629,12 +4626,14 @@ function dateWasSpoken(note, tz) {
   return dateSpokenIn(w);
 }
 
-/* 戻り値は「**AIが付けた日付を引き戻したか**」（v5.1）。
-   引き戻したことを黙っていると、**予定表は今日なのに返事だけ「明日」**になる。
-   v4.7 で日付を直したぶん、文章とのズレはむしろ起きやすくなった（実機で報告）。
-   呼んだ側は、これが true なら `asks` に一言添えること。 */
+/* AIが付けた日付を引き戻したことは、**返事では知らせない**（2026-09-21・本人の指示
+   「日付は言っていなかったので〜などの文章はいらない」）。
+   引き戻しそのものは今までどおり行う（決まり7d）——消したのは文章だけ。
+   直した日付は項目の行（「9/21 12:30」）に出ていて、そこから直せる。
+   本体AIの文章はもう受け取らないので（決まり7b）、v5.1 が心配した
+   「予定表は今日なのに返事だけ明日」のズレは、そもそも起きようがない。
+   引き戻した事実は `it.dateInferred` に残る（`srcChip()` の由来の印と同じ役目）。 */
 function applyFields(it, o, tz, note, opts) {
-  let pulledBack = false;
   /* 同じ発言を、ルールでも読んでおく。AIの読み違いを見つけるための「もう一つの目」。 */
   const rw = (note && note.text)
     ? parseWhen(note.text, note.capturedAt || new Date().toISOString(), tz) : null;
@@ -4661,7 +4660,6 @@ function applyFields(it, o, tz, note, opts) {
     }
   }
   if (isDate(o.dueDate) && note && !dateSpokenIn(rw)) {
-    pulledBack = true;
     /* 本人は日付を言っていない。**AIが足した日付は採らない**（v4.7）。
        - 言い直しなら、いまの日付を保つ（「14時にして」で今日へ動かさない）
        - 時刻だけ言われたなら、**話した日**（ルールで読んだときと同じ）
@@ -4742,7 +4740,6 @@ function applyFields(it, o, tz, note, opts) {
       }
     }
   }
-  return pulledBack;
 }
 /* 同じものが既にあって足さなかったとき、何とぶつかったのかを言う（v5.2）。
    完了・取り消し済みとぶつかることもあるので、その状態も書く。 */
@@ -4752,23 +4749,6 @@ function dupeAsk(dup, tz) {
     : dup.status === "dropped" ? "取り消してある" : "もう入っている";
   return `「${dup.title}」${when}が${state_ja}ので、足さなかったよ。`
     + `別のものなら「スケジュール」タブの「＋ 自分で足す」から入れてね。`;
-}
-/* 日付を引き戻したことを、**こちらの言葉で**伝える（v5.1）。
-   AIの文章は書き換えない（決まり7c と同じ理屈で、触ると別の壊れ方をする）。
-   代わりに、コードが数えた事実をあとから足す。何日になったかは `describeWhen` が出す。 */
-function pulledBackAsk(it, tz) {
-  const iso = it.start || it.due;
-  /* 時刻を出してよいのは、本当に時刻が決まっているときだけ。
-     用事の `23:59` は「その日まで」の意味なので時刻ではない（決まり6a）。
-     月は1桁にも2桁にもなるので、`fmtDT` を文字位置で切らないこと（「9/13 22:00」→「2:00」）。 */
-  const showTime = validISO(iso)
-    && (it.kind === "event" ? !it.timeUnknown : it.duePrecision === "exact");
-  const where = it.dayKey
-    ? (showTime ? fmtDT(iso, tz) : it.dayKey.slice(5).replace("-", "/"))
-    : null;
-  return where
-    ? `日付は言っていなかったので、「${it.title}」は ${where} として記録したよ。別の日なら「明日の」のように言ってね。`
-    : `日付は言っていなかったので、「${it.title}」に日付は付けていないよ。決まったら言ってね。`;
 }
 function describeWhen(it, tz) {
   if (it.kind === "event" && it.start) {
