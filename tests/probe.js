@@ -3176,6 +3176,26 @@
          !!first && !txt.includes(first), first + " / " + txt.slice(0, 60));
       ok("BL. 「変えたこと」の欄そのものは残っている",
          !!turn && (turn.changes || []).length > 0, "");
+
+      /* **置けなかった理由は、どの道でも出す**（2026-09-21・本人の報告
+         「次にやることとかいろいろ表示されなくなった」）。この2文は下の欄には出ないので、
+         文に書くしかない。速い返事があるときは `templateReply` を通らないため、
+         **AIがオンだと吹き出しからまるごと消えていた**。 */
+      const notes = planNotes({
+        plan: { blocks: [{}], unplaced: [{ item: { title: "資料を作る" }, reason: "午前中に空きがありません" }] },
+        na: null, isToday: true, changes: ["タスクを追加：資料を作る"], answer: null });
+      ok("BL. 置けなかった理由を文にする",
+         notes.some(x => /「資料を作る」は今日に入らなかった（午前中に空きがありません）/.test(x)),
+         notes.join(" / ") || "何も返らない");
+      ok("BL. 作業時間がもう過ぎていることも言う",
+         notes.some(x => /もう過ぎてる/.test(x)), notes.join(" / ") || "何も返らない");
+      ok("BL. 今日でなければ、どちらも言わない",
+         planNotes({ plan: { blocks: [{}], unplaced: [] }, na: null, isToday: false,
+                     changes: ["x"], answer: null }).length === 0);
+      /* **2か所に書かない**（決まり7e）。速い返事がある道と無い道の、両方から同じ関数を呼ぶ。 */
+      ok("BL. 理由を出す道は1つ（速い返事があってもなくても同じ関数）",
+         /planNotes\(ctx\)/.test(String(sendTurn)) && /planNotes\(ctx\)/.test(String(templateReply)),
+         "どちらかが呼んでいない");
     }
 
     /* ===== BM. 「この日にやる」と言った日があるなら、枠はその日だけ（2026-09-21・実機で報告） =====
