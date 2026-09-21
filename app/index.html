@@ -5337,12 +5337,13 @@ async function sendTurn(text) {
     return p.blocks.some(b => b.item && touched.includes(b.item.id))
         || (p.timeless || []).some(i => touched.includes(i.id));
   };
-  const ja = list => list.map(d => fmtDayPlain(d, tz)).join("と");
-  const put = others.filter(onThatDay), due = others.filter(d => !onThatDay(d));
-  const dayNote = [
-    put.length ? `${ja(put)}の予定に入れたよ。` : "",
-    due.length ? `締切は${ja(due)}にしたよ。` : ""
-  ].filter(Boolean).join(" ");
+  /* **「締切は◯日にしたよ」は外した**（2026-09-21・本人の指示）。
+     締切は、スケジュールの項目の行に「9/22 まで」として出ている。
+     ここで言うのは**その日に本当に枠を置いたときだけ**——
+     別の日の予定表が変わったことは、画面を見ないと分からないので残す。 */
+  const put = others.filter(onThatDay);
+  const dayNote = put.length
+    ? `${put.map(d => fmtDayPlain(d, tz)).join("と")}の予定に入れたよ。` : "";
   /* **吹き出しは、担当を分けて組み立てる**（2026-09-21・本人の指摘）。
      受け止め＝速いAI／事実＝コード／習慣の提案＝本体AI。
      前は本体AIにも文章を書かせ、重なったときだけ**文字列が一致すれば**落としていた。
@@ -5354,7 +5355,6 @@ async function sendTurn(text) {
     const bits = [quickText];
     if (answer) bits.push(answer);
     if (dayNote) bits.push(dayNote);
-    bits.push(...planNotes(ctx));       // 置けなかった理由は、どの道でも出す（決まり6a）
     if (asks.length) bits.push(...asks);
     reply = bits.concat(tail).join("\n");
   } else {
@@ -5462,26 +5462,8 @@ function templateReply(ctx) {
   // AIが無いときはこの文しか出ないので、ここでは今までどおり書く。
   if (isToday && !already && na)
     bits.push(`次は「${blockTitle(na.block)}」から。${hhmm(na.block.s)}に${durJa(na.block.e - na.block.s)}とっておいたよ。`);
-  bits.push(...planNotes(ctx));
   if (asks.length) bits.push(asks.join(" "));
   return bits.join(" ");
-}
-
-/* 返信に足す、コードが数えた事実。**どの道でも同じものを出す**（決まり7e）——
-   速い返事があるときは `templateReply` を通らないので、片方に書くと消える
-   （2026-09-21・本人の報告「いろいろ表示されなくなった」で実際にそうなっていた）。
-
-   **「◯◯は今日に入らなかった（理由）」は、ここから外した**（2026-09-21・本人の指示
-   「この文章はいらない」）。**理由そのものを消したのではない**——
-   スケジュールの「この日にやること」で、**その用事の行に**「置けない理由：…」として出る。
-   直せる場所のすぐ横にあるほうが読みやすく、会話に長い括弧が毎回並ばない。
-   「詰め込まず理由を示す」（決まり6a・6f）は、**場所を1つにしただけ**で守っている。 */
-function planNotes(ctx) {
-  const { plan, na, isToday, answer } = ctx;
-  const already = answer && na && answer.includes(blockTitle(na.block));
-  if (!isToday || already) return [];
-  // これは項目の行には出ない（どの用事の話でもない）ので、文に書くしかない
-  return (!na && plan.blocks.length) ? ["今日の作業時間はもう過ぎてるから、残りは明日に回そう。"] : [];
 }
 
 /* 返事に予定表を添えるかどうか。毎回は出さない。 */
