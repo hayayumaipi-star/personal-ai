@@ -3178,6 +3178,61 @@
          !!turn && (turn.changes || []).length > 0, "");
     }
 
+    /* ===== BM. 「この日にやる」と言った日があるなら、枠はその日だけ（2026-09-21・実機で報告） =====
+       「明日までの資料を、できれば今日の午前中に進めたい」で、**今日・明日・明後日の3日**に
+       1時間ずつ入っていた。本人が作業すると言ったのは1日だけ。
+       **この群は本物の時計を見る**——`planFor` の `todayKey` が実際の今日だから
+       （`T()` の演じている日付では、この分岐そのものに入らない）。
+       日付は「今日から何日後」で作るので、日をまたいでも壊れない。
+       時計の時刻には寄りかからない（`nowMin: -1` で「いま」を無視する）。 */
+    {
+      const tzm = state.settings.timezone;
+      const dk = n => dayKey(new Date(Date.now() + n * 86400000), tzm);
+      const d0 = dk(0), d1 = dk(1), d2 = dk(2);
+      const keepDay = view.day, keepTab2 = view.tab;
+
+      reset();
+      await say("明日までに資料を作る。1時間くらい。できれば午前中に進めたい。", new Date().toISOString());
+      const it = state.items.find(i => i.kind === "task");
+      ok("BM. 締切は明日・進めたいのは今日、と読める",
+         !!it && it.dayKey === d1 && it.targetDay === d0,
+         it ? `dayKey=${it.dayKey} targetDay=${it.targetDay}` : "用事が作られない");
+      const has = k => !!it && (planFor(k, { nowMin: -1 }).blocks || [])
+        .some(b => b.item && b.item.id === it.id);
+      ok("BM. 進めると言った日には枠がある", has(d0));
+      ok("BM. 締切の日には枠を作らない（1時間の仕事を2日ぶんにしない）", !has(d1));
+      ok("BM. その先の日にも枠を作らない", !has(d2));
+      ok("BM. 枠を置かない日でも、忘れないように残す",
+         !!it && (planFor(d1, { nowMin: -1 }).elsewhere || []).some(i => i.id === it.id),
+         "elsewhere に入っていない");
+
+      /* **理由を取り違えない**（決まり6n）。「時刻を言っていないので」は、
+         時刻も時間帯も言っていないものにだけ当てはまる。この用事は「午前中に」と言っている。 */
+      view.day = d1; showTab("p-day"); renderDay();
+      const txt = $("#dayOut").textContent.replace(/\s+/g, " ");
+      ok("BM. 置いていない理由を、その用事のものにする",
+         /に進めると言っていたので、その日の予定表に入れています/.test(txt),
+         txt.slice(txt.indexOf("この日にやること"), txt.indexOf("この日にやること") + 90));
+      ok("BM. 「時刻を言っていないので」を、言っているものに当てない",
+         !/時刻を言っていないので、予定表には置いていません/.test(txt), "当ててしまっている");
+
+      /* **やり損ねたものは、置き直す。** そうしないと二度と予定に戻らない。
+         **「できれば」を落とさないこと。** 無いと `targetDay` が付かず、
+         この分岐に入らないまま**壊れていても PASS する**（実際そうなった。決まり14）。 */
+      reset();
+      await say("明後日までに書類を出す。1時間。できれば午前中に進めたい。",
+                new Date(Date.now() - 2 * 86400000).toISOString());
+      const it2 = state.items.find(i => i.kind === "task");
+      ok("BM. 進めると言った日が、過ぎている用事を作れている",
+         !!it2 && !!it2.targetDay && it2.targetDay < d0,
+         it2 ? `targetDay=${it2.targetDay}` : "用事が作られない");
+      ok("BM. 進める日が過ぎても終わっていないものは、今日に置き直す",
+         !!it2 && (planFor(d0, { nowMin: -1 }).blocks || []).some(b => b.item && b.item.id === it2.id),
+         it2 ? `dayKey=${it2.dayKey} targetDay=${it2.targetDay}` : "用事が作られない");
+
+      view.day = keepDay; showTab(keepTab2);
+    }
+
     /* ===== BK. 指で触ったときの手ざわりと、文字の大きさの段数（2026-09-21） =====
        見るのは「性質」であって「値」ではない（決まり15）。
        配色のときと同じで、px の値を書き写すと、直すたびにテストだけが古くなる。 */

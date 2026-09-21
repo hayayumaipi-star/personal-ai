@@ -2638,8 +2638,20 @@ function planFor(key, opts) {
      実機で、明日6〜9時の作業が今日の「置かないもの」に理由付きで出た。
      今日に置いてよいのは、その日が期限のもの・期限切れ・今日やりたいと言ったもの・日付の無いもの。 */
   const ownDay = t => !t.dayKey || t.dayKey <= key || t.targetDay === key;
-  const loose = [], toPlace = [];
+  /* **「この日にやる」と言った日があるなら、枠を置くのはその日だけ**（2026-09-21・実機で報告）。
+     「明日までの資料を、できれば今日の午前中に進めたい」と言うと、
+     **今日（やると言った日）・明日（締切）・明後日（期限切れ）の3日ぶんに1時間ずつ**
+     入っていた（実測）。本人が作業すると言ったのは**1日だけ**で、
+     あとの2日はこちらが勝手に足した枠（決まり2「推測を確定にしない」）。
+     1時間の仕事が3時間あるように見えるので、その日の残り時間の見え方まで狂う。
+     **ただし `targetDay` を過ぎても終わっていないものは、今までどおり置き直す**——
+     やり損ねた用事が二度と予定に戻らないほうが困る。
+     枠を置かない日でも**消しはしない**。「この日にやること」に、理由を添えて出す
+     （決まり6f・「詰め込まず理由を示す」）。 */
+  const targetElsewhere = t => !!t.targetDay && t.targetDay !== key && t.targetDay >= todayKey;
+  const loose = [], toPlace = [], elsewhere = [];
   for (const s of scored) {
+    if (ownDay(s.t) && targetElsewhere(s.t)) { elsewhere.push(s.t); continue; }
     if (ownDay(s.t) && (placedAt(s.t) != null || winOf(s.t))) toPlace.push(s);
     else loose.push(s.t);
   }
@@ -2773,7 +2785,7 @@ function planFor(key, opts) {
     if (b.s < a.e) conflicts.push({ a: a.item, b: b.item, s: b.s, e: Math.min(a.e, b.e) });
   }
 
-  return { key, blocks, unplaced, loose, winS, winE, winCapped, freeLeft, events, timeless, pref, nowMin, startFloor, conflicts };
+  return { key, blocks, unplaced, loose, elsewhere, winS, winE, winCapped, freeLeft, events, timeless, pref, nowMin, startFloor, conflicts };
 }
 
 /* その日に何が起きたか。history と items から作る（推測はしない） */
@@ -3069,16 +3081,28 @@ function renderDay() {
     .sort((a, b) => (a.dayKey || "9999").localeCompare(b.dayKey || "9999"));
   const owedMin = owed.reduce((n, i) => n + (i.remainingMin != null ? i.remainingMin : (i.estimateMin || 0)), 0);
 
+  /* **理由が違えば、本人の打つ手も変わる**（決まり6n）。「時刻を言っていないので」は、
+     **本当に時刻も時間帯も言っていないものにだけ**当てはまる。別の日に進めると
+     言ったから置いていないものに同じ文を出すと、嘘になる。
+     どちらなのかは `planFor` が決める（`elsewhere`）——**同じ判定を2か所に書かない**（決まり7e）。 */
+  const elseDay = new Map((plan.elsewhere || []).map(i => [i.id, i.targetDay]));
   h += `<div class="sect"><h2>この日にやること</h2></div>`;
   if (!owed.length) {
     h += `<div class="card empty">ありません。</div>`;
   } else {
-    h += `<div class="note info">${owed.length}件${owedMin ? `・合わせて <span class="mono">${durJa(owedMin)}</span>` : ""}。
-      <strong>時刻を言っていないので、予定表には置いていません。</strong>
-      「午前中に」「14時から」のように言うと、上の予定表に入ります。</div><div class="stack">`;
+    /* 全部が「時刻を言っていない」ものなら今までどおりの文、混ざっているなら「〜ものは」。
+       1件も無ければ書かない——**当てはまらない理由を出さない**（決まり6n）。 */
+    const noPlace = owed.filter(i => !elseDay.has(i.id) && !reasonFor(i.id)).length;
+    const why = !noPlace ? ""
+      : noPlace === owed.length ? "時刻を言っていないので、予定表には置いていません。"
+      : "時刻を言っていないものは、予定表には置いていません。";
+    h += `<div class="note info">${owed.length}件${owedMin ? `・合わせて <span class="mono">${durJa(owedMin)}</span>` : ""}。${
+      why ? `<br><strong>${why}</strong>
+      「午前中に」「14時から」のように言うと、上の予定表に入ります。` : ""}</div><div class="stack">`;
     for (const i of owed) {
-      const r = reasonFor(i.id);
-      h += demo ? "" : itemHTML(i, { note: r ? "置けない理由：" + r : "" });
+      const r = reasonFor(i.id), ed = elseDay.get(i.id);
+      h += demo ? "" : itemHTML(i, { note: r ? "置けない理由：" + r
+        : ed ? `${fmtDayPlain(ed, tz)}に進めると言っていたので、その日の予定表に入れています。` : "" });
     }
     h += `</div>`;
   }
