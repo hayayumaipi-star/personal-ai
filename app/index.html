@@ -1713,13 +1713,33 @@ const AI_PROVIDERS = {
   gemini: { label: "Gemini（Google）", host: "generativelanguage.googleapis.com",
             model: "gemini-3.5-flash", where: "aistudio.google.com" }
 };
+/* **アプリに焼き込んだキー**（決まり13b・本人の指示「APKでもAIを使えるよう
+   APIを埋め込みたい」）。APK には claude.ai の窓口（`sample`）が無いので、
+   キーを入れないとAIがまったく動かない。毎回スマホで貼り付けるのは現実的でないので、
+   **APKを作るときに焼き込む道**を足した。
+   焼き込むのは `mobile/sync.js`——`app/index.html` は**書かれた値を読むだけ**で、
+   キーを1文字も持たない（このファイルは git に入るので、絶対に持たせないこと）。
+   **入っていなければ今までどおり**（決まり7「AIは任意」）。ブラウザでは常に無い。
+   検算は保存したキーと**同じ道**を通す（決まり7e）——`AI_PROVIDERS` に無い提供元、
+   空のキーは受け取らない。 */
+function builtInAI() {
+  const v = (typeof window !== "undefined" && window.HITOHI_AI) || null;
+  if (!v || !AI_PROVIDERS[v.provider] || !v.key) return null;
+  return { provider: String(v.provider), key: String(v.key),
+           model: String(v.model || AI_PROVIDERS[v.provider].model), builtIn: true };
+}
 function readOwnAI() {
   try {
     const v = JSON.parse(localStorage.getItem(AI_KEY_LS) || "null");
-    if (!v || !AI_PROVIDERS[v.provider] || !v.key) return null;
-    return { provider: v.provider, key: String(v.key),
-             model: String(v.model || AI_PROVIDERS[v.provider].model) };
-  } catch { return null; }
+    /* **「使わない」と本人が決めたのなら、焼き込んだキーへ落ちないこと。**
+       消す道が「保存したキーを消す」だけだと、焼き込みがある端末では
+       **消しても消えない**（すぐ焼き込みへ戻る）。片道を作らないための印。 */
+    if (v && v.off) return null;
+    if (v && AI_PROVIDERS[v.provider] && v.key)
+      return { provider: v.provider, key: String(v.key),
+               model: String(v.model || AI_PROVIDERS[v.provider].model) };
+  } catch {}
+  return builtInAI();
 }
 function writeOwnAI(cfg) {
   try {
@@ -1791,6 +1811,7 @@ function ownAI(cfg) {
   f.json = (prompt, opts) => ownAICall(cfg, prompt, opts).then(jsonFromText);
   f.limits = () => Promise.resolve({ maxPromptBytes: 200000 });
   f.own = cfg.provider;          // 画面の印に使う。`sample` には無い
+  f.builtIn = !!cfg.builtIn;     // 本人が入れたのか、アプリに焼き込んだものか
   return f;
 }
 function applyOwnAI() {
@@ -3553,7 +3574,13 @@ function renderOwnAI() {
   if (document.activeElement !== prov) prov.value = cfg ? cfg.provider : "";
   const mEl = $("#aiModel"), kEl = $("#aiKey");
   if (document.activeElement !== mEl) mEl.value = cfg ? cfg.model : "";
-  if (document.activeElement !== kEl) kEl.value = cfg ? cfg.key : "";
+  /* **焼き込んだキーは欄に流し込まない**（決まり13b）。ここに出すと
+     「自分で貼った」ように見えて、消したつもりが消えていない状態を作る。
+     空のまま置き、何で動いているかは上の `#aiState` が名指しで書く。 */
+  if (document.activeElement !== kEl) kEl.value = (cfg && !cfg.builtIn) ? cfg.key : "";
+  kEl.placeholder = (cfg && cfg.builtIn)
+    ? "アプリに焼き込まれたキーを使っています（貼ると、そちらが勝ちます）"
+    : "ここに貼り付ける";
   const P = AI_PROVIDERS[prov.value];
   mEl.placeholder = P ? P.model : "使わないときは空のまま";
   $("#aiSendNote").innerHTML = ownAINote(prov.value);
@@ -3626,7 +3653,15 @@ const AI_SENDS = "話しかけると、<strong>その発言・いま開いてい
   + "1回の発言につき2回呼びます。";
 function refreshAiState() {
   const el = $("#aiState"); if (!el) return;
-  el.innerHTML = SAMPLEFN && SAMPLEFN.own
+  /* **「本人が入れたキー」と「アプリに焼き込んだキー」を、同じ顔で出さない**（決まり13b）。
+     どちらも「あなたのキー」だが、**消し方も、作り直しの要否も違う**。 */
+  el.innerHTML = SAMPLEFN && SAMPLEFN.builtIn
+    ? `<strong>このアプリに焼き込まれたキーで動いています（${esc(AI_PROVIDERS[SAMPLEFN.own].label)}）。</strong>`
+      + "APIキーを貼り付けなくても、このまま使えます。料金はそのキーに請求されます。<br>"
+      + "別のキーに変えたいときは下の欄に貼って「保存する」、"
+      + "このアプリでAIを使いたくないときは「消す」を押してください。<br>"
+      + AI_SENDS
+    : SAMPLEFN && SAMPLEFN.own
     ? `<strong>あなたのAPIキーで動いています（${esc(AI_PROVIDERS[SAMPLEFN.own].label)}）。</strong>`
       + "料金はあなたのキーに請求されます。やめたいときは、下の欄で「消す」を押してください。<br>"
       + AI_SENDS
@@ -5848,6 +5883,18 @@ function ownAIFromForm() {
 function ownAIMsg(kind, html) {
   $("#aiKeyMsg").innerHTML = `<div class="note ${kind}" style="margin-top:8px">${html}</div>`;
 }
+/* **「使わない」にする道は1本**（決まり7e）。「消す」と「使わないを選んで保存」で
+   結果が違うと、片方だけ効かない状態が生まれる。
+   焼き込んだキーがある端末では、**消すだけでは消えない**（すぐ焼き込みへ戻る）ので、
+   「使わない」という印を残す。焼き込みが無ければ、今までどおりただ消す。 */
+function turnOffOwnAI() {
+  const baked = !!builtInAI();
+  writeOwnAI(baked ? { off: true } : null);
+  SAMPLEFN = HOSTSAMPLE;
+  $("#aiProv").value = ""; $("#aiKey").value = ""; $("#aiModel").value = "";
+  refreshAiState(); renderOwnAI();
+  return baked;
+}
 $("#btnAiTest").addEventListener("click", async () => {
   const cfg = ownAIFromForm();
   if (!cfg) { ownAIMsg("info", "「どこのAI」を選んでから押してください。"); return; }
@@ -5866,8 +5913,11 @@ $("#btnAiTest").addEventListener("click", async () => {
 $("#btnAiSave").addEventListener("click", () => {
   const cfg = ownAIFromForm();
   if (!cfg) {                       // 「使わない」を選んで保存＝消すのと同じ
-    writeOwnAI(null); SAMPLEFN = HOSTSAMPLE; refreshAiState(); renderOwnAI();
-    ownAIMsg("info", "自分のキーは使わない設定にしました。"); toast("今までどおりに戻しました"); return;
+    const baked = turnOffOwnAI();
+    ownAIMsg("info", baked
+      ? "このアプリではAIを使わない設定にしました。読み取りはルールだけで動きます。"
+      : "自分のキーは使わない設定にしました。");
+    toast(baked ? "AIを使わない設定にしました" : "今までどおりに戻しました"); return;
   }
   if (cfg._noKey) { ownAIMsg("warn", "APIキーを貼り付けてから押してください。"); return; }
   if (!writeOwnAI(cfg)) { ownAIMsg("bad", "この端末に保存できませんでした（容量がいっぱいかもしれません）。"); return; }
@@ -5878,16 +5928,22 @@ $("#btnAiSave").addEventListener("click", () => {
 });
 $("#btnAiClear").addEventListener("click", async () => {
   if (!readOwnAI() && !$("#aiKey").value.trim()) { toast("消すものがありません"); return; }
-  const yes = await askConfirm({ title: "APIキーを消しますか？",
-    body: "この端末に保存したキーを消します。AIは<strong>今までどおり</strong>（claude.ai の窓口）に戻ります。"
-      + "<br>キーそのものは提供元に残るので、また貼り付ければ使えます。",
-    yes: "消す", danger: true });
+  /* **焼き込みがあるときは、行き先が違う。**そのまま同じ文を出すと
+     「claude.ai の窓口に戻ります」が APK ではまるごと嘘になる（決まり「片方の前提で
+     固定して書かない」）。何で動いているかを見て書き分ける。 */
+  const baked = !!builtInAI();
+  const yes = await askConfirm({ title: baked ? "このアプリでAIを使うのをやめますか？" : "APIキーを消しますか？",
+    body: baked
+      ? "このアプリに焼き込まれたキーも使わなくなります。<br>"
+        + "読み取り・予定づくりは<strong>ルールだけで全部動きます</strong>（外へは何も送りません）。"
+        + "<br>あとでまた使いたくなったら、下の欄にキーを貼って「保存する」を押してください。"
+      : "この端末に保存したキーを消します。AIは<strong>今までどおり</strong>（claude.ai の窓口）に戻ります。"
+        + "<br>キーそのものは提供元に残るので、また貼り付ければ使えます。",
+    yes: baked ? "AIを使わない" : "消す", danger: true });
   if (!yes) return;
-  writeOwnAI(null);
-  $("#aiProv").value = ""; $("#aiKey").value = ""; $("#aiModel").value = "";
-  SAMPLEFN = HOSTSAMPLE; refreshAiState(); renderOwnAI();
-  ownAIMsg("info", "消しました。");
-  toast("APIキーを消しました");
+  turnOffOwnAI();
+  ownAIMsg("info", baked ? "AIを使わない設定にしました。" : "消しました。");
+  toast(baked ? "AIを使わない設定にしました" : "APIキーを消しました");
 });
 
 /* 書き出す中身は**ここだけ**が決める（決まり7e）。テストが同じものを読めるようにする。

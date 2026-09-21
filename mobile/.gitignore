@@ -5,3 +5,6 @@ android/
 ios/
 # 本体の写し。正は app/index.html なので、リポジトリには入れない
 app-html.js
+# 焼き込むAPIキー（決まり13b）。**絶対に git に入れない。**
+# secret.example.json をコピーして作る。
+secret.json

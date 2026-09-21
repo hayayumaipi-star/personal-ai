@@ -3506,6 +3506,60 @@
       reset();
     }
 
+    /* ===== BO. APKに焼き込んだAPIキー（v8.7・本人の指示「APKでもAIを使えるよう
+       APIを埋め込みたい」）=====
+       APK には claude.ai の窓口が無いので、キーが無いとAIがまったく動かない。
+       焼き込むのは `mobile/sync.js` で、**写し（app-html.js・gitignore 済み）にだけ**入れる。
+       この `app/index.html` は git に入るので、**キーを1文字も持たないこと**。 */
+    {
+      const keep = (() => { try { return localStorage.getItem(AI_KEY_LS); } catch { return null; } })();
+      const had = window.HITOHI_AI;
+
+      // ① **正のファイルは、キーを持っていない**（ここが破れたら git に鍵が載る）
+      ok("BO. app/index.html 自身はキーを持たない", typeof had === "undefined",
+         "window.HITOHI_AI が最初から入っている");
+      try { localStorage.removeItem(AI_KEY_LS); } catch {}
+      ok("BO. 焼き込みが無ければ、今までどおり何も無い", builtInAI() === null && readOwnAI() === null,
+         JSON.stringify(readOwnAI()));
+
+      // ② 焼き込まれていれば、貼らずに使える
+      window.HITOHI_AI = { provider: "claude", key: "BAKED-0001", model: "m1" };
+      const b = readOwnAI();
+      ok("BO. 焼き込んだキーを、貼らずに使う",
+         !!b && b.provider === "claude" && b.key === "BAKED-0001" && b.builtIn === true,
+         JSON.stringify(b));
+
+      // ③ 形が違うものは受け取らない（保存したキーと同じ検算を通す）
+      window.HITOHI_AI = { provider: "よそ", key: "x" };
+      ok("BO. 知らない提供元は受け取らない", builtInAI() === null, JSON.stringify(builtInAI()));
+      window.HITOHI_AI = { provider: "claude", key: "" };
+      ok("BO. 空のキーは受け取らない", builtInAI() === null, JSON.stringify(builtInAI()));
+
+      // ④ 本人が貼ったキーのほうが勝つ（本人が選んだものを焼き込みで上書きしない）
+      window.HITOHI_AI = { provider: "claude", key: "BAKED-0001", model: "m1" };
+      writeOwnAI({ provider: "gemini", key: "MINE-9999", model: "" });
+      const mine = readOwnAI();
+      ok("BO. 本人が貼ったキーが勝つ", !!mine && mine.key === "MINE-9999" && !mine.builtIn,
+         JSON.stringify(mine));
+
+      // ⑤ 「使わない」にしたら、焼き込みへ戻らない（消しても消えない状態を作らない）
+      writeOwnAI({ off: true });
+      ok("BO. 「使わない」にしたら、焼き込みへ戻らない", readOwnAI() === null, JSON.stringify(readOwnAI()));
+      // ⑥ そのあと貼り直せる（片道にしない）
+      writeOwnAI({ provider: "claude", key: "AGAIN-5678", model: "" });
+      ok("BO. 使わないにしたあとも、貼り直せる",
+         (readOwnAI() || {}).key === "AGAIN-5678", JSON.stringify(readOwnAI()));
+
+      // ⑦ **書き出しにキーを入れない**（決まり13。`db` にも控えにも渡さない）
+      try { localStorage.removeItem(AI_KEY_LS); } catch {}
+      const dump = exportPayload();
+      ok("BO. 書き出したJSONに、焼き込んだキーが入らない",
+         dump.indexOf("BAKED-0001") < 0 && dump.indexOf("HITOHI_AI") < 0, "入ってしまっている");
+
+      if (had === undefined) delete window.HITOHI_AI; else window.HITOHI_AI = had;
+      try { if (keep === null) localStorage.removeItem(AI_KEY_LS); else localStorage.setItem(AI_KEY_LS, keep); } catch {}
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;
