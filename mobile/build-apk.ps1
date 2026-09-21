@@ -77,18 +77,22 @@ if ($selfBefore -ne "" -and (Test-Path $selfPath)) {
 # **「node_modules が有るか」で判断しないこと**（2026-09-20）。
 # 依存を1つ足したとき、フォルダは既に有るので飛ばされ、**足したものだけ入らない**。
 # `npm install` は、揃っていれば数秒で終わる。毎回通すほうが安全。
-{
-  if (-not (Test-Path "node_modules")) {
-    Write-Host ""
-    Write-Host "初回の準備をしています（数分かかります）…" -ForegroundColor Yellow
-  } else {
-    Write-Host "要るものが揃っているか確かめています…" -ForegroundColor DarkGray
-  }
-  npm install --no-audit --no-fund
-  if ($LASTEXITCODE -ne 0) {
-    Write-Host "準備でつまずきました。上のメッセージをそのまま貼って相談してください。" -ForegroundColor Red
-    exit 1
-  }
+#
+# **裸の `{ ... }` で囲まないこと**（2026-09-21・実際に走らせて見つけた）。
+# PowerShell では「ただの塊（ScriptBlock）」になり、**中身が実行されず画面に印字されるだけ**。
+# つまり `npm install` は一度も走っていなかった。いま動いているのは、
+# 前に手で入れた `node_modules` が残っているからにすぎない。
+# 依存を足した日に「足したものだけ入らない」で転ぶ——上の注意書きが効いていなかった。
+if (-not (Test-Path "node_modules")) {
+  Write-Host ""
+  Write-Host "初回の準備をしています（数分かかります）…" -ForegroundColor Yellow
+} else {
+  Write-Host "要るものが揃っているか確かめています…" -ForegroundColor DarkGray
+}
+npm install --no-audit --no-fund
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "準備でつまずきました。上のメッセージをそのまま貼って相談してください。" -ForegroundColor Red
+  exit 1
 }
 
 # --- APIキー（決まり13b）---
@@ -106,13 +110,12 @@ if (Test-Path $secretPath) {
   Write-Host "  貼り付けて Enter … このAPKの中でAIが使えるようになります。"
   Write-Host "  何も入れずに Enter … キー無しで作ります（AIは動かず、ルールだけで動きます）。"
   Write-Host "  ※ このAPKを人に渡すと、キーも一緒に渡ります。" -ForegroundColor Yellow
-  $secInput = Read-Host "  APIキー" -AsSecureString
-  $plainKey = ""
-  if ($secInput -ne $null -and $secInput.Length -gt 0) {
-    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secInput)
-    try { $plainKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
-    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
-  }
+  # **`-AsSecureString` は使わない**（2026-09-21・実際に走らせて決めた）。
+  # ①対話でない窓では例外で止まる ②こちらでは試せない
+  # ③**どうせ `secret.json` に素のまま書く**ので、打つ所だけ隠しても得が無い。
+  # 素の `Read-Host` なら、どの版でも動き、こちらで通しに確かめられる。
+  $plainKey = (Read-Host "  APIキー")
+  if ($null -eq $plainKey) { $plainKey = "" }
   $plainKey = $plainKey.Trim()
   if ($plainKey -ne "") {
     # 提供元は、キーの見た目から決める（Anthropic は sk-ant… / Google は AIza…）。
