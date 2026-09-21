@@ -1129,13 +1129,26 @@ const RE_CUT_PARTICLE = new RegExp(
 /* くり返しの言い方（v4.3）。これを落とさないと、見出しが「毎週 ゼミ」のまま残り、
    1回きりの予定なのか毎週なのか、画面から読み取れなくなる。 */
 const RE_REPEAT_WORD = /(毎週\s*(?:の)?\s*[日月火水木金土]曜?日?|毎月\s*(?:の)?\s*\d{1,2}\s*日|隔週(?:で)?|毎週|毎月|毎日|まいにち|毎朝|毎晩|毎夜|平日(?:は|に|毎日)?)/g;
+/* 時間帯の言い方は1か所にまとめる（決まり7e）。
+   **読み取る側（`parseIntent`）と、見出しから落とす側（`cleanTitle`）で同じものを使う。**
+   長い言い方から並べること——「午前中」より先に「午前」を試すと「中」が取り残される。 */
+const RE_WIN_MORNING   = /(午前中|午前|朝のうち|朝に)/;
+const RE_WIN_AFTERNOON = /(午後|昼過ぎ|昼から)/;
+const RE_WIN_EVENING   = /(夕方以降|夕方|夜に|晩に)/;
+const RE_CUT_WINDOW = new RegExp(
+  "(?:" + [RE_WIN_MORNING, RE_WIN_AFTERNOON, RE_WIN_EVENING]
+    .map(r => r.source.replace(/^\(|\)$/g, "")).join("|") + ")(?:には|には|に|は|から)?", "g");
+
 function cleanTitle(s, when) {
   let t = s;
   if (when && when.span) t = t.slice(0, when.span[0]) + CUT + t.slice(when.span[1]);
   t = t.replace(RE_REPEAT_WORD, CUT);
   /* 時間帯の希望も見出しから落とす（v4.4）。項目には「午前中に」の印が別に出るので、
-     見出しに残すと「午前中に研究計画書を書く」と二度書くことになる。 */
-  t = t.replace(/(午前中|朝のうち|夕方以降)(には|に|は)?/g, CUT);
+     見出しに残すと「午前中に研究計画書を書く」と二度書くことになる。
+     **読み取る側（`parseIntent`）と同じ言い方を使うこと**（決まり7e・2026-09-21）。
+     ここだけ3語しか書いていなかったので、**「午前中」は落ちるのに
+     「夕方」「午後」は見出しに残っていた**（実測）。片方だけ直される、いつもの形。 */
+  t = t.replace(RE_CUT_WINDOW, CUT);
   // AM/PM も時刻の一部。落とさないと見出しが「AM 集合」になる
   const AMPM = "(午前|午後|朝|昼|夕方|夜|晩|深夜|夜中|[AaPp][Mm])?";
   // 左の「時」は省かれることがある（「6〜9時の間に」）。見出しに「6〜」が残らないように
@@ -4084,9 +4097,9 @@ const RE_FEELINGONLY = /^(そっか|うーん|はぁ|疲れた|しんどい|眠�
 function parseIntent(text) {
   const t = halfWidth(text);
   const out = { window: null, wantToday: false, wantTomorrow: false };
-  if (/(午前中|午前|朝のうち|朝に)/.test(t)) out.window = "morning";
-  else if (/(午後|昼過ぎ|昼から)/.test(t)) out.window = "afternoon";
-  else if (/(夕方|夜に|晩に)/.test(t)) out.window = "evening";
+  if (RE_WIN_MORNING.test(t)) out.window = "morning";
+  else if (RE_WIN_AFTERNOON.test(t)) out.window = "afternoon";
+  else if (RE_WIN_EVENING.test(t)) out.window = "evening";
   if (/(できれば|できたら|なるべく|可能なら|今日中に|今日のうちに)\s*.{0,6}(今日|きょう)?/.test(t) && /(今日|きょう|午前|午後)/.test(t)) out.wantToday = true;
   if (/(今日|きょう)(中)?に?(は)?(進め|やっ|終わら|送っ|片付け)/.test(t)) out.wantToday = true;
   return out;
