@@ -596,6 +596,28 @@
     /* 消す操作は折りたたみの中へ移した（2026-09-20・本人の指示）。
        `el.click()` はたたまれたままでも効いてしまうので、**人が辿れる道**を別に確かめる。
        在ることの確認では代用できない（決まり「ボタンを足したら実際にクリックさせる」）。 */
+    /* 長く打ったときに、会話の末尾が入力バーの裏へ回らないか（2026-09-21・実機で報告）。
+       **CSSの値を見るだけでは足りない**——実際に打って、実際の座標で比べる。 */
+    await step("長い文を打っても、会話の末尾が入力バーに隠れない", async () => {
+      await click('nav.tabs [data-tab="p-chat"]');
+      type("#say", "あ".repeat(300));
+      await wait(120);
+      const bar = document.querySelector(".saybar");
+      if (!bar || !bar.offsetHeight) throw new Error("入力バーが出ていない");
+      window.scrollTo({ top: document.body.scrollHeight });
+      await wait(120);
+      const last = [...document.querySelectorAll("#chatOut .turn")].pop();
+      if (last) {
+        const lb = last.getBoundingClientRect(), bb = bar.getBoundingClientRect();
+        if (lb.bottom > bb.top + 1)
+          throw new Error(`末尾が${Math.round(lb.bottom - bb.top)}px 隠れている`);
+      }
+      const pad = parseFloat(getComputedStyle($$("#chatOut").closest(".wrap")).paddingBottom);
+      if (pad < bar.offsetHeight)
+        throw new Error(`下余白${Math.round(pad)}px がバー${bar.offsetHeight}px より狭い`);
+      type("#say", "");
+      await wait(60);
+    });
     await step("「記録を消す」を開くと、消す道が2つとも出てくる", async () => {
       await click('nav.tabs [data-tab="p-set"]');
       const fold = $$("#btnWipe").closest("details");

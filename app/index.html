@@ -332,10 +332,22 @@ body.sheetopen{overflow:hidden}
   padding:8px 14px 4px;display:none;bottom:calc(58px + env(safe-area-inset-bottom,0px))}
 body.talking .saybar{display:block}
 .saybar-in{max-width:640px;margin:0 auto;display:flex;gap:8px;align-items:flex-end}
-.saybar textarea{min-height:42px;max-height:150px;resize:none;line-height:1.6;padding:9px 13px;
-  background:var(--surface);border:1px solid var(--line);border-radius:999px;
+/* **角丸をカプセル（999px）にしないこと**（2026-09-21・実機で報告）。
+   `border-radius` は高さの半分まで育つので、欄が150pxまで伸びると角丸が75pxになり、
+   **1行目と最終行の左右の文字が丸みに食われる**（実測：左から21.9px 食い込み、
+   文字が始まる13pxより内側）。1行のとき（44px）にカプセルに見える固定値にする。
+   こうすると伸びても角丸は22pxのままで、どの行にも食い込まない。 */
+.saybar textarea{min-height:42px;max-height:150px;resize:none;line-height:1.6;padding:9px 14px;
+  background:var(--surface);border:1px solid var(--line);border-radius:22px;
   scrollbar-width:none;-ms-overflow-style:none}
 .saybar textarea::-webkit-scrollbar{display:none;width:0;height:0}
+/* **上へ流れた文字があることを、隠さない**（2026-09-21・実機で報告）。
+   欄は150pxで頭打ちなので、長く打つと先頭が見えなくなる。
+   つまみまで消していると、**上に続きがあること自体が分からない**。
+   はみ出しているときだけ出す（ふだんは今までどおり隠す）。 */
+.saybar textarea.more{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
+.saybar textarea.more::-webkit-scrollbar{display:block;width:4px}
+.saybar textarea.more::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:2px}
 .sendbtn{min-width:42px;min-height:42px;border-radius:999px;font-size:17px;padding:0}
 .saybar-note{max-width:640px;margin:2px auto 0;font-size:11px;color:var(--ink-3);min-height:15px}
 /* いま聞いている質問を、入力欄のすぐ上に出す（まだ聞けていないことを埋めるため）。
@@ -344,10 +356,15 @@ body.talking .saybar{display:block}
   background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;
   font-size:12.5px;line-height:1.6;color:var(--ink-2)}
 .saybar-ask .q{flex:1 1 180px}
-body.talking .wrap{padding-bottom:190px}
+/* **下の余白を固定値にしないこと**（2026-09-21・実機で報告）。
+   入力欄が伸びると入力バーも伸びるが、ここが 190px 固定だったので
+   **会話の末尾が入力バーの裏に 63px 隠れていた**（実測）。
+   バーの実際の高さを `--saybar` で受け取る（`fitSaybar()` が入れる）。
+   既定値は1行のときのおおよその高さ——JSが動く前でも破綻しないように。 */
+body.talking .wrap{padding-bottom:calc(var(--saybar, 100px) + 58px + env(safe-area-inset-bottom,0px) + 18px)}
 @media (min-width:720px){
   .saybar{bottom:calc(74px + env(safe-area-inset-bottom,0px))}
-  body.talking .wrap{padding-bottom:210px}
+  body.talking .wrap{padding-bottom:calc(var(--saybar, 100px) + 74px + env(safe-area-inset-bottom,0px) + 22px)}
 }
 
 /* 移動・準備・休憩・予備。どれも灰色で、主役にしない */
@@ -3511,10 +3528,11 @@ function renderAll() {
 function renderAsk() {
   const el = $("#sayAsk"); if (!el) return;
   const q = TELOS_ASKS.find(x => x.key === view.ask);
-  if (!q) { el.hidden = true; el.innerHTML = ""; return; }
+  if (!q) { el.hidden = true; el.innerHTML = ""; fitSaybar(); return; }
   el.hidden = false;
   el.innerHTML = `<span class="q">${esc(q.q)}</span>
     <button class="btn sm" data-act="askclose">やめる</button>`;
+  fitSaybar();          // 帯が出入りするとバーの高さが変わる（決まり7e・測る所は1つ）
 }
 
 function showTab(id) {
@@ -5357,11 +5375,25 @@ function shouldShowTable(ctx) {
    ======================================================================= */
 const DRAFT = "hitohi.draft";
 let sending = false;
+/* 入力バーの高さを、そのまま下の余白へ渡す（2026-09-21・実機で報告）。
+   **固定値にすると、欄が伸びたぶんだけ会話の末尾が裏に隠れる**（実測63px）。
+   **末尾を見ていた人は、伸びたぶんを追いかける**——そうしないと、
+   打つたびに自分の最後の発言が少しずつ下へ潜っていく。
+   スクロールするのは会話タブを見ているときだけ（別のタブを下端へ飛ばさない）。 */
+function fitSaybar() {
+  const bar = document.querySelector(".saybar");
+  if (!bar) return;
+  const near = window.innerHeight + window.scrollY >= document.body.scrollHeight - 140;
+  document.documentElement.style.setProperty("--saybar", bar.offsetHeight + "px");
+  if (near && view.tab === "p-chat") window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" });
+}
 function saveDraft() {
   const v = $("#say").value;
   try { localStorage.setItem(DRAFT, v); } catch {}
   $("#sayNote").textContent = v ? "入力中の内容はこの端末に自動保存されています。" : "";
   const el = $("#say"); el.style.height = "auto"; el.style.height = Math.min(150, el.scrollHeight) + "px";
+  el.classList.toggle("more", el.scrollHeight > el.clientHeight + 2);   // 上に続きがあるときだけ、つまみを出す
+  fitSaybar();
 }
 async function doSend() {
   if (sending) return;

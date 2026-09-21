@@ -3065,6 +3065,73 @@
            === Node.DOCUMENT_POSITION_FOLLOWING);
     }
 
+    /* ===== BJ. 長く打ったときの入力欄（2026-09-21・実機で報告） =====
+       **「枠で文字が隠れて見づらい」。原因は2つあった。**
+       ① 角丸を **カプセル（999px）** にしていた。`border-radius` は**高さの半分まで育つ**ので、
+          欄が150pxまで伸びると角丸が75pxになり、**1行目と最終行の左右の文字を食う**
+          （実測：左から21.9px 食い込み、文字が始まる13pxより内側）。
+       ② 会話の下の余白が **190px 固定**だった。入力バーは伸びて206pxになるので、
+          **末尾が63px 裏に隠れていた**（実測）。
+       **どちらも「1行のときだけ見て決めた値」が、伸びたときに破れた形。**
+       だからここでは**伸ばしてから測る**。 */
+    {
+      /* **入力バーは会話タブでしか描かれない**（`body.talking` が付いたときだけ）。
+         開かずに測ると高さが 0 になり、角丸の計算も 0 になって**素通りする**。
+         実際そうなって、直っていないのに3件 PASS した（2026-09-21）。
+         **測れていないのに通る形を残さないこと**——先に開く。 */
+      const keepTab = view.tab;
+      showTab("p-chat");
+      const say = $("#say");
+      const keepH = say.style.height;
+      say.style.height = "150px";                       // 上限まで伸ばした状態で見る
+      ok("BJ. 入力欄が実際に描かれている（測れていないのに通さない）",
+         say.getBoundingClientRect().height > 40,
+         "高さ" + Math.round(say.getBoundingClientRect().height) + "px");
+      const cs = getComputedStyle(say);
+      const r = say.getBoundingClientRect();
+      // 角丸は「高さの半分・幅の半分」で頭打ちになる。実際に効く値で測ること
+      const rad = Math.min(parseFloat(cs.borderTopLeftRadius), r.height / 2, r.width / 2);
+      const padL = parseFloat(cs.paddingLeft), padT = parseFloat(cs.paddingTop);
+      const lh = parseFloat(cs.lineHeight);
+      // 角丸の円が、上から y の高さで左辺からどれだけ内側へ食い込むか
+      const inset = y => (y >= rad ? 0 : rad - Math.sqrt(Math.max(0, rad * rad - (rad - y) * (rad - y))));
+      /* **下の角丸は「下の辺からの距離」で測ること。**
+         上端からの距離で測ると、欄が伸びたとき必ず `y >= rad` になって
+         **壊れていても通る**（わざとカプセルへ戻して確かめたら、実際に通った）。 */
+      const padB = parseFloat(cs.paddingBottom);
+      const top = inset(padT + lh / 2);                 // 1行目の真ん中（上の辺から）
+      const bot = inset(padB + lh / 2);                 // 最終行の真ん中（下の辺から）
+      ok("BJ. 欄が伸びても、角丸が1行目の文字に食い込まない",
+         top <= padL, "食い込み" + top.toFixed(1) + "px / 左余白" + padL + "px（角丸" + rad + "px）");
+      ok("BJ. 欄が伸びても、角丸が最終行の文字に食い込まない",
+         bot <= padL, "食い込み" + bot.toFixed(1) + "px / 左余白" + padL + "px");
+      ok("BJ. 角丸をカプセル（999px）にしていない",
+         parseFloat(cs.borderTopLeftRadius) <= 40, cs.borderTopLeftRadius);
+      say.style.height = keepH;
+
+      /* 下の余白は**固定値で書かない**。入力バーの高さから出すこと。 */
+      const src = Array.from(document.scripts).map(x => x.textContent).join("");
+      ok("BJ. 下の余白は入力バーの高さから出している",
+         /--saybar/.test(src) && typeof fitSaybar === "function", "fitSaybar が無い");
+      let rule = null;
+      for (const sh of document.styleSheets) {
+        let rules; try { rules = sh.cssRules; } catch { continue; }
+        for (const x of rules) if (x.selectorText === "body.talking .wrap") rule = x.style;
+      }
+      ok("BJ. 会話タブの下余白が固定値になっていない",
+         !!rule && /var\(--saybar/.test(rule.paddingBottom || ""), rule && rule.paddingBottom);
+
+      // 上へ流れた文字があるときだけ、つまみを出す
+      const keepV = say.value;
+      say.value = "あ".repeat(400); say.dispatchEvent(new Event("input", { bubbles: true }));
+      ok("BJ. いっぱいのときは、続きがあることを隠さない", say.classList.contains("more"),
+         "scrollHeight " + say.scrollHeight + " / clientHeight " + say.clientHeight);
+      say.value = "あ"; say.dispatchEvent(new Event("input", { bubbles: true }));
+      ok("BJ. ふだんは、つまみを出さない", !say.classList.contains("more"));
+      say.value = keepV; say.dispatchEvent(new Event("input", { bubbles: true }));
+      showTab(keepTab);
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;
