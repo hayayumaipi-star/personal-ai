@@ -3769,6 +3769,94 @@
       state.items = keep; lsWrite();
     }
 
+    /* ===== BQ. 知らせ（トースト）の幅（2026-09-24・実機で報告） =====
+       「アプリ内通知が見づらい」。実機の写真では
+       **「完了にし／ました：／資料を作／る」と4行に折れ**、
+       黒い楕円が文字を食っていた。原因は2つで、どちらも決まり15d の再発。
+       ① `left:50%` だけを書いていたので、**幅の自動計算に使えるのは残りの 50vw だけ**
+          （実測：500px の窓で 250px）。そこへ「元に戻す」が入ると文字の取り分が 127px。
+          **`max-width:92vw` は 50vw より広いので、一度も効いていなかった。**
+       ② 角丸が `999px`。`border-radius` は**高さの半分まで育つ**ので、
+          折り返すほど大きな楕円になる（実測：写真の形で 31.8px）。
+          **ここでは文字を食うところまでは行っていなかった**（食い込み 3.9px ＜ 左余白 15px）。
+          見づらさの主因は①で、②は決まり15d と同じ**先回り**。ただし見出しの長い用事なら
+          本当に食う（実測：200字で角丸 78px・食い込み 25px）ので、**長い文で測ること**。
+       **ここは「伸ばしてから」測る。** 短い文で測ると、壊れていても通る。 */
+    {
+      const keepItems = state.items;
+      /* **この窓幅なら測れる**ことを先に言う。窓が広すぎると 50vw が max-width を超えて、
+         **壊れていても通ってしまう**（決まり14・道具が本当に見ているか）。 */
+      /* **幅は `innerWidth` ではなく `clientWidth` で見ること。**
+         `left:50%` が割るのは**スクロールバーを除いた幅**なので、`innerWidth` と比べると
+         中心が 7px ずれて落ちる（実測：780 の窓で中心 383）。 */
+      const vw = document.documentElement.clientWidth;
+      ok("BQ. この窓幅なら、幅の頭打ちを見分けられる",
+         vw / 2 < 440, "窓" + vw + "px（半分が 440px 以上だと見分けられない）");
+
+      const el = $("#toast");
+      const geom = () => {
+        const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+        const m = el.querySelector(".tmsg");
+        const lh = parseFloat(getComputedStyle(m || el).lineHeight) || 16;
+        // 角丸は「高さの半分・幅の半分」で頭打ちになる。実際に効く値で測る（BJ群と同じ）
+        const rad = Math.min(parseFloat(cs.borderTopLeftRadius), r.height / 2, r.width / 2);
+        const inset = y => (y >= rad ? 0 : rad - Math.sqrt(Math.max(0, rad * rad - (rad - y) * (rad - y))));
+        return { r, cs, rad, padL: parseFloat(cs.paddingLeft),
+                 top: inset(parseFloat(cs.paddingTop) + lh / 2),
+                 bot: inset(parseFloat(cs.paddingBottom) + lh / 2) };
+      };
+
+      // ① 実際に描かれていること（測れていないのに通さない）
+      toast("完了にしました：資料を作る", { label: "元に戻す", run: () => {} });
+      ok("BQ. 知らせが実際に描かれている（測れていないのに通さない）",
+         !el.hidden && geom().r.height > 10, "高さ" + geom().r.height.toFixed(0) + "px");
+      ok("BQ. 「元に戻す」のボタンが出ている", !!el.querySelector(".tundo"));
+
+      // ② 長い文 ＋「元に戻す」で伸ばす。ここで 50vw の頭打ちが出る
+      toast("完了にしました：" + "あ".repeat(40), { label: "元に戻す", run: () => {} });
+      const g = geom();
+      ok("BQ. 幅が「left:50% の残り」で頭打ちになっていない",
+         g.r.width > vw / 2 + 1,
+         "幅" + g.r.width.toFixed(0) + "px / 残り" + (vw / 2).toFixed(0) + "px");
+      ok("BQ. それでも画面からはみ出さない",
+         g.r.left >= -1 && g.r.right <= vw + 1,
+         g.r.left.toFixed(0) + "〜" + g.r.right.toFixed(0) + " / " + vw);
+      ok("BQ. 真ん中に出る",
+         Math.abs((g.r.left + g.r.right) / 2 - vw / 2) < 2,
+         "中心" + ((g.r.left + g.r.right) / 2).toFixed(0));
+
+      /* ③ **何行にも折れたときに、角丸が文字を食わないこと**（決まり15d）。
+         `border-radius` は**高さの半分まで育つ**ので、2行くらいでは差が出ない
+         （実測：2行なら 999px にしても食い込みは 2.1px で、左余白 15px に届かない）。
+         **短い文で測ると、カプセルに戻しても通ってしまう。**
+         用事の見出しは長くなりうるので、ここは**長い文で**測る。 */
+      toast("完了にしました：" + "あ".repeat(200), { label: "元に戻す", run: () => {} });
+      const gl = geom();
+      ok("BQ. 何行にも折れている（測れていないのに通さない）",
+         gl.r.height > 100, "高さ" + gl.r.height.toFixed(0) + "px");
+      ok("BQ. 折り返しても、角丸が1行目の文字に食い込まない",
+         gl.top <= gl.padL, "食い込み" + gl.top.toFixed(1) + "px / 左余白" + gl.padL + "px（角丸" + gl.rad.toFixed(1) + "px）");
+      ok("BQ. 折り返しても、角丸が最終行の文字に食い込まない",
+         gl.bot <= gl.padL, "食い込み" + gl.bot.toFixed(1) + "px / 左余白" + gl.padL + "px");
+      ok("BQ. 角丸をカプセル（999px）にしていない",
+         parseFloat(gl.cs.borderTopLeftRadius) <= 40, gl.cs.borderTopLeftRadius);
+
+      // ④ 「元に戻す」は縮まない／文のほうが折り返す
+      const undoCS = getComputedStyle(el.querySelector(".tundo"));
+      ok("BQ. 「元に戻す」は縮ませない", undoCS.flexShrink === "0", "flex-shrink " + undoCS.flexShrink);
+      const msgCS = getComputedStyle(el.querySelector(".tmsg"));
+      ok("BQ. 折り返す側は縮められる（min-width:0）", parseFloat(msgCS.minWidth) === 0, msgCS.minWidth);
+
+      // ⑤ ふだんの短い知らせは、1行のまま小さく出る
+      toast("記録しました");
+      const g2 = geom();
+      ok("BQ. 短い知らせは、中身のぶんだけの幅で収まる",
+         g2.r.width < vw / 2, "幅" + g2.r.width.toFixed(0) + "px");
+
+      hideToast();
+      state.items = keepItems;
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;

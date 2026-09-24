@@ -286,7 +286,17 @@ body.sheetopen{overflow:hidden}
   animation:fadein .14s ease-out;
   bottom:calc(126px + env(safe-area-inset-bottom,0px));
   background:var(--ink);color:var(--paper);font-family:var(--f-disp);font-size:13px;font-weight:500;
-  padding:9px 15px;border-radius:999px;box-shadow:var(--shadow);max-width:92vw;text-align:center}
+  padding:9px 15px;border-radius:18px;box-shadow:var(--shadow);text-align:center;
+  /* **幅を自分で決めること**（2026-09-24・実機で報告）。`left:50%` だけだと、
+     幅の自動計算は**残りの 50vw** までしか使えない（実測：500px の窓で 250px）。
+     そこへ「元に戻す」が入ると文字の取り分が 127px しか残らず、
+     **「完了にし／ました：／資料を作／る」と4行に折れた**。`max-width:92vw` は
+     50vw より広いので、**一度も効いていなかった**。
+     角丸を 999px にしないのは決まり15d と同じ理由——`border-radius` は**高さの半分まで育つ**ので、
+     折り返すほど大きな楕円になる（写真の形で 31.8px）。**その形では文字までは食っていない**が
+     （食い込み 3.9px ＜ 左余白 15px）、見出しの長い用事なら本当に食う
+     （実測：200字で角丸 122.8px・食い込み 55px）。18px は1行のとき（34px）にカプセルに見える値。 */
+  width:max-content;max-width:min(92vw,440px)}
 #toast[hidden]{display:none!important}
 /* **消したら、その場で戻せること**（2026-09-24・本人の指示）。
    いままで戻す道は折りたたみの「振り返り」の中にしか無く、**押し間違いが怖かった**。
@@ -294,6 +304,7 @@ body.sheetopen{overflow:hidden}
    色は `--ink` / `--paper` の組で作る——トーストの地は明暗で**反転する**
    （明るいとき黒地・暗いとき白地）ので、accent を置くとどちらかで読めなくなる。 */
 #toast.hasundo{display:flex;align-items:center;gap:13px;text-align:left}
+#toast .tmsg{min-width:0}   /* 折り返してよいのはこちら。無いと flex が縮めてくれない */
 #toast .tundo{flex:none;pointer-events:auto;background:var(--paper);color:var(--ink);
   border-radius:999px;padding:0 13px;min-height:34px;display:inline-flex;align-items:center;
   font-family:var(--f-disp);font-size:13px;font-weight:700;white-space:nowrap}
