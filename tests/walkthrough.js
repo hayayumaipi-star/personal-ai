@@ -44,6 +44,26 @@
   }
   async function sheetYes() { if (has("#cfYes")) { await click("#cfYes"); } }
   const firstAct = (panel, act) => document.querySelector(`${panel} [data-act="${act}"]`);
+  /* **行から消した操作は「…」の中にある**（2026-09-24・案C）。
+     在ることの確認では代用できないので、**実際に開いてから押す**。 */
+  async function openMoreIn(panel) {
+    const b = firstAct(panel, "more");
+    if (!b) throw new Error("「…」が無い");
+    await click(b);
+    if (!has("#sheetHost .morelist")) throw new Error("「…」のシートが出ない");
+  }
+  /* なぞる操作は `el.click()` では試せない。**本物のポインタの動きを流す。** */
+  async function swipeOn(el, dx, dy) {
+    const r = el.getBoundingClientRect();
+    const x = r.left + 24, y = r.top + Math.min(24, r.height / 2);
+    const mk = (type, cx, cy) => new PointerEvent(type,
+      { bubbles: true, clientX: cx, clientY: cy, pointerId: 1, isPrimary: true });
+    el.dispatchEvent(mk("pointerdown", x, y));
+    document.dispatchEvent(mk("pointermove", x + dx / 2, y + (dy || 0) / 2));
+    document.dispatchEvent(mk("pointermove", x + dx, y + (dy || 0)));
+    document.dispatchEvent(mk("pointerup", x + dx, y + (dy || 0)));
+    await wait(140);
+  }
   /* 「この原文を消す」は、設定タブの一覧から**会話の「原文」シートへ引っ越した**
      （2026-09-20・本人の指示で「保存されている原文」の欄を外したため）。
      消す道が残っていることを、**実際に開いて**確かめる。 */
@@ -132,16 +152,18 @@
       if (has("#sheetHost .sheet")) throw new Error("シートが閉じない");
       await click("#dToday");     // このあとの操作は「今日」の画面で行う
     });
-    await step("「根拠」を開いて閉じる", async () => {
-      const b = firstAct("#p-day", "evid");
-      if (!b) throw new Error("「根拠」が無い");
+    await step("「…」→「根拠」を開いて閉じる", async () => {
+      await openMoreIn("#p-day");
+      const b = document.querySelector('#sheetHost [data-act="evid"]');
+      if (!b) throw new Error("「…」の中に「根拠」が無い");
       await click(b);
       if (!/根拠をたしかめる/.test($$("#sheetHost").textContent)) throw new Error("根拠が出ない");
       await click("[data-close]");
     });
-    await step("「訂正」を開いて内容を直して保存", async () => {
-      const b = firstAct("#p-day", "edit");
-      if (!b) throw new Error("「訂正」が無い");
+    await step("「…」→「訂正」で内容を直して保存", async () => {
+      await openMoreIn("#p-day");
+      const b = document.querySelector('#sheetHost [data-act="edit"]');
+      if (!b) throw new Error("「…」の中に「訂正」が無い");
       await click(b);
       if (!has("#eT")) throw new Error("訂正の欄が出ない");
       type("#eT", "直したあとの用事");
@@ -162,6 +184,53 @@
       await click(b);
       if (findItem(id).status !== "done") throw new Error("完了になっていない");
     });
+    /* **なぞる操作は `el.click()` では試せない**（2026-09-24・案A）。
+       本物のポインタの動きを流して、**実際に状態が変わるところ**まで確かめる。 */
+    await step("行を右へなぞると完了になる", async () => {
+      await click('nav.tabs [data-tab="p-day"]');
+      const w = document.querySelector("#p-day .swipe");
+      if (!w) throw new Error("なぞれる行が無い");
+      const id = w.dataset.swipe;
+      if (findItem(id).status !== "open") throw new Error("前提がちがう（開いていない）");
+      await swipeOn(w, 110, 0);
+      if (findItem(id).status !== "done") throw new Error("完了になっていない");
+      const u = document.querySelector('#toast [data-act="toastundo"]');
+      if (!u) throw new Error("なぞったあとに「元に戻す」が出ない");
+      await click(u);
+      if (findItem(id).status !== "open") throw new Error("戻せていない");
+    });
+    await step("行を左へなぞると明日へ移る", async () => {
+      const w = document.querySelector("#p-day .swipe");
+      if (!w) throw new Error("なぞれる行が無い");
+      const id = w.dataset.swipe;
+      const was = findItem(id).dayKey;
+      await swipeOn(w, -110, 0);
+      const now = findItem(id).dayKey;
+      if (now === was) throw new Error("日付が動いていない（" + was + "）");
+      const u = document.querySelector('#toast [data-act="toastundo"]');
+      if (!u) throw new Error("「元に戻す」が出ない");
+      await click(u);
+      if (findItem(id).dayKey !== was) throw new Error("日付が戻っていない");
+    });
+    await step("縦に動かしたときは、何も起きない（スクロールを奪わない）", async () => {
+      await click('nav.tabs [data-tab="p-day"]');
+      const w = document.querySelector("#p-day .swipe");
+      if (!w) throw new Error("なぞれる行が無い");
+      const id = w.dataset.swipe;
+      const was = JSON.stringify([findItem(id).status, findItem(id).dayKey]);
+      await swipeOn(w, 80, 200);            // 横は効く長さ。ただし縦のほうが大きい＝スクロール
+      const now = JSON.stringify([findItem(id).status, findItem(id).dayKey]);
+      if (now !== was) throw new Error("縦に動かしただけで変わってしまった");
+    });
+    await step("少しだけなぞったときは、何も起きない", async () => {
+      const w = document.querySelector("#p-day .swipe");
+      if (!w) throw new Error("なぞれる行が無い");
+      const id = w.dataset.swipe;
+      const was = findItem(id).status;
+      await swipeOn(w, 30, 0);              // SWIPE_MIN に届かない
+      if (findItem(id).status !== was) throw new Error("届いていないのに効いてしまった");
+    });
+
     await step("振り返りの「未完了に戻す」を押す（折りたたみの中）", async () => {
       document.querySelectorAll("#p-day details").forEach(d => d.open = true);
       const b = firstAct("#p-day", "undone");
@@ -170,14 +239,17 @@
       await click(b);
       if (findItem(id).status !== "open") throw new Error("戻っていない");
     });
-    await step("「取り消す」→「戻す」", async () => {
-      const b = firstAct("#p-day", "drop");
-      if (!b) throw new Error("「取り消す」が無い");
+    await step("「…」→「取り消す」→ トーストの「元に戻す」で戻る", async () => {
+      await openMoreIn("#p-day");
+      const b = document.querySelector('#sheetHost [data-act="drop"]');
+      if (!b) throw new Error("「…」の中に「取り消す」が無い");
       const id = b.dataset.id;
       await click(b);
       if (findItem(id).status !== "dropped") throw new Error("取り消しになっていない");
-      const u = document.querySelector(`#p-day [data-act="undrop"][data-id="${id}"]`);
-      if (!u) throw new Error("「戻す」が出ない");
+      /* **戻す道が、その場にあること**（2026-09-24・案C の一番の目的）。
+         前は折りたたみの「振り返り」の中にしか無かった。 */
+      const u = document.querySelector('#toast [data-act="toastundo"]');
+      if (!u) throw new Error("トーストに「元に戻す」が出ない");
       await click(u);
       if (findItem(id).status !== "open") throw new Error("戻せていない");
     });
@@ -258,9 +330,10 @@
       await click(b);
       if (state.items.some(i => i.kind === "profile" && !i.confirmed && !i.corrected)) throw new Error("確認済みになっていない");
     });
-    await step("わたしのことを1件「訂正」する", async () => {
-      const b = firstAct("#p-me", "edit");
-      if (!b) throw new Error("「訂正」が無い");
+    await step("わたしのことを1件「…」→「訂正」する", async () => {
+      await openMoreIn("#p-me");
+      const b = document.querySelector('#sheetHost [data-act="edit"]');
+      if (!b) throw new Error("「…」の中に「訂正」が無い");
       await click(b);
       type("#eT", "朝は弱い");
       await click('[data-act="save"]');

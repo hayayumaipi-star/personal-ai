@@ -523,8 +523,18 @@
       };
       ok("S. 狭い画面向けの指定がある", !!mq);
       const sm = decl(".btn.sm");
-      ok("S. 行の操作ボタンが指で押せる高さ（34px以上）",
-         !!sm && parseFloat(sm.minHeight) >= 34, sm && sm.minHeight);
+      /* **44px**（2026-09-24・案E）。iOS は44pt、Android は48dp が最小。
+         前は36pxで8px足りなかった。**高さだけでなく幅も**——「…」や ◀ ▶ は
+         文字が短いので、高さだけ上げると縦長の細い的になる（実測36px幅）。 */
+      ok("S. 行の操作ボタンが指で押せる高さ（44px以上）",
+         !!sm && parseFloat(sm.minHeight) >= 44, sm && sm.minHeight);
+      ok("S. 文字の短いボタンも、幅が44px以上",
+         !!sm && parseFloat(sm.minWidth) >= 44, sm && sm.minWidth);
+      const bg = decl(".btn");
+      ok("S. ふつうのボタンも44px以上", !!bg && parseFloat(bg.minHeight) >= 44, bg && bg.minHeight);
+      const src = decl(".btn.sm.srcbtn");
+      ok("S. 会話の「原文」だけは小さいまま（本文の邪魔をしない）",
+         !!src && /auto/.test(src.minWidth || ""), src && src.minWidth);
       const ta = decl(".saybar textarea");
       ok("S. 入力欄の文字が16px以上（触れた瞬間に拡大されない）",
          !!ta && parseFloat(ta.fontSize) >= 16, ta && ta.fontSize);
@@ -3660,6 +3670,103 @@
 
       if (had === undefined) delete window.HITOHI_AI; else window.HITOHI_AI = had;
       SAMPLEFN = keepFn;
+    }
+
+    /* ===== BP. 行のボタンを減らして、指の操作と「元に戻す」を足した
+       （2026-09-24・本人の指示・案C→案A）=====
+       実測で**1行に5個**のボタンが出ていた（完了/明日へ/根拠/訂正/取り消す）。
+       世の中のアプリは一覧の行にボタンを並べず、指の操作へ逃がす。
+       **ただし、なぞる操作は見つけにくい。** だからボタンを消さずに3つへ減らし、
+       残りは「…」へたたみ、**消えたその場で戻せる**ようにした。
+       この3つは**揃っていないと危ない**ので、まとめてここで見張る。 */
+    {
+      const keep = state.items.slice();
+      const mk = (over) => Object.assign({
+        id: "bp-" + Math.random().toString(36).slice(2, 7), kind: "task", title: "資料を作る",
+        origin: "rule", confirmed: false, corrected: false, status: "open",
+        evidence: { text: "資料を作る" }, createdAt: T(9, 0), updatedAt: T(9, 0), history: []
+      }, over || {});
+
+      /* ① 行に並ぶボタンを数える。**5個には戻さない。** */
+      const btns = h => (h.match(/data-act="/g) || []).length;
+      const task = mk({});
+      const rowTask = itemHTML(task);
+      ok("BP. 行のボタンは3つまで", btns(rowTask) <= 3, btns(rowTask) + "個");
+      ok("BP. 行に残すのは「完了」「明日へ」「…」",
+         /data-act="done"/.test(rowTask) && /data-act="defer"/.test(rowTask) && /data-act="more"/.test(rowTask),
+         rowTask.replace(/\s+/g, " ").slice(0, 200));
+      ok("BP. 根拠・訂正・取り消すは行に並べない",
+         !/data-act="evid"/.test(rowTask) && !/data-act="edit"/.test(rowTask) && !/data-act="drop"/.test(rowTask));
+
+      /* ② 「…」の中に、**行から消したものが全部ある**（道を1つも塞がない）。 */
+      state.items = keep.concat(task);
+      openMore(task);
+      const more = $("#sheetHost").innerHTML;
+      closeSheet();
+      for (const [a, ja] of [["evid", "根拠"], ["edit", "訂正"], ["drop", "取り消す"]])
+        ok("BP. 「…」の中に「" + ja + "」がある", more.indexOf('data-act="' + a + '"') >= 0, "無い");
+      ok("BP. 「…」のボタンは指で押せる大きさ（48px）",
+         (() => { for (const sh of document.styleSheets) { let rs; try { rs = sh.cssRules; } catch { continue; }
+           for (const r of rs) if (r.style && r.selectorText === ".morelist .btn")
+             return parseFloat(r.style.minHeight) >= 44; } return false; })(), "指定が無い");
+
+      /* ③ なぞったときに何が起きるか。**判定は `swipeActs` ひとつ**（決まり7e）。 */
+      const sa = t => swipeActs(t);
+      ok("BP. 開いている用事は、右で完了・左で明日へ",
+         sa(mk({})).right === "done" && sa(mk({})).left === "defer");
+      ok("BP. 予定（event）は、右で終わり・左は無し（明日へは用事だけ）",
+         sa(mk({ kind: "event" })).right === "done" && sa(mk({ kind: "event" })).left === null);
+      ok("BP. 終わったもの・取り消したものは、なぞっても何も起きない",
+         !sa(mk({ status: "done" })).right && !sa(mk({ status: "done" })).left
+         && !sa(mk({ status: "dropped" })).right);
+      ok("BP. 目標やメモは、なぞる対象にしない",
+         !sa(mk({ kind: "goal" })).right && !sa(mk({ kind: "memo" })).right);
+
+      /* ④ **できるものだけ包む。** 包んでおいて何も起きないと、壊れて見える。 */
+      ok("BP. なぞれる行だけ、なぞる下地を持つ",
+         /class="swipe"/.test(itemHTML(mk({}), { swipe: true })));
+      ok("BP. なぞれないものは包まない",
+         !/class="swipe"/.test(itemHTML(mk({ status: "done" }), { swipe: true })));
+      ok("BP. 頼まれていない一覧は包まない（今までどおり）",
+         !/class="swipe"/.test(itemHTML(mk({}))));
+      ok("BP. 下地に、何が起きるかが書いてある",
+         /完了/.test(itemHTML(mk({}), { swipe: true })) && /明日へ/.test(itemHTML(mk({}), { swipe: true })));
+      ok("BP. 縦スクロールを奪わない（touch-action)",
+         (() => { for (const sh of document.styleSheets) { let rs; try { rs = sh.cssRules; } catch { continue; }
+           for (const r of rs) if (r.style && r.selectorText === ".swipe")
+             return /pan-y/.test(r.style.touchAction || ""); } return false; })(), "指定が無い");
+
+      /* ⑤ トーストの「元に戻す」。**渡されたときだけ**出る（決まり7「無くても動く」）。 */
+      toast("完了にしました：資料を作る", { label: "元に戻す", run: async () => {} });
+      const tEl = $("#toast");
+      ok("BP. 戻す道を渡したら、トーストにボタンが出る",
+         !!tEl.querySelector('[data-act="toastundo"]'), tEl.innerHTML.slice(0, 120));
+      ok("BP. 戻すボタンがあるときは、読む時間を長くする", TOAST_UNDO_MS > TOAST_MS,
+         TOAST_UNDO_MS + " / " + TOAST_MS);
+      toast("ふつうの知らせ");
+      ok("BP. 渡さなければ、今までどおりボタンは出ない",
+         !$("#toast").querySelector('[data-act="toastundo"]'));
+      ok("BP. トーストの文は必ず escape する（保存先から来た文字が入る）",
+         (() => { toast('<img src=x onerror="/*!*/">'); const n = $("#toast").querySelectorAll("img").length;
+                  hideToast(); return n === 0; })(), "要素として入ってしまった");
+
+      /* ⑥ 戻したときに、**起きたことの記録を消さない**。
+         「完了にした」と「元に戻した」の両方が残らないと、何が起きたか読めなくなる。 */
+      ok("BP. 戻しても history は消えない",
+         /history = hist/.test(String(restoreItems)), "履歴を上書きしているかもしれない");
+      ok("BP. 戻すのは、保存に成功した件数で数える",
+         /putItem\(cur\); n\+\+/.test(String(restoreItems)), "数え方がおかしい");
+
+      /* ⑦ 振動は「あれば使う」。**無い環境で落とさない**（決まり7と同じ理屈）。 */
+      const hadV = navigator.vibrate;
+      try { delete navigator.vibrate; } catch {}
+      let threw = false;
+      try { buzz(); } catch { threw = true; }
+      ok("BP. 振動が使えない端末でも、落ちない", !threw);
+      if (hadV) { try { navigator.vibrate = hadV; } catch {} }
+
+      hideToast();
+      state.items = keep; lsWrite();
     }
 
     const fails = R.filter(x => x.startsWith("FAIL"));

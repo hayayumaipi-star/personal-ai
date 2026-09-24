@@ -116,6 +116,23 @@ label.fld{display:block;font-size:11px;font-weight:500;color:var(--ink-2);
 .chip.vague{background:var(--warn-soft);border-color:var(--warn);color:var(--warn-ink)}
 .chip.fixed{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink)}
 
+/* **なぞって完了・明日へ**（2026-09-24・本人の指示・案A）。
+   行に5個並んでいたボタンを、指の操作へ逃がす。**ボタンは消さない**——
+   なぞる操作は見つけにくいので、知らない人が詰む（案Cの形をそのまま残す）。
+   `touch-action:pan-y` が要る。これが無いと、縦スクロールまで奪う。
+   色は「塗り・線」に使い、**文字は必ず `-ink`**（決まり15）。 */
+.swipe{position:relative;overflow:hidden;border-radius:12px;margin-bottom:8px;touch-action:pan-y}
+.swipe .item{margin-bottom:0;position:relative;z-index:1;
+  transition:transform .18s cubic-bezier(.32,.72,0,1)}
+.swipe.dragging .item{transition:none}
+.swunder{position:absolute;top:0;bottom:0;left:0;right:0;display:flex;align-items:center;
+  padding:0 15px;font-family:var(--f-disp);font-weight:700;font-size:14px;opacity:.55}
+.swunder.go{opacity:1}
+.swunder.l{justify-content:flex-start;background:var(--done-soft);color:var(--done-ink);
+  border-left:6px solid var(--done)}
+.swunder.r{justify-content:flex-end;background:var(--warn-soft);color:var(--warn-ink);
+  border-right:6px solid var(--warn)}
+
 /* item rows */
 .item{background:var(--surface);border:1px solid transparent;border-radius:var(--r);padding:11px 12px;
   display:flex;flex-direction:column;gap:7px}
@@ -271,6 +288,16 @@ body.sheetopen{overflow:hidden}
   background:var(--ink);color:var(--paper);font-family:var(--f-disp);font-size:13px;font-weight:500;
   padding:9px 15px;border-radius:999px;box-shadow:var(--shadow);max-width:92vw;text-align:center}
 #toast[hidden]{display:none!important}
+/* **消したら、その場で戻せること**（2026-09-24・本人の指示）。
+   いままで戻す道は折りたたみの「振り返り」の中にしか無く、**押し間違いが怖かった**。
+   怖いままだと行のボタンを減らせないので、**先にここを直す**（案C→案A の順）。
+   色は `--ink` / `--paper` の組で作る——トーストの地は明暗で**反転する**
+   （明るいとき黒地・暗いとき白地）ので、accent を置くとどちらかで読めなくなる。 */
+#toast.hasundo{display:flex;align-items:center;gap:13px;text-align:left}
+#toast .tundo{flex:none;pointer-events:auto;background:var(--paper);color:var(--ink);
+  border-radius:999px;padding:0 13px;min-height:34px;display:inline-flex;align-items:center;
+  font-family:var(--f-disp);font-size:13px;font-weight:700;white-space:nowrap}
+#toast .tundo:active{opacity:.6}
 .sheet h3{font-size:17px}
 /* カードの中の小見出し。インライン style で大きさを書かないこと（画面幅で変えられなくなる） */
 .cardttl{font-size:15px}
@@ -296,8 +323,17 @@ body.sheetopen{overflow:hidden}
   :root{--tlscale:1.3px}
   .blk{padding:9px 11px}
   /* 横は詰めて1行に収め、縦は指で押せる高さを確保する */
-  .btn.sm{padding:7px 11px;min-height:36px;border-radius:999px}
-  .btn.sm.srcbtn{padding:4px 8px;min-height:26px}
+  /* **押しどころは44px**（2026-09-24・本人の指示・案E）。
+     iOS は44pt、Android は48dp を最小にしている。ここは36pxで**8px足りなかった**。
+     **行のボタンを3つに減らしてから上げること**（案C→案E の順）——
+     5個並んだままで高くすると、指で押せるより先に1行へ収まらなくなる。
+     横の padding は詰めたまま。広げると、こんどは横がはみ出す。 */
+  /* **幅も44px**。◀ ▶ や「…」は文字が短いので、高さだけ上げると
+     **縦長の細い的**になる（実測で36px幅だった）。指は丸いので、両方が要る。 */
+  .btn.sm{padding:9px 11px;min-height:44px;min-width:44px;border-radius:999px}
+  .btn{min-height:44px}
+  /* 会話の時刻に添える「原文」だけは別。本文の邪魔をしない大きさで置く（決まり15e） */
+  .btn.sm.srcbtn{padding:4px 8px;min-height:26px;min-width:auto}
   .acts{gap:5px}
   /* たたんである枠は、見出しだけでなく枠全体を押せるようにする */
   .tlrow .bhead{min-height:28px}
@@ -329,6 +365,10 @@ body.sheetopen{overflow:hidden}
 @keyframes pulse{0%,100%{opacity:.45}50%{opacity:.9}}
 @media (prefers-reduced-motion:reduce){.turn.thinking .bub{animation:none}}
 #reading{color:var(--ink-3);font-size:11px}
+/* 「…」で開くシート。**押しどころは48px**——ここは指で押す前提の場所なので、
+   行の小さいボタンと同じ大きさにしない（案D・案Eの考え方）。 */
+.morelist .btn{width:100%;min-height:48px;justify-content:flex-start;
+  padding-left:16px;font-size:15px;border-radius:12px}
 .turn .extra{width:100%;max-width:86%;display:flex;flex-direction:column;gap:7px}
 
 .changes{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;
@@ -3022,26 +3062,48 @@ function itemHTML(it, opts = {}) {
   const rep = it.kind === "condition" ? `<span class="mono">${fmtDT(it.reportedAt, tz)} の申告</span>` : "";
   if (it.kind === "task" && it.targetDay && it.targetDay !== it.dayKey) bits.push(`<span class="chip">${it.targetDay.slice(5).replace("-", "/")}までに終えたい</span>`);
 
+  /* **1行に5個並べない**（2026-09-24・本人の指示・案C）。
+     実測で「完了 / 明日へ / 根拠 / 訂正 / 取り消す」の5個が全部の行に出ていた。
+     世の中のアプリは一覧の行にボタンを並べない（Todoist も Things も Apple も）。
+     残すのは**よく押すものだけ**で、あとは「…」にたたむ。
+     **決まりを1つ変えた**：前は「取り消し・完了は行のボタンから直接できる」と
+     書いていたが、取り消しは「…」の中へ移した。**代わりにトーストへ
+     「元に戻す」を付けた**ので、押し間違いから戻る道は**むしろ近くなっている**。
+     完了は今までどおり行に置く（いちばん押すもの）。 */
   const acts = opts.noActions ? "" : `<div class="acts">
-    ${it.status !== "done" && (it.kind === "task" || it.kind === "event") ? `<button class="btn sm" data-act="done" data-id="${it.id}" data-day="${esc(it.occurDay || view.day || "")}">${it.kind === "event" ? "終わった" : "完了"}</button>` : ""}
-    ${it.repeat && it.status === "open" ? `<button class="btn sm" data-act="skipday" data-id="${it.id}" data-day="${esc(it.occurDay || view.day || "")}">この日はやらない</button>` : ""}
+    ${it.status !== "done" && (it.kind === "task" || it.kind === "event") ? `<button class="btn sm pri" data-act="done" data-id="${it.id}" data-day="${esc(it.occurDay || view.day || "")}">${it.kind === "event" ? "終わった" : "完了"}</button>` : ""}
     ${it.status === "done" ? `<button class="btn sm" data-act="undone" data-id="${it.id}">戻す</button>` : ""}
     ${it.kind === "task" && it.status !== "done" ? `<button class="btn sm" data-act="defer" data-id="${it.id}">明日へ</button>` : ""}
     ${it.kind === "profile" && !it.confirmed && !it.corrected && it.status === "open" ? `<button class="btn sm" data-act="confirm" data-id="${it.id}">これで合ってる</button>` : ""}
     ${it.whenAlt && it.status === "open" ? `<button class="btn sm" data-act="usealt" data-id="${it.id}">${esc(altLabel(it, tz))}にする</button>` : ""}
-    <button class="btn sm" data-act="evid" data-id="${it.id}">根拠</button>
-    <button class="btn sm" data-act="edit" data-id="${it.id}">訂正</button>
-    ${it.status === "dropped" ? `<button class="btn sm" data-act="undrop" data-id="${it.id}">戻す</button>`
-      : `<button class="btn sm danger" data-act="drop" data-id="${it.id}">取り消す</button>`}
+    <button class="btn sm" data-act="more" data-id="${it.id}" aria-label="そのほかの操作">…</button>
   </div>`;
 
-  return `<article class="${cls.join(" ")}">
+  const card = `<article class="${cls.join(" ")}">
     <div class="meta">${bits.join("")}</div>
     <div class="ttl">${esc(it.title)}</div>
     <div class="meta">${when}${est ? " · " + est : ""}${rep}</div>
     ${opts.note ? `<div class="hint">${esc(opts.note)}</div>` : ""}
     ${acts}
   </article>`;
+  /* なぞって完了・明日へ（案A）。**できるものだけ**包む——
+     包んでおいて何も起きないと、壊れているように見える。 */
+  const sw = opts.swipe ? swipeActs(it) : { right: null, left: null };
+  if (!sw.right && !sw.left) return card;
+  return `<div class="swipe" data-swipe="${it.id}">
+    ${sw.right ? `<div class="swunder l"><span>✓ 完了</span></div>` : ""}
+    ${sw.left ? `<div class="swunder r"><span>明日へ →</span></div>` : ""}
+    ${card}</div>`;
+}
+
+/* なぞったときに何が起きるか。**ここが唯一の判定**（決まり7e）——
+   下地を描くときも、指を離したときも、テストも、全部これを見る。 */
+function swipeActs(it) {
+  const open = it && it.status === "open";
+  return {
+    right: open && (it.kind === "task" || it.kind === "event") ? "done" : null,
+    left: open && it.kind === "task" ? "defer" : null
+  };
 }
 
 function blockTitle(b) {
@@ -3218,7 +3280,10 @@ function renderDay() {
      言ったから置いていないものに同じ文を出すと、嘘になる。
      どちらなのかは `planFor` が決める（`elsewhere`）——**同じ判定を2か所に書かない**（決まり7e）。 */
   const elseDay = new Map((plan.elsewhere || []).map(i => [i.id, i.targetDay]));
-  h += `<div class="sect"><h2>この日にやること</h2></div>`;
+  /* **なぞる操作は、書いておかないと見つからない**（案A の唯一の弱点）。
+     ボタンは残してあるので、読み飛ばしても困らない。1行だけにする（決まり15b）。 */
+  h += `<div class="sect"><h2>この日にやること</h2>
+    <p class="hint" style="margin-top:3px">行を右へなぞると完了、左へなぞると明日へ。ボタンでもできます。</p></div>`;
   if (!owed.length) {
     h += `<div class="card empty">ありません。</div>`;
   } else {
@@ -3233,7 +3298,7 @@ function renderDay() {
       「午前中に」「14時から」のように言うと、上の予定表に入ります。` : ""}</div><div class="stack">`;
     for (const i of owed) {
       const r = reasonFor(i.id), ed = elseDay.get(i.id);
-      h += demo ? "" : itemHTML(i, { note: r ? "置けない理由：" + r
+      h += demo ? "" : itemHTML(i, { swipe: true, note: r ? "置けない理由：" + r
         : ed ? `${fmtDayPlain(ed, tz)}に進めると言っていたので、その日の予定表に入れています。` : "" });
     }
     h += `</div>`;
@@ -3261,7 +3326,7 @@ function renderDay() {
     h += rest.length
       ? `<div class="stack">${rest.slice(0, 30).map(i => {
             const r = reasonOf(i.id);
-            return itemHTML(i, { note: r ? "置けない理由：" + r : "" });
+            return itemHTML(i, { swipe: true, note: r ? "置けない理由：" + r : "" });
           }).join("")}${
           rest.length > 30 ? `<div class="card empty">ほか${rest.length - 30}件</div>` : ""}</div>`
       : `<div class="card empty">${placed ? "すべて今日の案に入れています。" : "ありません。"}</div>`;
@@ -3711,12 +3776,50 @@ function describeError(e) {
   const where = e.stack ? String(e.stack).split("\n")[1] : "";
   return bits.join(" / ") + (where ? "  @" + where.trim().slice(0, 80) : "");
 }
-let toastTimer = null;
-function toast(msg) {
+/* **消したら、その場で戻せること**（2026-09-24・本人の指示）。
+   戻す道はもともと `undone` / `undrop` としてあったが、**入口が
+   折りたたみの「振り返り」の中だけ**だった。押し間違いが怖いままだと
+   行のボタンを減らせないので、ここを先に直す。
+   `undo` は `{label, run}`。**渡されたときだけ**ボタンが出る（決まり7「無くても動く」）。
+   戻すボタンがあるときは、読んで押すだけの時間を置く（2.6秒→7秒）。 */
+const TOAST_MS = 2600, TOAST_UNDO_MS = 7000;
+let toastTimer = null, toastUndo = null;
+function toast(msg, undo) {
   const el = $("#toast"); if (!el) return;
-  el.textContent = msg; el.hidden = false;
+  toastUndo = (undo && typeof undo.run === "function") ? undo : null;
+  el.innerHTML = `<span class="tmsg">${esc(msg)}</span>`
+    + (toastUndo ? `<button class="btn tundo" data-act="toastundo">${esc(toastUndo.label || "元に戻す")}</button>` : "");
+  el.classList.toggle("hasundo", !!toastUndo);
+  el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+  toastTimer = setTimeout(() => { el.hidden = true; toastUndo = null; }, toastUndo ? TOAST_UNDO_MS : TOAST_MS);
+}
+function hideToast() { const el = $("#toast"); if (el) el.hidden = true; toastUndo = null; }
+/* 項目を、触る前の姿に戻す。**`history` は消さない**——
+   「完了にした」「元に戻した」の両方が残らないと、何が起きたか読めなくなる。
+   **保存できたときだけ「戻しました」と言う**（決まり6d）。 */
+const snapItem = it => { try { return JSON.parse(JSON.stringify(it)); } catch { return null; } };
+async function restoreItems(snaps, what) {
+  let n = 0;
+  for (const before of (snaps || [])) {
+    if (!before || !before.id) continue;
+    const cur = findItem(before.id);
+    if (!cur) continue;
+    const hist = (cur.history || []).concat({ at: new Date().toISOString(), by: "user", what });
+    for (const k of Object.keys(cur)) if (!(k in before)) delete cur[k];
+    Object.assign(cur, before);
+    cur.history = hist;
+    await putItem(cur); n++;
+  }
+  renderAll();
+  toast(n ? (n === 1 ? "戻しました" : n + "件を戻しました") : "戻す項目が見つかりませんでした");
+  return n;
+}
+/* 押せたことを指に返す（2026-09-24）。**無い環境でも落とさない**——
+   `navigator.vibrate` はブラウザにも殻にも無いことがある（決まり7と同じ理屈）。 */
+function buzz(ms) {
+  try { if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate(ms || 12); }
+  catch {}
 }
 function openSheet(html) {
   sheetReturn = document.activeElement;
@@ -3819,6 +3922,31 @@ function openEdit(it) {
     </div>`);
 }
 
+/* 「…」でたたんだ操作をまとめて出す（2026-09-24・案C）。
+   **行から消したものは、ここに全部ある**——道を1つも塞がないこと。
+   押しどころは48px（指で押す前提の場所なので、行の小さいボタンと同じにしない）。 */
+function openMore(it) {
+  const tz = state.settings.timezone;
+  const rows = [
+    `<button class="btn" data-act="evid" data-id="${it.id}">根拠をたしかめる</button>`,
+    `<button class="btn" data-act="edit" data-id="${it.id}">訂正する</button>`
+  ];
+  if (it.repeat && it.status === "open")
+    rows.push(`<button class="btn" data-act="skipday" data-id="${it.id}" data-day="${esc(it.occurDay || view.day || "")}">この日はやらない</button>`);
+  if (it.kind === "task" && it.status !== "done")
+    rows.push(`<button class="btn" data-act="defer" data-id="${it.id}">明日へ</button>`);
+  if (it.status === "done")
+    rows.push(`<button class="btn" data-act="undone" data-id="${it.id}">未完了に戻す</button>`);
+  rows.push(it.status === "dropped"
+    ? `<button class="btn" data-act="undrop" data-id="${it.id}">取り消しを戻す</button>`
+    : `<button class="btn danger" data-act="drop" data-id="${it.id}">取り消す</button>`);
+  openSheet(`<h3>${esc(it.title)}</h3>
+    <div class="meta">${srcChip(it)}<span class="chip">${KIND_JA[it.kind]}</span>
+      ${it.due || it.start ? `<span class="mono">${esc(describeWhen(it, tz).replace(/[（）]/g, ""))}</span>` : ""}</div>
+    <div class="stack morelist">${rows.join("")}</div>
+    <div class="foot"><button class="btn pri" data-close style="margin-left:auto">閉じる</button></div>`);
+}
+
 function openEst(it) {
   openSheet(`<h3>所要時間を直す</h3>
     <p class="hint">「${esc(it.title)}」に実際どれくらいかかりますか。直すと今日の残りの計画を作り直します。</p>
@@ -3851,6 +3979,16 @@ function note(it, what) { it.history = (it.history || []).concat({ at: new Date(
 
 async function act(a, id, el) {
   const tz = state.settings.timezone;
+  /* トーストの「元に戻す」。**いちばん上で処理して return する**——
+     下の `findItem` の門は項目のidを前提にしていて、ここは項目のidを持たない
+     （決まり「note の id を渡す操作は guard より上で処理する」と同じ理屈）。 */
+  if (a === "toastundo") {
+    const u = toastUndo;
+    hideToast();
+    if (!u) { toast("戻せるものがありません"); return; }
+    await u.run();
+    return;
+  }
   /* **提案した予定は、1手で全部消せること**（v6.5）。こちらが足したものなので、
      1件ずつ消させない。本人が言ったものには触らない。 */
   if (a === "clearsug") {
@@ -3860,10 +3998,13 @@ async function act(a, id, el) {
       body: `アプリが提案して入れた <strong>${hit.length}件</strong>を消します。<br>あなたが言った予定は残します。`,
       yes: `${hit.length}件を消す`, danger: true });
     if (!yes) return;
+    const snaps = hit.map(snapItem);
     for (const i of hit) { i.status = "dropped"; i.updatedAt = new Date().toISOString();
       i.history = (i.history || []).concat({ at: i.updatedAt, by: "user", what: "提案をまとめて取り消した" });
       await putItem(i); }
-    renderAll(); toast(`提案した${hit.length}件を消しました`);
+    renderAll();
+    toast(`提案した${hit.length}件を消しました`,
+      { label: "元に戻す", run: () => restoreItems(snaps, "まとめて消したのを元に戻した") });
     return;
   }
   if (a === "addmanual") {
@@ -3986,21 +4127,29 @@ async function act(a, id, el) {
   /* くり返しの予定は「その日のぶん」だけを終わりにする（v4.3）。
      status を done にすると**シリーズごと消える**（来週のゼミまで無くなる）。 */
   if ((a === "done" || a === "skipday") && it.repeat) {
+    const snapBefore = snapItem(it);
     const d = (el && el.dataset && el.dataset.day) || view.day || dayKey(new Date(), tz);
     const f = a === "done" ? "doneDays" : "skipDays";
     if (!(it[f] || []).includes(d)) it[f] = (it[f] || []).concat(d).slice(-400);
     note(it, `${d} の分を${a === "done" ? "終わりにした" : "やらないことにした"}`);
     await putItem(it);
-    toast(`${d.slice(5).replace("-", "/")} の分だけ${a === "done" ? "終わりにしました" : "外しました"}：${it.title}`);
+    buzz(); closeSheet();
+    toast(`${d.slice(5).replace("-", "/")} の分だけ${a === "done" ? "終わりにしました" : "外しました"}：${it.title}`,
+      { label: "元に戻す", run: () => restoreItems([snapBefore], "その日の分を元に戻した") });
     renderAll(); return;
   }
   if (a === "skipday") { toast("これはくり返しの予定ではありません"); return; }
-  if (a === "done") { it.status = "done"; it.completedAt = new Date().toISOString(); note(it, "完了にした"); await putItem(it); toast(`完了にしました：${it.title}`); }
+  if (a === "more") { openMore(it); return; }
+  /* **消えたように見える操作には、必ず「元に戻す」を添える**（2026-09-24）。
+     触る前の姿をここで写しておく。`putItem` が成功してから知らせる（決まり6d）。 */
+  const before = snapItem(it);
+  const undoOf = what => ({ label: "元に戻す", run: () => restoreItems([before], what) });
+  if (a === "done") { it.status = "done"; it.completedAt = new Date().toISOString(); note(it, "完了にした"); await putItem(it); buzz(); toast(`完了にしました：${it.title}`, undoOf("完了を元に戻した")); }
   else if (a === "undone") { it.status = "open"; delete it.completedAt; note(it, "未完了に戻した"); await putItem(it); toast("未完了に戻しました"); }
   else if (a === "confirm") { it.confirmed = true; note(it, "読み取り結果を確認した"); await putItem(it); toast("確認済みにしました"); }
   else if (a === "drop") {
     it.status = "dropped"; it.confirmed = true; note(it, "取り消した"); await putItem(it); closeSheet();
-    toast(`取り消しました：${it.title}（この日の「振り返り」から戻せます）`);
+    toast(`取り消しました：${it.title}`, undoOf("取り消しを元に戻した"));
   }
   else if (a === "undrop") { it.status = "open"; note(it, "取り消しを戻した"); await putItem(it); toast("戻しました"); }
   else if (a === "delitem") {
@@ -4032,7 +4181,8 @@ async function act(a, id, el) {
     it.dedupeKey = dedupeKey(it);
     note(it, `${cur} から ${nxt} へ延期した`);
     await putItem(it);
-    toast(`${nxt.slice(5).replace("-", "/")} に移しました：${it.title}`);
+    buzz();
+    toast(`${nxt.slice(5).replace("-", "/")} に移しました：${it.title}`, undoOf("延期を元に戻した"));
   }
   else if (a === "est") { openEst(it); return; }
   else if (a === "setest") {
@@ -5655,6 +5805,66 @@ document.addEventListener("click", async e => {
   if (e.target.closest("#btnDocAdd")) { await addDoc(); return; }
   if (e.target.closest("#btnErrClear")) { lastError = null; renderSettings(); return; }
 });
+
+/* ── なぞって完了・明日へ（2026-09-24・案A）───────────────────
+   **指の操作は見つけにくい。** だからボタンは消していない（案Cの3つはそのまま）。
+   ここが足すのは「速い道」だけで、**唯一の道にはしない**（決まり7と同じ理屈）。
+   `runSwipe` が唯一の入口——下地の描き分けも、指を離したときも、テストもここを見る。
+   **効かせるのは、横に大きく動いたときだけ。** 縦のほうが大きければスクロール。 */
+const SWIPE_MIN = 64, SWIPE_MAX = 140, SWIPE_START = 10;
+let swState = null;
+async function runSwipe(id, dir) {
+  const it = findItem(id);
+  if (!it) { toast("この項目が見つかりませんでした"); return false; }
+  const a = swipeActs(it);
+  const op = dir === "right" ? a.right : a.left;
+  if (!op) return false;
+  await act(op, id, null);
+  return true;
+}
+function swReset(s) {
+  if (!s || !s.w) return;
+  s.w.classList.remove("dragging");
+  const card = s.w.querySelector(".item"); if (card) card.style.transform = "";
+  for (const u of s.w.querySelectorAll(".swunder")) u.classList.remove("go");
+}
+if (typeof document !== "undefined") {
+  document.addEventListener("pointerdown", e => {
+    const tgt = e.target;
+    if (!tgt || !tgt.closest) return;
+    const w = tgt.closest(".swipe");
+    if (!w || tgt.closest("button")) return;
+    swState = { w, id: w.dataset.swipe, x: e.clientX, y: e.clientY, dx: 0, on: false };
+  });
+  document.addEventListener("pointermove", e => {
+    const s = swState; if (!s) return;
+    const dx = e.clientX - s.x, dy = e.clientY - s.y;
+    if (!s.on) {
+      // 縦のほうが大きいなら、それはスクロール。横取りしない
+      if (Math.abs(dx) < SWIPE_START || Math.abs(dx) <= Math.abs(dy)) return;
+      s.on = true; s.w.classList.add("dragging");
+    }
+    const a = swipeActs(findItem(s.id) || {});
+    let v = clamp(dx, -SWIPE_MAX, SWIPE_MAX);
+    if (v > 0 && !a.right) v = 0;
+    if (v < 0 && !a.left) v = 0;
+    s.dx = v;
+    const card = s.w.querySelector(".item"); if (card) card.style.transform = `translateX(${v}px)`;
+    const l = s.w.querySelector(".swunder.l"), r = s.w.querySelector(".swunder.r");
+    if (l) l.classList.toggle("go", v >= SWIPE_MIN);
+    if (r) r.classList.toggle("go", v <= -SWIPE_MIN);
+  });
+  const finish = async () => {
+    const s = swState; swState = null;
+    if (!s) return;
+    swReset(s);
+    if (!s.on || Math.abs(s.dx) < SWIPE_MIN) return;
+    try { await runSwipe(s.id, s.dx > 0 ? "right" : "left"); }
+    catch (err) { lastError = describeError(err); toast("うまく処理できませんでした：" + lastError); }
+  };
+  document.addEventListener("pointerup", finish);
+  document.addEventListener("pointercancel", () => { swReset(swState); swState = null; });
+}
 
 /* 画面のどこで落ちても、黙って消えないようにする */
 window.addEventListener("resize", () => { fitTopbar(); fitSaybar(); });

@@ -390,11 +390,25 @@
       ok("取り消しは元に戻せる", findItem(t.id).status === "open");
       await act("drop", t.id);
 
-      // 行から直接取り消せるボタンが出ていること
-      const html = itemHTML(findItem(t.id));
-      ok("取り消し済みの行には「戻す」が出る", /data-act="undrop"/.test(html) && !/data-act="drop"/.test(html));
+      /* **取り消す・戻すは「…」の中へ移した**（2026-09-24・案C）。
+         行には出なくなったが、**道は1つも塞いでいない**——ここで確かめるのは
+         「行に『…』があること」と「その中に取り消す／戻すがあること」の両方。
+         目印を、画面から消えたものから、いまも出るものへ付け替えた（決まり15b）。 */
+      const rowHtml = itemHTML(findItem(t.id));
+      ok("行には「…」が出る（残りの操作はこの中）", /data-act="more"/.test(rowHtml));
+      ok("行にはもう「取り消す」「訂正」を並べない",
+         !/data-act="drop"/.test(rowHtml) && !/data-act="edit"/.test(rowHtml) && !/data-act="evid"/.test(rowHtml));
+      openMore(findItem(t.id));
+      const moreDropped = document.querySelector("#sheetHost").innerHTML;
+      closeSheet();
+      ok("取り消し済みなら「…」の中に「戻す」が出る",
+         /data-act="undrop"/.test(moreDropped) && !/data-act="drop"/.test(moreDropped));
       await act("undrop", t.id);
-      ok("未完了の行には「取り消す」が出る", /data-act="drop"/.test(itemHTML(findItem(t.id))));
+      openMore(findItem(t.id));
+      const moreOpen = document.querySelector("#sheetHost").innerHTML;
+      closeSheet();
+      ok("未完了なら「…」の中に「取り消す」が出る", /data-act="drop"/.test(moreOpen));
+      ok("「…」の中に根拠と訂正がある", /data-act="evid"/.test(moreOpen) && /data-act="edit"/.test(moreOpen));
       await act("drop", t.id);
     }
 
@@ -767,8 +781,8 @@
       ok("今日の案と重なる件数を、行ごとではなく見出しの下に1回だけ書く",
          (sect.match(/今日の案に入れています/g) || []).length <= 1,
          (sect.match(/今日の案に入れています/g) || []).length + "回");
-      ok("「タスク」から完了・訂正ができる",
-         /data-act="done"/.test(sect) && /data-act="edit"/.test(sect));
+      ok("「タスク」から完了できる（訂正は「…」の中）",
+         /data-act="done"/.test(sect) && /data-act="more"/.test(sect));
 
       ok("置けなかった理由は「タスク」の行に出す（詰め込まず理由を示す）",
          /置けない理由/.test(sect), sect.length + "文字");
