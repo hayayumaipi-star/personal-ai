@@ -2890,6 +2890,82 @@
       ok("BF. 入れ直すのは1回だけ（何度も試さない）",
          (String(ownAICall).match(/ownAICallOnce/g) || []).length === 2, "回数がおかしい");
 
+      /* **モデルに合わせた調整が、本当に送られていること**（2026-09-24・本人の指示
+         「モデルが新しく高性能になったので最適化して」）。
+         決まり7b の「1〜2秒で受け止める」は、**Claude の側にしか効いていなかった**
+         ——`quick` を計算しているのに、Gemini へ送る中身には1つも入っていなかった。
+         だから見るのは関数の字面ではなく、**実際に出ていく中身**。
+         `aiPost` を差し替えて捕まえる。 */
+      {
+        const keepPost = aiPost, keepPlain = geminiPlain;
+        const good = { ok: true, status: 200,
+                       data: { candidates: [{ content: { parts: [{ text: '{"ops":[]}' }] } }] } };
+        let sent = [];
+        aiPost = async (url, head, body) => { sent.push(body); return good; };
+        const g = ownAI({ provider: "gemini", key: "k", model: "gemini-3.5-flash-lite" });
+
+        geminiPlain = false; sent = [];
+        await g("やあ", { modelTier: "quick" });
+        ok("BF. 速い返事には、軽く考える指示を渡す",
+           sent.length === 1 && sent[0].generationConfig
+             && sent[0].generationConfig.thinkingLevel === GEMINI_THINK.quick,
+           JSON.stringify(sent[0] && sent[0].generationConfig));
+        ok("BF. 速い返事に、JSONで返せとは言わない",
+           !(sent[0].generationConfig || {}).responseMimeType, "言っている");
+
+        sent = [];
+        await g.json("読み取って", { modelTier: "default" });
+        ok("BF. 読み取りには、深く考える指示を渡す",
+           (sent[0].generationConfig || {}).thinkingLevel === GEMINI_THINK.deep,
+           JSON.stringify(sent[0].generationConfig));
+        ok("BF. 読み取りのときだけ、JSONで返せと言う",
+           (sent[0].generationConfig || {}).responseMimeType === "application/json",
+           JSON.stringify(sent[0].generationConfig));
+        ok("BF. 速い返事と読み取りで、渡す重さが違う",
+           GEMINI_THINK.quick !== GEMINI_THINK.deep, "同じになっている");
+
+        /* **400（送り方が違う）なら、調整をやめて1回だけ入れ直す。**
+           受け取る名前はモデルで違うので、名前を1つ間違えただけで
+           AIがまるごと死ぬ状態にしてはいけない（画面から直す道が無い・決まり13c）。 */
+        geminiPlain = false; sent = [];
+        let n = 0;
+        aiPost = async (url, head, body) => {
+          sent.push(body); n++;
+          return n === 1
+            ? { ok: false, status: 400, data: { error: { message: "Unknown name" } } }
+            : good;
+        };
+        let got = null, why = "";
+        try { got = await g.json("読み取って", { modelTier: "default" }); }
+        catch (e) { why = String(e.message || e); }
+        ok("BF. 送り方を断られたら、素の形で入れ直して通す",
+           !!got && Array.isArray(got.ops), why || JSON.stringify(got));
+        ok("BF. 入れ直す2回目は、調整を外して送る",
+           sent.length === 2 && !sent[1].generationConfig,
+           sent.length + "回 " + JSON.stringify(sent[1]));
+        sent = []; n = 9;
+        try { await g.json("もう一度", { modelTier: "default" }); } catch {}
+        ok("BF. 一度断られたら、その後は最初から素で送る（毎回2回呼ばない）",
+           sent.length === 1 && !sent[0].generationConfig, JSON.stringify(sent[0]));
+
+        /* 400 以外は「送り方」の話ではない。入れ直さず、理由をそのまま出す。 */
+        geminiPlain = false; sent = [];
+        aiPost = async (url, head, body) => { sent.push(body);
+          return { ok: false, status: 401, data: { error: { message: "API key not valid" } } }; };
+        let msg = "";
+        try { await g("やあ", { modelTier: "quick" }); } catch (e) { msg = String(e.message || e); }
+        ok("BF. 401 は入れ直さない（送り方の話ではない）", sent.length === 1, sent.length + "回");
+        ok("BF. 401 の理由は、そのまま残る", /Gemini 401/.test(msg), msg);
+
+        aiPost = keepPost; geminiPlain = keepPlain;
+      }
+
+      /* 既定のモデルは、**1日に使える回数が多いほう**（2026-09-24・実機の使用状況で判明）。
+         無印の Flash は1日20回。1発言につき2回呼ぶので**1日10発言で止まる**。
+         Lite は1日500回。速さや賢さより先に、**その日じゅう使えること**。 */
+      ok("BF. Gemini の既定は、1日に多く使えるモデル",
+         /-lite$/.test(AI_PROVIDERS.gemini.model), AI_PROVIDERS.gemini.model);
+
       if (had === undefined) delete window.HITOHI_AI; else window.HITOHI_AI = had;
       SAMPLEFN = keepFn;
     }

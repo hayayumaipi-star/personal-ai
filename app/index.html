@@ -1678,7 +1678,7 @@ function notifyPlan(key) {
 }
 const AI_PROVIDERS = {
   claude: { host: "api.anthropic.com", model: "claude-opus-5" },
-  gemini: { host: "generativelanguage.googleapis.com", model: "gemini-3.5-flash" }
+  gemini: { host: "generativelanguage.googleapis.com", model: "gemini-3.5-flash-lite" }
 };
 /* **アプリに焼き込んだキー**（決まり13b・本人の指示「APKでもAIを使えるよう
    APIを埋め込みたい」）。APK には claude.ai の窓口（`sample`）が無いので、
@@ -1743,17 +1743,54 @@ async function ownAICall(cfg, prompt, opts) {
     return ownAICallOnce(cfg, prompt, opts);
   }
 }
+/* **モデルに合わせて調整する**（2026-09-24・本人の指示
+   「モデルが新しく高性能になったので最適化して」）。
+   いままで Gemini へは `contents` しか送っていなかったので、2つ抜けていた：
+   ① **速い返事の指示が、Gemini には1つも渡っていなかった。**
+      `quick` を計算しているのに、使っていたのは Claude の側だけ——
+      決まり7e の「同じ判定が2か所にあって、片方だけ守られる」そのもの。
+      決まり7b は「1〜2秒で受け止める」と決めているのに、Gemini では
+      **読み取りとまったく同じ重さ**で呼んでいた。
+   ② **JSON が欲しいと、形式で言っていなかった。** だから ``` で包まれて返り、
+      `jsonFromText` が毎回はがしている。`responseMimeType` で頼めば包まれない。
+   考える深さは**仕事の重さに合わせる**：受け止めの一言は `low`、
+   7,000字を読んで ops を組み立てる側は `medium`。後者は裏で走るので、
+   少し待ってでも**読み取りが当たるほうが得**（決まり9 が守りたいのはそこ）。
+   **名前を間違えると 400 で全部断られる**（決まり13「ある日いきなり全部断られる」）。
+   受け取る名前はモデルで違い（2.5 は `thinkingBudget`、3.x は `thinkingLevel`）、
+   **画面から直す道は無い**（決まり13c）。だから **400 のときは素の形で1回だけ入れ直し、
+   一度落ちたらその後はずっと素で送る**（`geminiPlain`）。毎回2回呼ぶと、
+   1日に使える回数（無料枠は1日500回）が半分になる。 */
+const GEMINI_THINK = { quick: "low", deep: "medium" };
+let geminiPlain = false;
+function geminiBody(prompt, opts) {
+  const body = { contents: [{ parts: [{ text: prompt }] }] };
+  if (geminiPlain) return body;
+  const g = { thinkingLevel: (opts && opts.modelTier === "quick")
+                ? GEMINI_THINK.quick : GEMINI_THINK.deep };
+  if (opts && opts.wantJSON) g.responseMimeType = "application/json";
+  body.generationConfig = g;
+  return body;
+}
 async function ownAICallOnce(cfg, prompt, opts) {
   const quick = !!(opts && opts.modelTier === "quick");
   const sig = opts && opts.signal;
   const P = AI_PROVIDERS[cfg.provider];
   let r;
   if (cfg.provider === "gemini") {
-    try {
-      r = await aiPost(`https://${P.host}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`,
-        { "content-type": "application/json", "x-goog-api-key": cfg.key },
-        { contents: [{ parts: [{ text: prompt }] }] }, sig);
-    } catch (e) { throw new Error(ownAIError(e, P.host)); }
+    const url = `https://${P.host}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`;
+    const head = { "content-type": "application/json", "x-goog-api-key": cfg.key };
+    const sent = geminiBody(prompt, opts);
+    try { r = await aiPost(url, head, sent, sig); }
+    catch (e) { throw new Error(ownAIError(e, P.host)); }
+    /* 400 は「こちらの送り方が違う」なので、**調整をやめて1回だけ入れ直す**。
+       キーが違うときも 400 なので空振りすることがあるが、そのときは
+       今までとまったく同じ送り方に戻るだけで、失う機能は無い。 */
+    if (!r.ok && r.status === 400 && sent.generationConfig) {
+      geminiPlain = true;
+      try { r = await aiPost(url, head, geminiBody(prompt, opts), sig); }
+      catch (e) { throw new Error(ownAIError(e, P.host)); }
+    }
     const d = r.data;
     if (!r.ok) throw Object.assign(
       new Error(`Gemini ${r.status}：${(d && d.error && d.error.message) || "断られました"}`),
@@ -1786,7 +1823,8 @@ async function ownAICallOnce(cfg, prompt, opts) {
 function ownAI(cfg) {
   const f = (prompt, opts) => ownAICall(cfg, prompt, opts)
     .then(t => ({ text: t, truncated: false }));
-  f.json = (prompt, opts) => ownAICall(cfg, prompt, opts).then(jsonFromText);
+  f.json = (prompt, opts) =>
+    ownAICall(cfg, prompt, Object.assign({}, opts, { wantJSON: true })).then(jsonFromText);
   f.limits = () => Promise.resolve({ maxPromptBytes: 200000 });
   f.own = cfg.provider;          // 画面の印に使う。`sample` には無い
   f.builtIn = !!cfg.builtIn;     // 本人が入れたのか、アプリに焼き込んだものか
