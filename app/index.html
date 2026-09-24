@@ -14,6 +14,15 @@
   --alert:#FF3B30; --alert-soft:#FFEBE9; --alert-ink:#B3261E;
   --shadow:0 1px 2px rgba(0,0,0,.04), 0 6px 20px rgba(0,0,0,.06);
   --r:12px;
+  /* **文字の大きさは rem で持つ**（2026-09-24・案⑥「端末の文字サイズに追従させる」）。
+     px で書くと、端末やブラウザで既定の文字を大きくしている人に**何も効かない**。
+     rem は根（html）の大きさに掛かるので、そこを大きくすれば全部が付いていく。
+     **`html` に px の font-size を書かないこと**——書いた瞬間に追従が止まる。
+     値は既定（16px）でこれまでと1pxも変わらない：11/12/13/15/17/20 と、入力欄の16。
+     入力欄だけ別に持つのは、**16px を下回ると触れた瞬間に拡大する端末がある**ため
+     （決まり15e の床）。段を増やさないこと。 */
+  --fs-1:.6875rem; --fs-2:.75rem; --fs-3:.8125rem; --fs-4:.9375rem;
+  --fs-5:1.0625rem; --fs-6:1.25rem; --fs-in:1rem;
   --f-disp:-apple-system,BlinkMacSystemFont,"SF Pro Display","Hiragino Sans","Zen Kaku Gothic New","Noto Sans JP","Yu Gothic",sans-serif;
   --f-body:-apple-system,BlinkMacSystemFont,"SF Pro Text","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;
   --f-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Roboto Mono","Noto Sans Mono",monospace;
@@ -44,7 +53,7 @@
 }
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.75;
+body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:var(--fs-4);line-height:1.75;
   -webkit-text-size-adjust:100%;overscroll-behavior-y:contain}
 h1,h2,h3{font-family:var(--f-disp);font-weight:700;line-height:1.35;margin:0;letter-spacing:-.02em;text-wrap:balance}
 p{margin:0}
@@ -58,27 +67,27 @@ button{cursor:pointer;background:none;border:none;padding:0;
 header.top{position:sticky;top:0;z-index:40;background:var(--paper);border-bottom:1px solid var(--line);
   padding:10px 0 9px;margin-bottom:14px}
 .brandrow{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
-.brand{font-family:var(--f-disp);font-weight:700;font-size:17px;letter-spacing:.02em}
+.brand{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);letter-spacing:.02em}
 .brand .dot{color:var(--accent)}
-.brandsub{font-size:11px;color:var(--ink-3);letter-spacing:.06em}
-.sync{margin-left:auto;font-family:var(--f-mono);font-size:11px;letter-spacing:.04em;
+.brandsub{font-size:var(--fs-1);color:var(--ink-3);letter-spacing:.06em}
+.sync{margin-left:auto;font-family:var(--f-mono);font-size:var(--fs-1);letter-spacing:.04em;
   color:var(--ink-3);border:1px solid var(--line);border-radius:999px;padding:1px 8px;white-space:nowrap}
 .sync.ok{color:var(--accent);border-color:var(--accent)}
 .sync.local{color:var(--warn-ink);border-color:var(--warn)}
 
-.eyebrow{font-family:var(--f-disp);font-size:11px;font-weight:700;letter-spacing:.16em;
+.eyebrow{font-family:var(--f-disp);font-size:var(--fs-1);font-weight:700;letter-spacing:.16em;
   color:var(--ink-3);text-transform:uppercase}
 .sect{margin:22px 0 0}
 .sect>.eyebrow{display:block;margin-bottom:7px}
-.sect>h2{font-size:20px;margin-bottom:5px}
-.hint{font-size:13px;color:var(--ink-2);line-height:1.65}
+.sect>h2{font-size:var(--fs-6);margin-bottom:5px}
+.hint{font-size:var(--fs-3);color:var(--ink-2);line-height:1.65}
 
 .card{background:var(--surface);border:1px solid transparent;border-radius:var(--r);padding:14px}
 .stack{display:flex;flex-direction:column;gap:10px}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
-  font-family:var(--f-disp);font-weight:600;font-size:13px;letter-spacing:-.01em;
+  font-family:var(--f-disp);font-weight:600;font-size:var(--fs-3);letter-spacing:-.01em;
   border:1px solid transparent;border-radius:10px;padding:9px 14px;background:var(--surface-2);
   color:var(--accent-ink);
   min-height:40px;transition:background .12s,opacity .12s}
@@ -88,22 +97,22 @@ header.top{position:sticky;top:0;z-index:40;background:var(--paper);border-botto
 .btn:active{opacity:.55}
 .btn.pri:active{filter:brightness(.9);opacity:1}
 @media (hover:hover){.btn:hover{opacity:.7}.btn.pri:hover{filter:brightness(1.08)}}
-.btn.sm{font-size:12px;padding:5px 12px;min-height:32px;border-radius:999px}
+.btn.sm{font-size:var(--fs-2);padding:5px 12px;min-height:32px;border-radius:999px}
 /* 会話の時刻の横に添える「原文」。画面幅で大きさを変えるので、インライン style にしない */
-.btn.sm.srcbtn{min-height:auto;padding:0 6px;font-size:11px}
+.btn.sm.srcbtn{min-height:auto;padding:0 6px;font-size:var(--fs-1)}
 .btn[disabled]{opacity:.45;cursor:not-allowed}
 .btn.danger{color:var(--alert-ink)}
 
 textarea,input[type=text],input[type=date],input[type=time],input[type=number],
 input[type=password],input[type=search],select{
   width:100%;background:var(--surface-2);border:1px solid transparent;border-radius:10px;
-  padding:10px 11px;font-family:var(--f-body);font-size:16px}
+  padding:10px 11px;font-family:var(--f-body);font-size:var(--fs-in)}
 textarea{min-height:170px;resize:vertical;line-height:1.8}
-label.fld{display:block;font-size:11px;font-weight:500;color:var(--ink-2);
+label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2);
   font-family:var(--f-disp);letter-spacing:.04em;margin-bottom:3px}
 
 /* provenance chips — the core idea: every fact shows where it came from */
-.chip{display:inline-flex;align-items:center;gap:4px;font-family:var(--f-disp);font-size:11px;
+.chip{display:inline-flex;align-items:center;gap:4px;font-family:var(--f-disp);font-size:var(--fs-1);
   font-weight:500;letter-spacing:.03em;padding:1px 7px;border-radius:999px;border:1px solid var(--line-strong);
   color:var(--ink-2);background:transparent;white-space:nowrap;line-height:1.7}
 .chip.src-user{background:var(--accent);border-color:var(--accent);color:var(--paper);font-weight:700}
@@ -126,7 +135,7 @@ label.fld{display:block;font-size:11px;font-weight:500;color:var(--ink-2);
   transition:transform .18s cubic-bezier(.32,.72,0,1)}
 .swipe.dragging .item{transition:none}
 .swunder{position:absolute;top:0;bottom:0;left:0;right:0;display:flex;align-items:center;
-  padding:0 15px;font-family:var(--f-disp);font-weight:700;font-size:14px;opacity:.55}
+  padding:0 15px;font-family:var(--f-disp);font-weight:700;font-size:var(--fs-4);opacity:.55}
 .swunder.go{opacity:1}
 .swunder.l{justify-content:flex-start;background:var(--done-soft);color:var(--done-ink);
   border-left:6px solid var(--done)}
@@ -138,13 +147,13 @@ label.fld{display:block;font-size:11px;font-weight:500;color:var(--ink-2);
   display:flex;flex-direction:column;gap:7px}
 .item.unconfirmed{border-color:var(--line-strong);border-style:dashed}
 .item.isdone .ttl{text-decoration:line-through;color:var(--ink-3)}
-.item .ttl{font-family:var(--f-disp);font-weight:500;font-size:15px;line-height:1.5}
-.meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--ink-2)}
-.meta .mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:12px}
+.item .ttl{font-family:var(--f-disp);font-weight:500;font-size:var(--fs-4);line-height:1.5}
+.meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:var(--fs-2);color:var(--ink-2)}
+.meta .mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:var(--fs-2)}
 .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:1px}
 
 /* evidence */
-.evid{font-size:13px;color:var(--ink-2);background:var(--surface-2);border-radius:7px;
+.evid{font-size:var(--fs-3);color:var(--ink-2);background:var(--surface-2);border-radius:7px;
   padding:7px 9px;border-left:2px solid var(--line-strong)}
 .evid mark{background:var(--accent-soft);color:var(--accent-ink);padding:0 2px;border-radius:2px}
 
@@ -158,7 +167,7 @@ label.fld{display:block;font-size:11px;font-weight:500;color:var(--ink-2);
 .tl::before{content:"";position:absolute;left:58px;top:8px;bottom:8px;width:1px;
   background:var(--line);pointer-events:none}
 .tlrow{display:grid;grid-template-columns:54px 1fr;gap:10px;align-items:stretch}
-.tltime{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:12px;color:var(--ink-2);
+.tltime{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:var(--fs-2);color:var(--ink-2);
   padding-top:11px;text-align:right;white-space:nowrap}
 .blk{border-radius:8px;padding:10px 12px;margin-bottom:5px;display:flex;flex-direction:column;gap:6px;
   min-height:max(calc(var(--min,30) * var(--tlscale)), 42px)}
@@ -169,17 +178,17 @@ label.fld{display:block;font-size:11px;font-weight:500;color:var(--ink-2);
 .blk.thin{border-radius:6px;padding:0 11px;justify-content:center;gap:0;
   min-height:max(calc(var(--min,10) * var(--tlscale)), 22px)}
 .blk.thin .bhead{gap:8px}
-.blk.thin .bttl{font-size:13px;font-weight:400;color:var(--ink-2)}
-.blk.thin .bdur{font-size:11px}
+.blk.thin .bttl{font-size:var(--fs-3);font-weight:400;color:var(--ink-2)}
+.blk.thin .bdur{font-size:var(--fs-1)}
 /* 空き時間。長さのぶんだけ本当に空ける */
 .tlrow.gaprow{align-items:stretch}
 .tlrow.gaprow .tltime{padding-top:0;align-self:center}
 .gapline{display:flex;align-items:center;margin:4px 0 5px;padding-left:2px;
   border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);
   min-height:max(calc(var(--min,20) * var(--tlscale)), 26px)}
-.gapline span{font-family:var(--f-mono);font-size:11px;color:var(--ink-3)}
-.blk .bttl{font-family:var(--f-disp);font-weight:500;font-size:15px;line-height:1.45}
-.blk .brange{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:12px;color:var(--ink-2)}
+.gapline span{font-family:var(--f-mono);font-size:var(--fs-1);color:var(--ink-3)}
+.blk .bttl{font-family:var(--f-disp);font-weight:500;font-size:var(--fs-4);line-height:1.45}
+.blk .brange{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:var(--fs-2);color:var(--ink-2)}
 
 /* 見出しの行だけを常に見せ、理由と操作はたたんでおく */
 .bhead{display:flex;align-items:baseline;gap:10px;width:100%;text-align:left;padding:0;
@@ -187,7 +196,7 @@ label.fld{display:block;font-size:11px;font-weight:500;color:var(--ink-2);
 .blk.thin .bhead{cursor:default}
 .bhead .bttl{flex:1;min-width:0}
 /* 「どれくらいかかるか」は枠の高さで感じ取るものだが、数字も読めるようにしておく */
-.bhead .bdur{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:12px;
+.bhead .bdur{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:var(--fs-2);
   font-weight:500;color:var(--ink-2);white-space:nowrap}
 .bdetail{display:none;flex-direction:column;gap:6px;margin-top:7px;
   padding-top:7px;border-top:1px solid var(--line)}
@@ -198,7 +207,7 @@ label.fld{display:block;font-size:11px;font-weight:500;color:var(--ink-2);
 .bdot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--warn);
   margin-right:7px;vertical-align:middle;flex:none}
 /* いま進行中の枠。赤い線を消した代わりに、この印が「いま」を引き受ける */
-.nowtag{flex:none;align-self:center;font-family:var(--f-disp);font-size:11px;font-weight:700;
+.nowtag{flex:none;align-self:center;font-family:var(--f-disp);font-size:var(--fs-1);font-weight:700;
   letter-spacing:.06em;color:var(--paper);background:var(--accent);border-radius:999px;padding:2px 8px;line-height:1.4}
 /* いまの枠は、囲みを**足さずに**枠そのものの色を変える。
    外側に輪を重ねると、固定予定（青い枠）の上に赤い枠が乗って二重に見える（本人からの報告）。
@@ -210,32 +219,32 @@ label.fld{display:block;font-size:11px;font-weight:500;color:var(--ink-2);
 .tlrow.nowline .tltime{padding-top:0;color:var(--alert-ink);font-weight:600}
 .tlrow.nowline>div:last-child{position:relative;height:1px;background:var(--alert)}
 .tlrow.nowline span{position:absolute;left:0;top:-8px;background:var(--paper);padding-right:7px;
-  font-family:var(--f-disp);font-size:11px;font-weight:700;color:var(--alert-ink);letter-spacing:.06em}
+  font-family:var(--f-disp);font-size:var(--fs-1);font-weight:700;color:var(--alert-ink);letter-spacing:.06em}
 
 .next{background:var(--surface);border:1px solid var(--accent);border-radius:var(--r);
   border-top:3px solid var(--accent);padding:13px 14px;display:flex;flex-direction:column;gap:8px}
-.next .nt{font-family:var(--f-disp);font-weight:700;font-size:17px;line-height:1.45}
-.next .nr{font-size:13px;color:var(--ink-2);line-height:1.7}
+.next .nt{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);line-height:1.45}
+.next .nr{font-size:var(--fs-3);color:var(--ink-2);line-height:1.7}
 .reasons{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:3px}
-.reasons li{font-size:13px;color:var(--ink-2);padding-left:14px;position:relative;line-height:1.65}
+.reasons li{font-size:var(--fs-3);color:var(--ink-2);padding-left:14px;position:relative;line-height:1.65}
 .reasons li::before{content:"—";position:absolute;left:0;color:var(--ink-3)}
 
-.note{border-radius:8px;padding:9px 11px;font-size:13px;line-height:1.7}
+.note{border-radius:8px;padding:9px 11px;font-size:var(--fs-3);line-height:1.7}
 .note.warn{background:var(--warn-soft);color:var(--warn-ink)}
 .note.info{background:var(--surface-2);color:var(--ink-2)}
 .note.bad{background:var(--alert-soft);color:var(--alert-ink)}
 .note strong{font-weight:700}
 
-.quote{border-left:3px solid var(--line-strong);padding:4px 0 4px 11px;font-size:13px;color:var(--ink)}
-.quote .who{display:block;font-size:11px;color:var(--ink-3);font-family:var(--f-mono);margin-top:3px}
+.quote{border-left:3px solid var(--line-strong);padding:4px 0 4px 11px;font-size:var(--fs-3);color:var(--ink)}
+.quote .who{display:block;font-size:var(--fs-1);color:var(--ink-3);font-family:var(--f-mono);margin-top:3px}
 
 /* 下までたどっても「どの日の予定か」を見失わないよう、見出しのすぐ下に貼り付ける。
    見出しの高さは端末と文字の大きさで変わるので、`fitTopbar()` が実寸を `--topbar` に入れる
    （数字を決め打ちにすると、文字を大きくした人の画面で日付が見出しに重なる）。 */
 .datebar{display:flex;align-items:center;gap:8px;
   position:sticky;top:var(--topbar,44px);z-index:30;background:var(--paper);padding:6px 0 7px}
-.datebar .d{font-family:var(--f-disp);font-weight:700;font-size:17px;flex:1}
-.datebar .d .dow{font-size:12px;color:var(--ink-2);font-weight:500;margin-left:5px}
+.datebar .d{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);flex:1}
+.datebar .d .dow{font-size:var(--fs-2);color:var(--ink-2);font-weight:500;margin-left:5px}
 /* 日付を飛ぶ入口（v4.3）。日付の表示は左のラベルが受け持っているので、
    入力欄そのものは見せない。小さなボタンの上に、透明なまま重ねて置く。 */
 .pickwrap{position:relative;display:inline-block;line-height:0}
@@ -248,8 +257,8 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--surf
   border-top:1px solid var(--line);padding:5px 6px calc(5px + env(safe-area-inset-bottom,0px));
   display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
 nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px;border-radius:8px;
-  font-family:var(--f-disp);font-size:11px;font-weight:500;color:var(--ink-3);min-height:46px;justify-content:center}
-nav.tabs button .ic{font-size:17px;line-height:1.1}
+  font-family:var(--f-disp);font-size:var(--fs-1);font-weight:500;color:var(--ink-3);min-height:46px;justify-content:center}
+nav.tabs button .ic{font-size:var(--fs-5);line-height:1.1}
 nav.tabs button[aria-current="page"]{color:var(--accent-ink);font-weight:700}
 nav.tabs button:active{opacity:.5}
 @media (min-width:720px){
@@ -285,7 +294,7 @@ body.sheetopen{overflow:hidden}
 #toast{position:fixed;left:50%;transform:translateX(-50%);z-index:70;pointer-events:none;
   animation:fadein .14s ease-out;
   bottom:calc(126px + env(safe-area-inset-bottom,0px));
-  background:var(--ink);color:var(--paper);font-family:var(--f-disp);font-size:13px;font-weight:500;
+  background:var(--ink);color:var(--paper);font-family:var(--f-disp);font-size:var(--fs-3);font-weight:500;
   padding:9px 15px;border-radius:18px;box-shadow:var(--shadow);text-align:center;
   /* **幅を自分で決めること**（2026-09-24・実機で報告）。`left:50%` だけだと、
      幅の自動計算は**残りの 50vw** までしか使えない（実測：500px の窓で 250px）。
@@ -307,20 +316,25 @@ body.sheetopen{overflow:hidden}
 #toast .tmsg{min-width:0}   /* 折り返してよいのはこちら。無いと flex が縮めてくれない */
 #toast .tundo{flex:none;pointer-events:auto;background:var(--paper);color:var(--ink);
   border-radius:999px;padding:0 13px;min-height:34px;display:inline-flex;align-items:center;
-  font-family:var(--f-disp);font-size:13px;font-weight:700;white-space:nowrap}
+  font-family:var(--f-disp);font-size:var(--fs-3);font-weight:700;white-space:nowrap}
 #toast .tundo:active{opacity:.6}
-.sheet h3{font-size:17px}
+.sheet h3{font-size:var(--fs-5)}
 /* カードの中の小見出し。インライン style で大きさを書かないこと（画面幅で変えられなくなる） */
-.cardttl{font-size:15px}
+.cardttl{font-size:var(--fs-4)}
 .errta{min-height:70px;font-family:var(--f-mono)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
 
-.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--ink-2);align-items:center}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:var(--fs-1);color:var(--ink-2);align-items:center}
 .legend i{display:inline-block;width:16px;height:0;border-top-width:4px;margin-right:4px;vertical-align:middle}
 .legend .lf{border-top:4px solid var(--accent)}
 .legend .lx{border-top:4px dashed var(--line-strong)}
 .legend .ld{width:7px;height:7px;border-radius:50%;background:var(--warn);border:0}
-.empty{text-align:center;color:var(--ink-3);font-size:13px;padding:18px 10px;line-height:1.8}
+.empty{text-align:center;color:var(--ink-3);font-size:var(--fs-3);padding:18px 10px;line-height:1.8}
+/* **空の欄からも始められること**（2026-09-24・案③）。「ありません。」で終わると、
+   次に何をすればいいかが画面に無い。ただし**近くに同じ操作があるなら足さない**
+   （1画面に同じものを2回出さない）。実測で足りていなかったのは、
+   「わたしのこと」の2か所だけだった。 */
+.empty .btn{margin-top:11px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
 /* ---- 狭い画面（スマホ）向けの詰め ---- */
@@ -329,7 +343,7 @@ body.sheetopen{overflow:hidden}
   /* 時刻の欄を詰めて、予定の中身に幅を回す */
   .tlrow{grid-template-columns:44px 1fr;gap:8px}
   .tl::before{left:48px}
-  .tltime{font-size:11px}
+  .tltime{font-size:var(--fs-1)}
   /* 縮尺だけを下げる。比例は崩さない（1時間 ≈ 78px） */
   :root{--tlscale:1.3px}
   .blk{padding:9px 11px}
@@ -351,13 +365,13 @@ body.sheetopen{overflow:hidden}
   .tlrow:not(.open) .bhead{flex:1}
   .legend{gap:9px}
   .eyebrow{letter-spacing:.12em}
-  section>h2{font-size:17px}
-  nav.tabs button .ic{font-size:16px}
+  section>h2{font-size:var(--fs-5)}
+  nav.tabs button .ic{font-size:var(--fs-in)}
   .brandsub{display:none}          /* 名前と接続状態だけで足りる */
   .kinds{grid-template-columns:1fr 1fr;gap:7px}
   .bub{max-width:90%}
   /* 16px を下回ると、入力欄に触れた瞬間に画面が拡大される端末がある */
-  .saybar textarea{font-size:16px}
+  .saybar textarea{font-size:var(--fs-in)}
   .turn .extra{max-width:94%}
   .miniplan td{padding:5px 8px}
   .sheet .inner{padding:14px 13px 12px}
@@ -368,36 +382,36 @@ body.sheetopen{overflow:hidden}
 .chat{display:flex;flex-direction:column;gap:14px;padding:6px 0 4px}
 .turn{display:flex;flex-direction:column;gap:6px;max-width:100%}
 .turn.me{align-items:flex-end}
-.bub{border-radius:13px;padding:9px 12px;max-width:86%;white-space:pre-wrap;line-height:1.75;font-size:15px}
+.bub{border-radius:13px;padding:9px 12px;max-width:86%;white-space:pre-wrap;line-height:1.75;font-size:var(--fs-4)}
 .turn.me .bub{background:var(--accent);color:var(--paper);border-bottom-right-radius:5px}
 .turn.ai .bub{background:var(--surface);border:1px solid var(--line);border-bottom-left-radius:4px}
-.turn .stamp{font-family:var(--f-mono);font-size:11px;color:var(--ink-3);padding:0 4px}
+.turn .stamp{font-family:var(--f-mono);font-size:var(--fs-1);color:var(--ink-3);padding:0 4px}
 .turn.thinking .bub{color:var(--ink-3);letter-spacing:.3em;animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.45}50%{opacity:.9}}
 @media (prefers-reduced-motion:reduce){.turn.thinking .bub{animation:none}}
-#reading{color:var(--ink-3);font-size:11px}
+#reading{color:var(--ink-3);font-size:var(--fs-1)}
 /* 「…」で開くシート。**押しどころは48px**——ここは指で押す前提の場所なので、
    行の小さいボタンと同じ大きさにしない（案D・案Eの考え方）。 */
 .morelist .btn{width:100%;min-height:48px;justify-content:flex-start;
-  padding-left:16px;font-size:15px;border-radius:12px}
+  padding-left:16px;font-size:var(--fs-4);border-radius:12px}
 .turn .extra{width:100%;max-width:86%;display:flex;flex-direction:column;gap:7px}
 
 .changes{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;
-  background:var(--surface);padding:8px 10px;font-size:13px;display:flex;flex-direction:column;gap:3px}
+  background:var(--surface);padding:8px 10px;font-size:var(--fs-3);display:flex;flex-direction:column;gap:3px}
 .changes .eyebrow{margin-bottom:2px}
 .changes b{font-weight:700}
 .changes .none{color:var(--ink-3)}
 
 .miniplan{border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden}
 .miniplan .mh{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line);
-  font-family:var(--f-disp);font-size:12px;font-weight:700}
-.miniplan table{width:100%;border-collapse:collapse;font-size:13px}
+  font-family:var(--f-disp);font-size:var(--fs-2);font-weight:700}
+.miniplan table{width:100%;border-collapse:collapse;font-size:var(--fs-3)}
 .miniplan td{padding:5px 10px;border-bottom:1px solid var(--line);vertical-align:top}
 .miniplan tr:last-child td{border-bottom:none}
 .miniplan td.t{font-family:var(--f-mono);font-variant-numeric:tabular-nums;color:var(--ink-2);white-space:nowrap;width:1%}
 .miniplan tr.fx td.n{font-weight:700}
 .miniplan tr.br td,.miniplan tr.bf td{color:var(--ink-3)}
-.miniplan .why{display:block;font-size:11px;color:var(--ink-3);margin-top:1px}
+.miniplan .why{display:block;font-size:var(--fs-1);color:var(--ink-3);margin-top:1px}
 
 .saybar{position:fixed;left:0;right:0;z-index:45;background:var(--paper);border-top:1px solid var(--line);
   padding:8px 14px 4px;display:none;bottom:calc(58px + env(safe-area-inset-bottom,0px))}
@@ -419,13 +433,13 @@ body.talking .saybar{display:block}
 .saybar textarea.more{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
 .saybar textarea.more::-webkit-scrollbar{display:block;width:4px}
 .saybar textarea.more::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:2px}
-.sendbtn{min-width:42px;min-height:42px;border-radius:999px;font-size:17px;padding:0}
-.saybar-note{max-width:640px;margin:2px auto 0;font-size:11px;color:var(--ink-3);min-height:15px}
+.sendbtn{min-width:42px;min-height:42px;border-radius:999px;font-size:var(--fs-5);padding:0}
+.saybar-note{max-width:640px;margin:2px auto 0;font-size:var(--fs-1);color:var(--ink-3);min-height:15px}
 /* いま聞いている質問を、入力欄のすぐ上に出す（まだ聞けていないことを埋めるため）。
    `#sayNote` は入力のたびに書き換わるので、そこに置くと打った瞬間に消える。別の場所にする。 */
 .saybar-ask{max-width:640px;margin:0 auto 6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;
   background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;
-  font-size:13px;line-height:1.6;color:var(--ink-2)}
+  font-size:var(--fs-3);line-height:1.6;color:var(--ink-2)}
 .saybar-ask .q{flex:1 1 180px}
 /* **下の余白を固定値にしないこと**（2026-09-21・実機で報告）。
    入力欄が伸びると入力バーも伸びるが、ここが 190px 固定だったので
@@ -444,7 +458,7 @@ body.talking .wrap{padding-bottom:calc(var(--saybar, 100px) + 58px + env(safe-ar
 .blk.buf{background:transparent;border:1px dashed var(--line);border-left:4px dashed var(--line-strong)}
 .blk.brk .bttl,.blk.buf .bttl{color:var(--ink-2);font-weight:500}
 details.allplan{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:6px 11px}
-details.allplan>summary{cursor:pointer;font-family:var(--f-disp);font-size:13px;font-weight:500;list-style:none;
+details.allplan>summary{cursor:pointer;font-family:var(--f-disp);font-size:var(--fs-3);font-weight:500;list-style:none;
   display:flex;align-items:center;min-height:32px}
 details.allplan>summary:active{opacity:.55}
 details.allplan>summary::-webkit-details-marker{display:none}
@@ -452,7 +466,7 @@ details.allplan>summary::before{content:"▸ ";color:var(--ink-3)}
 details.allplan[open]>summary::before{content:"▾ "}
 details.unconf{border-color:var(--warn);background:var(--warn-soft)}
 details.unconf>summary{color:var(--warn-ink)}
-.revrow{display:flex;gap:8px;align-items:center;justify-content:space-between;font-size:13px;
+.revrow{display:flex;gap:8px;align-items:center;justify-content:space-between;font-size:var(--fs-3);
   padding:4px 0;border-bottom:1px solid var(--line)}
 .revrow:last-child{border-bottom:none}
 .revrow>span{flex:1;min-width:0}
@@ -460,18 +474,18 @@ details.unconf>summary{color:var(--warn-ink)}
 /* わたしのこと */
 .catgroup{display:flex;flex-direction:column;gap:8px}
 .cathead{display:flex;align-items:baseline;gap:8px;margin-top:4px}
-.cathead h3{font-size:13px;font-weight:700;font-family:var(--f-disp)}
-.cathead .n{font-family:var(--f-mono);font-size:11px;color:var(--ink-3)}
+.cathead h3{font-size:var(--fs-3);font-weight:700;font-family:var(--f-disp)}
+.cathead .n{font-family:var(--f-mono);font-size:var(--fs-1);color:var(--ink-3)}
 .doccard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
   padding:11px 12px;display:flex;flex-direction:column;gap:7px}
-.doccard .dtitle{font-family:var(--f-disp);font-weight:700;font-size:15px}
-.doccard .dpeek{font-size:12px;color:var(--ink-2);background:var(--surface-2);border-radius:7px;
+.doccard .dtitle{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-4)}
+.doccard .dpeek{font-size:var(--fs-2);color:var(--ink-2);background:var(--surface-2);border-radius:7px;
   padding:7px 9px;max-height:86px;overflow:hidden;position:relative;white-space:pre-wrap;line-height:1.7}
 .doccard .dpeek::after{content:"";position:absolute;left:0;right:0;bottom:0;height:26px;
   background:linear-gradient(to bottom,transparent,var(--surface-2))}
 .bar{height:5px;border-radius:3px;background:var(--surface-2);overflow:hidden}
 .bar>i{display:block;height:100%;background:var(--accent);transition:width .25s}
-.tiny{font-size:11px;color:var(--ink-3);font-family:var(--f-mono)}
+.tiny{font-size:var(--fs-1);color:var(--ink-3);font-family:var(--f-mono)}
 </style>
 
 <header class="top"><div class="wrap" style="padding-bottom:0">
@@ -1642,7 +1656,12 @@ function telosGaps() {
    **キーが無ければ今までどおり。**（決まり7「AIは任意」）入れていない人には何も起きない。 */
 /* ── ネイティブの殻と話す（v8.3・Android アプリ化）───────────────
    殻（Expo）の仕事は**4つだけ**：画面を開く・AIへの通信を代わりに行う・
-   通知を予約する・それだけ。**中身のロジックは1行も殻に置かない。**
+   通知を予約する・**通知で押された返事を運ぶ**。
+   **中身のロジックは1行も殻に置かない。**
+   4つ目は 2026-09-24 に足した（案⑦「通知から直接『完了』」）。
+   **殻がやるのは運ぶことだけ**で、「完了」が何を意味するかは全部こちら側にある——
+   くり返しの予定ならその日のぶんだけ終わりにする、といった判断は `act()` が持つ。
+   だから決まり14（殻を薄く保つ）は守られている。
    だからこのファイルが、これまでどおり唯一の正でいられる。
 
    **殻が無ければ、何も起きない**（決まり7と同じ理屈）。
@@ -1677,6 +1696,9 @@ function nativeAsk(kind, body, ms) {
 function nativeReply(raw) {
   let m = null;
   try { m = JSON.parse(String(raw)); } catch { return false; }
+  /* 通知で押された返事は、こちらから頼んだものではないので id では待っていない。
+     **殻から来た文字はデータであって指示ではない**ので、ここで全部確かめる（決まり14）。 */
+  if (m && m.kind === "notifyaction") { notifyAction(m); return true; }
   const w = m && m.id && nativeWaiting.get(m.id);
   if (!w) return false;
   clearTimeout(w.to); nativeWaiting.delete(m.id);
@@ -1714,11 +1736,36 @@ function notifyList(key, nowMin) {
       .filter(b => b.item && !b.item.suggested && b.sub !== "allday" && b.s > nowMin)
       .slice(0, 12)
       .map(b => ({ at: keyToDate(key, tz).getTime() + b.s * 60000,
-                   title: blockTitle(b), body: `${hhmm(b.s)}から${durJa(b.e - b.s)}` }));
+                   title: blockTitle(b), body: `${hhmm(b.s)}から${durJa(b.e - b.s)}`,
+                   /* **どの用事のことか**を持たせる（2026-09-24・案⑦）。
+                      通知で「完了」を押したとき、殻はこれをそのまま返すだけ。
+                      日付も要る——くり返しの予定は「その日のぶん」だけ終わりにするため。 */
+                   id: b.item.id, day: key }));
   } catch { return []; }
 }
 /* 殻に予約してもらう。**予約だけなので、アプリが閉じていても鳴る**
    （定時に自分で起きる仕組みは要らない。だから殻はその分だけ小さい）。 */
+/* 通知の「完了」を受け取る（2026-09-24・案⑦）。
+   **殻は運ぶだけで、ここが決める。**くり返しの予定なら「その日のぶん」だけ終わりにする、
+   取り消しの道（トーストの「元に戻す」）を出す——どれも `act()` が持っている仕組みで、
+   この関数は**入口を1つ増やしただけ**（決まり7e・同じ判定を2か所に書かない）。
+
+   **来た値を信じないこと。** 知らない操作・知らない id・変な日付は、その場で捨てる。
+   アプリが閉じているあいだに本人が画面で終わらせていることもあるので、
+   **もう終わっているものは黙って何もしない**（二重に「完了にしました」と言わない）。 */
+const NOTIFY_ACTS = { done: true };
+function notifyAction(m) {
+  const a = String((m && m.action) || "");
+  const id = String((m && m.id) || "");
+  if (!NOTIFY_ACTS[a] || !id) return false;
+  const it = findItem(id);
+  if (!it) { toast("その予定は見つかりませんでした"); return false; }
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(m.day || "")) ? String(m.day) : null;
+  if (it.repeat ? (it.doneDays || []).includes(day || "") : it.status !== "open") return false;
+  showTab("p-day");
+  act(a, id, day ? { dataset: { day } } : null);
+  return true;
+}
 function notifyPlan(key) {
   if (!nativeOn() || !state.settings) return 0;
   const tz = state.settings.timezone;
@@ -3552,7 +3599,8 @@ function renderMe() {
   }
 
   if (!profs.length) {
-    h += `<div class="card empty">まだありません。<br>上の欄に自己紹介を貼るのが、いちばん早い始め方です。</div>`;
+    h += `<div class="card empty">まだありません。<br>自己紹介を貼るのが、いちばん早い始め方です。
+      <div><button class="btn" data-act="gotopaste">自己紹介を貼る</button></div></div>`;
   } else {
     for (const cat of PROFILE_CATS) {
       const list = profs.filter(p => (p.category || "その他") === cat);
@@ -3580,7 +3628,8 @@ function renderMe() {
     <p class="hint">あなたが渡した資料そのものです。ここから読み取ったものには「資料」の印が付きます。</p></div>`;
 
   if (!state.docs.length) {
-    h += `<div class="card empty">まだ渡した資料はありません。</div>`;
+    h += `<div class="card empty">まだ渡した資料はありません。
+      <div><button class="btn" data-act="gotopaste">資料を渡す</button></div></div>`;
   } else {
     const docs = state.docs.slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     h += `<div class="stack">${docs.map(d => {
@@ -3993,6 +4042,18 @@ async function act(a, id, el) {
   /* トーストの「元に戻す」。**いちばん上で処理して return する**——
      下の `findItem` の門は項目のidを前提にしていて、ここは項目のidを持たない
      （決まり「note の id を渡す操作は guard より上で処理する」と同じ理屈）。 */
+  /* **空の欄から、その場で始められること**（2026-09-24・案③）。
+     「まだありません。」だけで終わらせない。行き先は**上の貼り付け欄ひとつ**なので、
+     新しい画面も欄も作らない（決まり「タブは4つ」「欄を増やさない」と同じ理屈）。
+     `findItem` の門より上に置くこと——下だと「項目が見つかりません」で黙って終わる。 */
+  if (a === "gotopaste") {
+    showTab("p-me");
+    const el = $("#docText");
+    if (!el) { toast("貼り付ける欄が見つかりませんでした"); return; }
+    el.scrollIntoView({ block: "center" });   // 動かさない（動きを減らす設定を尊重する）
+    el.focus();
+    return;
+  }
   if (a === "toastundo") {
     const u = toastUndo;
     hideToast();

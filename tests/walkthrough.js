@@ -305,6 +305,22 @@
     });
     /* ===== わたしのこと ===== */
     await step("タブ「わたしのこと」に移る", () => click('nav.tabs [data-tab="p-me"]'));
+    /* **「ありません。」で終わらせない**（2026-09-24・案③）。
+       実測で、次にやることが画面に無いのはここだけだった。
+       **押して、本当に貼り付け欄へ移るところまで**見る（在ることの確認では代用できない）。 */
+    await step("空の欄から、その場で始められる", async () => {
+      if (state.docs.length) { R.push("（資料が既にあるので省略）"); return; }
+      /* **1つ見つけて満足しないこと。** 最初は `#p-me .empty [data-act=...]` を1件
+         探していたので、**資料側のボタンを消しても、上の「会話から集まったこと」の
+         ボタンが当たって通った**（わざと消して確かめて気づいた・決まり14）。
+         見るのは「この画面の空の欄すべてに、始める道があるか」。 */
+      const cards = Array.from(document.querySelectorAll("#p-me .card.empty"));
+      if (!cards.length) throw new Error("空の欄が見つからない（測れていない）");
+      const naked = cards.filter(c => !c.querySelector('[data-act="gotopaste"]'));
+      if (naked.length) throw new Error("始める道の無い空の欄が" + naked.length + "件");
+      await click(cards[cards.length - 1].querySelector('[data-act="gotopaste"]'));
+      if (document.activeElement !== $$("#docText")) throw new Error("貼り付け欄に移っていない");
+    });
     await step("自分について貼り付けて「読み取って足す」", async () => {
       type("#docTitle", "自己紹介");
       type("#docText", "私は研究をしています。統計の解析が得意ですが、人前で発表するのは昔から苦手です。\nコーヒーが好きで、朝はいつもブラックを飲みます。");
@@ -344,7 +360,13 @@
       dt.items.add(new File(["締め切りが近くないと動けない性格です。"], "me.txt", { type: "text/plain" }));
       $$("#docFile").files = dt.files;
       $$("#docFile").dispatchEvent(new Event("change", { bubbles: true }));
-      if (!await waitFor(() => $$("#docText").value)) throw new Error("ファイルの中身が入らない");
+      /* **待つ長さは、いちばん遅いときに合わせる**（2026-09-24）。
+         ここが3秒だったので、**14回に1回だけ「ファイルの中身が入らない」で落ちていた**
+         （CLAUDE.md が前から「まれに落ちる1件」と書いていたのは、これ）。
+         30秒にしたら14回とも通った。`waitFor` は入った瞬間に返るので、ふだんは1ミリ秒も遅くならない。
+         **最初は「読み取りが取り消されている」と読んで本体を直したが、外れだった**
+         ——直した版でも同じ割合で落ちたので戻した。**測って確かめる前に、原因を決めない。** */
+      if (!await waitFor(() => $$("#docText").value, 30000)) throw new Error("ファイルの中身が入らない");
       await click("#btnDocAdd"); await wait(300); await sheetYes(); await wait(400);
     });
     await step("資料を消す（確認シート → 消す）", async () => {

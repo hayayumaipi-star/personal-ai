@@ -8,6 +8,12 @@
      ① その `index.html` を WebView で開く
      ② AIへの通信を代わりに行う（WebView から直接だと相手の受け入れ設定に止められる）
      ③ 予定の通知を予約する
+     ④ 通知で押された返事を、そのまま中へ運ぶ（2026-09-24）
+
+   ④を足しても殻は薄いままです。**「完了」が何を意味するかは、殻は知りません。**
+   くり返しの予定ならその日のぶんだけ終わりにする、押し間違いは戻せるようにする、
+   といった判断は全部 `app/index.html` の `notifyAction()` → `act()` にあります。
+   殻がやるのは「どの通知のどのボタンが押されたか」を運ぶことだけです。
 
    **「定時に自分で起きる」仕組みは入れていません。**
    通知は**先に予約しておけばアプリが閉じていても鳴る**ので、要らないからです。
@@ -41,6 +47,14 @@ import { getPermissionsAsync, requestPermissionsAsync }
   from "expo-notifications/build/NotificationPermissions";
 import { setNotificationChannelAsync }
   from "expo-notifications/build/setNotificationChannelAsync";
+/* 通知に「完了」のボタンを付けて、押されたら受け取るためだけに使う（2026-09-24・④）。
+   どちらも push の仕組みには触らないので、上の「丸ごと import しない」に反しない
+   （中身を読んで確かめた：`NotificationsEmitter` も `setNotificationCategoryAsync` も
+   `DevicePushTokenAutoRegistration.fx` を読み込まない）。 */
+import { setNotificationCategoryAsync }
+  from "expo-notifications/build/setNotificationCategoryAsync";
+import { addNotificationResponseReceivedListener, getLastNotificationResponseAsync,
+         DEFAULT_ACTION_IDENTIFIER } from "expo-notifications/build/NotificationsEmitter";
 import { SchedulableTriggerInputTypes } from "expo-notifications/build/Notifications.types";
 import { AndroidImportance } from "expo-notifications/build/NotificationChannelManager.types";
 /* アプリ本体。`node sync.js` が app/index.html から作る（直さないこと）。 */
@@ -50,6 +64,9 @@ import APP_HTML from "./app-html";
    localStorage を貸してくれないことがあり、**記録がまるごと消えたように見える**。 */
 const BASE_URL = "https://hitohi.local";
 const CHANNEL = "plan";
+/* 通知に付けるボタンの組。**`:` と `-` を入れないこと**——
+   expo-notifications の注意書きにそう書いてある（入れると効かないことがある）。 */
+const CATEGORY = "hitohiplan";
 /* 画面が出るまでのあいだ敷いておく色。`app/index.html` の `--paper` と同じ。
    **ここは「最初の一瞬」だけ**で、読み込めたらページが本当の色を教えてくる
    （`kind:"chrome"`）。2か所に持っているように見えるが、こちらは待っている間の
@@ -107,6 +124,14 @@ export default function App() {
             importance: AndroidImportance.DEFAULT
           });
         }
+        /* 通知に出すボタン。**アプリを前に出す**ことにしている（2026-09-24）。
+           出さない設定（opensAppToForeground:false）にすると、アプリが完全に終わって
+           いるときの返事を受け取る道が無く、**押しても何も起きない**。
+           開くぶん一手間だが、押したことが必ず届くほうを採った。 */
+        await setNotificationCategoryAsync(CATEGORY, [
+          { identifier: "done", buttonTitle: "完了",
+            options: { opensAppToForeground: true } }
+        ]);
         const cur = await getPermissionsAsync();
         if (cur.status !== "granted") await requestPermissionsAsync();
       } catch (e) { console.warn("通知の準備でつまずきました", e); }
@@ -121,6 +146,36 @@ export default function App() {
       "window.hitohiNative && window.hitohiNative(" + JSON.stringify(JSON.stringify(obj)) + ");true;"
     );
   }, []);
+
+  /* ④ 通知のボタンが押されたときの返事を運ぶ（2026-09-24）。
+     道は2つある。**両方いる**：
+       ・アプリが動いているとき … その場で届く（listener）
+       ・アプリが終わっていたとき … 起動してから聞きに行く（getLastNotificationResponseAsync）
+     2つあるので、**同じ返事を2回運ばない**よう、最後に運んだ通知の id を覚えておく。
+     ページが読み込まれる前に届くこともあるので、**読み込みが終わるまで持っておく**。 */
+  const seen = useRef(new Set());
+  const ready = useRef(false);
+  const pending = useRef([]);
+
+  const relay = useCallback(resp => {
+    try {
+      if (!resp || resp.actionIdentifier === DEFAULT_ACTION_IDENTIFIER) return;  // 本体を押しただけ
+      const req = resp.notification && resp.notification.request;
+      const key = (req && req.identifier) + "/" + resp.actionIdentifier;
+      if (seen.current.has(key)) return;
+      seen.current.add(key);
+      const data = (req && req.content && req.content.data) || {};
+      const msg = { kind: "notifyaction", action: String(resp.actionIdentifier || ""),
+                    id: String(data.id || ""), day: String(data.day || "") };
+      if (ready.current) post(msg); else pending.current.push(msg);
+    } catch (e) { console.warn("通知の返事を運べませんでした", e); }
+  }, [post]);
+
+  useEffect(() => {
+    const sub = addNotificationResponseReceivedListener(relay);
+    getLastNotificationResponseAsync().then(relay).catch(() => {});
+    return () => { try { sub && sub.remove && sub.remove(); } catch {} };
+  }, [relay]);
 
   const onMessage = useCallback(async e => {
     let m = null;
@@ -154,7 +209,11 @@ export default function App() {
           const at = Number(n && n.at);
           if (!at || at < Date.now() + 30000) continue;   // もう過ぎたものは鳴らさない
           await scheduleOne(
-            { title: String((n && n.title) || "予定"), body: String((n && n.body) || "") },
+            { title: String((n && n.title) || "予定"), body: String((n && n.body) || ""),
+              /* ボタンの組と、「どの用事か」。**中身は読まずにそのまま返す**だけ
+                 ——意味を決めるのは `app/index.html` の側（2026-09-24・④）。 */
+              categoryIdentifier: CATEGORY,
+              data: { id: String((n && n.id) || ""), day: String((n && n.day) || "") } },
             new Date(at)
           );
         }
@@ -179,6 +238,11 @@ export default function App() {
           source={{ html: APP_HTML, baseUrl: BASE_URL }}
           originWhitelist={["*"]}
           onMessage={onMessage}
+          onLoadEnd={() => {
+            ready.current = true;
+            const q = pending.current; pending.current = [];
+            for (const msg of q) post(msg);
+          }}
           domStorageEnabled
           javaScriptEnabled
           allowFileAccess

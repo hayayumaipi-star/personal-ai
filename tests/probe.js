@@ -13,6 +13,12 @@
   }
   const reset = () => { state.notes = []; state.items = []; state.turns = {}; state.docs = []; };
 
+  /* 保存を待つ。**固定の時間で待たない**（遅い日に落ちる）。 */
+  async function waitUntil(fn, ms) {
+    const end = Date.now() + (ms || 800);
+    while (Date.now() < end) { if (fn()) return true; await new Promise(r => setTimeout(r, 20)); }
+    return !!fn();
+  }
   async function run() {
     for (let i = 0; i < 200 && !state.ready; i++) await new Promise(r => setTimeout(r, 20));
     state.settings = Object.assign({}, DEFAULTS, { timezone: TZ, workStart: "09:00", workEnd: "18:00", defaultEstimate: 30 });
@@ -521,6 +527,16 @@
         for (const r of mq.cssRules) if (r.selectorText === s) return r.style;
         return null;
       };
+      /* **`var(--fs-in)` を `parseFloat` に渡さない**（2026-09-24）。
+         文字の大きさを rem のトークンへ移した瞬間に NaN になって落ちた。
+         書いてある値をそのまま読むのではなく、**いま効いている px** に直してから見る。 */
+      const pxOf = v => {
+        v = String(v || "").trim();
+        const m = /^var\((--[\w-]+)\)$/.exec(v);
+        if (m) v = getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim();
+        if (/rem$/.test(v)) return parseFloat(v) * parseFloat(getComputedStyle(document.documentElement).fontSize);
+        return parseFloat(v);
+      };
       ok("S. 狭い画面向けの指定がある", !!mq);
       const sm = decl(".btn.sm");
       /* **44px**（2026-09-24・案E）。iOS は44pt、Android は48dp が最小。
@@ -537,7 +553,7 @@
          !!src && /auto/.test(src.minWidth || ""), src && src.minWidth);
       const ta = decl(".saybar textarea");
       ok("S. 入力欄の文字が16px以上（触れた瞬間に拡大されない）",
-         !!ta && parseFloat(ta.fontSize) >= 16, ta && ta.fontSize);
+         !!ta && pxOf(ta.fontSize) >= 16, ta && ta.fontSize + "＝" + (ta && pxOf(ta.fontSize)) + "px");
       const row = decl(".tlrow");
       ok("S. 時刻の欄を詰めて、予定の中身に幅を回している",
          !!row && /44px/.test(row.gridTemplateColumns || ""), row && row.gridTemplateColumns);
@@ -3096,6 +3112,41 @@
            list.length > 0 && /14:00から/.test(list[0].body) && typeof list[0].at === "number",
            JSON.stringify(list[0] || null));
         ok("BG. 多すぎる通知を送らない", list.length <= 12, String(list.length));
+
+        /* ④ 通知から「完了」を押したときの道（2026-09-24・案⑦）。
+           **殻は運ぶだけで、決めるのはこちら。**だから来た値は全部疑う。 */
+        ok("BG. どの用事のことかを通知に持たせる",
+           list.length > 0 && list[0].id === "g1" && list[0].day === DAY,
+           JSON.stringify({ id: list[0] && list[0].id, day: list[0] && list[0].day }));
+
+        const gone = () => (findItem("g1") || {}).status;
+        ok("BG. 知らない操作は受け取らない",
+           notifyAction({ kind: "notifyaction", action: "delete", id: "g1", day: DAY }) === false
+           && gone() === "open", "受け取った");
+        ok("BG. 知らない用事は受け取らない",
+           notifyAction({ kind: "notifyaction", action: "done", id: "zzz", day: DAY }) === false,
+           "受け取った");
+        ok("BG. 中身が空でも落ちない",
+           notifyAction({}) === false && notifyAction(null) === false, "落ちた");
+        /* **本当に完了になるところまで見る**（在ることの確認では代用できない）。 */
+        ok("BG. 通知の「完了」で、その用事が終わりになる",
+           notifyAction({ kind: "notifyaction", action: "done", id: "g1", day: DAY }) === true,
+           "受け取らなかった");
+        await waitUntil(() => gone() === "done", 800);
+        ok("BG. 押したあと、状態が done になっている", gone() === "done", String(gone()));
+        /* 画面で先に終わらせていたら、二度目は何も言わない（同じ知らせを2回出さない）。 */
+        ok("BG. もう終わっているものは、黙って何もしない",
+           notifyAction({ kind: "notifyaction", action: "done", id: "g1", day: DAY }) === false,
+           "二度受け取った");
+        /* 殻からの生の文字（JSON）でも同じ道に入る。 */
+        state.items.find(i => i.id === "g1").status = "open";
+        ok("BG. 殻から来た生の文字でも受け取る",
+           window.hitohiNative(JSON.stringify(
+             { kind: "notifyaction", action: "done", id: "g1", day: DAY })) === true,
+           "受け取らなかった");
+        await waitUntil(() => gone() === "done", 800);
+        ok("BG. 生の文字からでも、終わりになる", gone() === "done", String(gone()));
+        hideToast();
         state.items = keepI;
       }
 
@@ -3528,12 +3579,49 @@
         ok("BK. どの画面も横へはみ出していない", wide.length === 0, wide.join(" / "));
       }
 
-      // ⑦ 文字の大きさの段数。多いほど散らかって見える。
-      //    段数だけを見る——どの px にするかは決めない（配色を帯で見るのと同じ理屈）。
+      /* ⑦ 文字の大きさの段数。多いほど散らかって見える。
+         段数だけを見る——どの大きさにするかは決めない（配色を帯で見るのと同じ理屈）。
+         **`/px$/` で絞らないこと**（2026-09-24）。rem のトークンへ移した瞬間に
+         **1件も集まらなくなり、0 ≦ 8 で通ってしまう**——数えていないのに通る形。 */
       const sizes = new Set();
-      for (const r of flat) { const v = r.style && r.style.fontSize; if (v && /px$/.test(v)) sizes.add(v); }
+      for (const r of flat) { const v = r.style && r.style.fontSize; if (v) sizes.add(v); }
       ok("BK. 文字の大きさが8段以内にそろっている", sizes.size <= 8,
-         Array.from(sizes).sort((a, b) => parseFloat(b) - parseFloat(a)).join(" "));
+         Array.from(sizes).sort().join(" "));
+      ok("BK. 段を数えられている（測れていないのに通さない）", sizes.size >= 3, "集まった段 " + sizes.size);
+
+      /* ⑦b **端末の文字の大きさに追従する**（2026-09-24・案⑥）。
+         px で書くと、既定の文字を大きくしている人に何も効かない。
+         見るのは3つ：px を直接書いていない／段を rem で持っている／
+         **根を大きくしたら本当に付いていく**。3つ目が本体で、前2つはその理由。 */
+      const pxFs = flat.filter(r => r.style && /px$/.test(r.style.fontSize || ""));
+      ok("BK. 文字の大きさに px を直接書いていない", pxFs.length === 0,
+         pxFs.map(r => r.sel + " " + r.style.fontSize).join(" / "));
+      const rootCS = getComputedStyle(document.documentElement);
+      const steps = [];
+      for (let i = 1; i <= 6; i++) steps.push(rootCS.getPropertyValue("--fs-" + i).trim());
+      steps.push(rootCS.getPropertyValue("--fs-in").trim());
+      ok("BK. 段は rem で持っている（根に付いていく）",
+         steps.length === 7 && steps.every(v => /rem$/.test(v)), steps.join(" "));
+      ok("BK. 根に px の大きさを固定していない",
+         !/(^|\})\s*html\s*\{[^}]*font-size\s*:\s*[0-9.]+px/.test(all), "html に px の font-size がある");
+      {
+        const probe = $("#say") || document.body;
+        const before = parseFloat(getComputedStyle(probe).fontSize);
+        document.documentElement.style.fontSize = "20px";       // 端末で文字を大きくした状態
+        const after = parseFloat(getComputedStyle(probe).fontSize);
+        const wide2 = [];
+        const keep3 = view.tab;
+        for (const t of ["p-chat", "p-day", "p-me", "p-set"]) {
+          showTab(t);
+          const de = document.documentElement;
+          if (de.scrollWidth > de.clientWidth) wide2.push(t + " " + de.scrollWidth + ">" + de.clientWidth);
+        }
+        showTab(keep3);
+        document.documentElement.style.fontSize = "";
+        ok("BK. 根を大きくすると、文字も大きくなる", after > before + 1,
+           before + "px → " + after + "px");
+        ok("BK. 文字を大きくしても、横へはみ出さない", wide2.length === 0, wide2.join(" / "));
+      }
       // ⑧ 大きさをインライン style で書かない（画面幅で変えられなくなる）
       const inl = Array.from(document.querySelectorAll('[style*="font-size"]')).map(e => e.tagName.toLowerCase());
       ok("BK. 文字の大きさをインライン style で書いていない", inl.length === 0, inl.join(" / "));
