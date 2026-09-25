@@ -160,6 +160,25 @@ if ($LASTEXITCODE -ne 0) {
   exit 1
 }
 
+# --- Expo の道具を、先に取り寄せておく ---
+# **ここを黙ってやらせない**（2026-09-25・実機で止まった）。
+# 下の whoami は出力を `Out-String` で捕まえるので、**画面には1文字も出ない**。
+# ところが `npx eas-cli@latest` は初回に 100MB 近くを取り寄せるうえ、
+# npm が「入れていいか」を聞いてくる——**その問いかけごと隠れる**ので、
+# 「Expo にログインしているか確かめます…」のまま、待っても永久に進まない。
+# だから ①`--yes` で二度と聞かせない ②**取り寄せだけ先に、画面に出しながら**やる。
+# ここを通ったあとの whoami は一瞬で終わるので、隠れていても止まらない。
+Write-Host ""
+Write-Host "Expo の道具（eas-cli）を用意します。初回は数分かかります…" -ForegroundColor DarkGray
+Write-Host "  （下に npm の進み具合が出ます。止まって見えても、待ってください）" -ForegroundColor DarkGray
+npx --yes eas-cli@latest --version
+if ($LASTEXITCODE -ne 0) {
+  Write-Host ""
+  Write-Host "Expo の道具を取り寄せられませんでした。" -ForegroundColor Red
+  Write-Host "  ネットにつながっているか確かめて、もう一度実行してください。" -ForegroundColor DarkGray
+  exit 1
+}
+
 # --- 先にログインを確かめる ---
 # **ブラウザは開かない。**この窓の中でユーザー名とパスワードを聞かれる。
 # 登録を済ませていないと「Your username, email, or password was incorrect.」で
@@ -167,7 +186,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 Write-Host "Expo にログインしているか確かめます…" -ForegroundColor DarkGray
 $who = ""
-try { $who = (npx eas-cli@latest whoami 2>&1 | Out-String).Trim() } catch { $who = "" }
+try { $who = (npx --yes eas-cli@latest whoami 2>&1 | Out-String).Trim() } catch { $who = "" }
 if ($LASTEXITCODE -ne 0 -or $who -match "Not logged in" -or $who -eq "") {
   Write-Host ""
   Write-Host "Expo にログインしていないので、先にログインします。" -ForegroundColor Yellow
@@ -175,9 +194,9 @@ if ($LASTEXITCODE -ne 0 -or $who -match "Not logged in" -or $who -eq "") {
   Write-Host "  ブラウザが開きます。**Google で登録した人は「Continue with Google」**を押してください。" -ForegroundColor Cyan
   Write-Host "  （eas login は既定でブラウザを使います。確認済み: eas-cli 24.7.0）" -ForegroundColor DarkGray
   Write-Host ""
-  npx eas-cli@latest login
+  npx --yes eas-cli@latest login
   $who = ""
-  try { $who = (npx eas-cli@latest whoami 2>&1 | Out-String).Trim() } catch { $who = "" }
+  try { $who = (npx --yes eas-cli@latest whoami 2>&1 | Out-String).Trim() } catch { $who = "" }
   if ($LASTEXITCODE -ne 0 -or $who -match "Not logged in" -or $who -eq "") {
     Write-Host ""
     Write-Host "ログインできませんでした。" -ForegroundColor Red
@@ -213,13 +232,13 @@ Write-Host "そのQRを**スマホのカメラ**で読んで APK を入れてく
 Write-Host "（ここは Expo Go ではなく、ふつうのカメラで構いません）。"
 Write-Host ""
 
-npx eas-cli@latest build -p android --profile preview
+npx --yes eas-cli@latest build -p android --profile preview
 
 if ($LASTEXITCODE -ne 0) {
   Write-Host ""
   Write-Host "組み立てを頼めませんでした。" -ForegroundColor Red
   Write-Host "  「username, email, or password was incorrect」なら、ログインのやり直しです："
-  Write-Host "     npx eas-cli@latest login" -ForegroundColor Cyan
+  Write-Host "     npx --yes eas-cli@latest login" -ForegroundColor Cyan
   Write-Host "  （Google で登録した人はパスワードが無いので、ブラウザの側で入ること）" -ForegroundColor DarkGray
   Write-Host "  それ以外なら、画面に出ている文字をそのまま貼って相談してください。" -ForegroundColor Yellow
   exit 1
