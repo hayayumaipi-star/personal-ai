@@ -539,7 +539,7 @@ details.unconf>summary{color:var(--warn-ink)}
 <section class="panel" id="p-me">
   <div class="sect" style="margin-top:6px">
     <h2>わたしのこと</h2>
-    <p class="hint">日をまたいでも変わらないこと。その日の体調は「スケジュール」へ。</p>
+    <p class="hint">日をまたいでも変わらないこと。</p>
   </div>
   <div id="meOut" class="stack" style="margin-top:12px"></div>
 </section>
@@ -621,8 +621,7 @@ details.unconf>summary{color:var(--warn-ink)}
       </div>
       <input type="file" id="impFile" accept=".json,application/json,text/plain" class="sr">
       <input type="file" id="icsFile" accept=".ics,text/calendar,text/plain" class="sr">
-      <p class="hint"><strong>いまの記録は消えず</strong>、同じものは二重に足しません。
-        <code>.ics</code> を<strong>外へ送ることもありません</strong>。</p>
+      <p class="hint"><strong>いまの記録は消えず</strong>、同じものは二重に足しません。</p>
       <div id="expOut"></div>
     </div>
 
@@ -3290,7 +3289,7 @@ function renderDay() {
   let h = "";
 
   if (demo) {
-    h += `<div class="note info"><strong>これはサンプルです。</strong>あなたのデータではありません。「チャット」タブで話しかけると、ここが自分の一日に変わります。</div>`;
+    h += `<div class="note info"><strong>これはサンプルです。</strong>「チャット」で話しかけると、自分の一日に変わります。</div>`;
   }
 
   // 「未確認をまとめて確認する欄」は置かない。
@@ -3379,7 +3378,7 @@ function renderDay() {
   /* **なぞる操作は、書いておかないと見つからない**（案A の唯一の弱点）。
      ボタンは残してあるので、読み飛ばしても困らない。1行だけにする（決まり15b）。 */
   h += `<div class="sect"><h2>この日にやること</h2>${tipDone("swipe") ? "" :
-    `<p class="hint" style="margin-top:3px">行を右へなぞると完了、左へなぞると明日へ。ボタンでもできます。</p>`}</div>`;
+    `<p class="hint" style="margin-top:3px">右へなぞると完了、左へなぞると明日へ。</p>`}</div>`;
   if (!owed.length) {
     h += `<div class="card empty">ありません。</div>`;
   } else {
@@ -3576,7 +3575,7 @@ function renderChat(scroll) {
   if (!list.length && !lrows.length) {
     host.innerHTML = `<div class="card stack">
       <h3 class="cardttl">整理しないで、そのまま話してください</h3>
-      <p class="hint">予定も、気分も、思いつきも、混ぜたままで大丈夫です。<br>
+      <p class="hint">
       「資料できた」「15時じゃなくて14時だった」——言い直しもそのまま言ってください。</p>
       <div class="row">
         <button class="btn" id="btnSample">例を入れてみる</button>
@@ -3627,8 +3626,7 @@ function renderMe() {
 
   /* ---- ① 会話から集まったこと ---- */
   h += `<div class="sect"><h2>会話から集まったこと（${profs.length}件）</h2>
-    <p class="hint">${SAMPLEFN
-      ? "話の中から集まったものです。" : "AIを使っていないので、はっきりした言い方だけを拾っています。"}</p></div>`;
+    ${SAMPLEFN ? "" : `<p class="hint">AIを使っていないので、はっきりした言い方だけを拾っています。</p>`}</div>`;
 
   if (unconf.length) {
     h += `<div class="note warn" style="margin-top:8px">${unconf.length}件が未確認です。違っていたら「…」から直せます。
@@ -3653,7 +3651,7 @@ function renderMe() {
   const gaps = telosGaps();
   if (gaps.length) {
     h += `<div class="sect"><h2>まだ聞いていないこと（${gaps.length}件）</h2>
-      <p class="hint">答えるほど提案が合っていきます。答えなくても構いません。</p></div>
+      <p class="hint">答えなくても構いません。</p></div>
     <div class="stack">${gaps.map(a => `<div class="card row">
       <div style="flex:1 1 180px">${esc(a.q)}</div>
       <button class="btn sm" data-act="telosask" data-id="${a.key}" style="margin-left:auto">これを話す</button>
@@ -3801,20 +3799,24 @@ function renderSettings() {
    **固定の文を置かないこと。** 片方では必ず嘘になる。 */
 function renderWhere() {
   const el = $("#whereNote"); if (!el) return;
-  /* **短くはするが、事実は落とさない**（2026-09-25・本人の指示「もっとスマートに」）。
-     共有されているかどうかは**画面から消さない**と決めてある（条件つきの判断なので、
-     条件が見えなくなったら判断ごと壊れる）。だから縮めたのは**言い換えと補足だけ**：
-     「外にも、ほかの誰にも」→「誰にも」、「端末を変えたり、アプリを消したりすると」→
-     「アプリを消すと」。確かめた日付（2026-09-13）は CLAUDE.md に残してある。
-     **BH群 が見張っている5つの語は、どれも残っている。** */
+  /* **消すのは助言、残すのは事実と条件**（2026-09-25・本人が例に挙げた場所）。
+     4文を1文ずつ見た：
+     ①「claude.ai の共有の場所にあります」＝**事実**。残す。
+     ②「リンクを開いた人に見えます」＝**同じ事実の中身**。①と1文にまとめる。
+     ③「見られて困ることは入れないでください」＝**条件**。**残す。**
+        共有したままにしておくという判断は、この条件つきで本人が決めたもので、
+        **条件が画面から消えたら判断ごと壊れる**（CLAUDE.md の「共有するかどうか」）。
+        ただし②と続けて**1文**にすれば、行は増えない。
+     ④「本当の予定は Android アプリのほうへ」＝**助言**。消す。どちらを本物にするかは
+        本人がもう決めていて、毎回読ませる必要が無い。
+     端末側も同じで、「誰にも渡っていません」は①の言い換え、
+     「控えは下の『書き出す（JSON）』で取れます」は**そのボタンがすぐ下に見えている**。
+     96字 → **52字**／61字 → **23字**。 */
   el.innerHTML = DB
     ? "<strong>claude.ai の共有の場所にあります。</strong>"
-      + "このリンクを開いた人に、予定も会話もそのまま見えます。"
-      + "見られて困ることは入れないでください。<br>"
-      + "本当の予定は Android アプリのほうへ。あちらは、この端末の中だけに残ります。"
+      + "リンクを開いた人に見えるので、見られて困ることは入れないでください。"
     : "<strong>この端末の中だけにあります。</strong>"
-      + "誰にも渡っていません。アプリを消すと無くなります。"
-      + "控えは下の「書き出す（JSON）」で取れます。";
+      + "アプリを消すと無くなります。";
 }
 
 const view = { tab: "p-chat", day: null, ask: null };

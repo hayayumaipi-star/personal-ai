@@ -3175,16 +3175,41 @@
       ok("BH. つながっていなければ「この端末の中だけ」と言う",
          /この端末の中だけ/.test(local), local.slice(0, 40));
       ok("BH. 共有していると言わない", !/リンクを開いた人/.test(local), local.slice(0, 40));
-      ok("BH. 消えることと、控えの取り方を言う",
-         /無くなります/.test(local) && /書き出す/.test(local), local.slice(0, 60));
+      /* **控えの取り方は、文ではなくボタンで示す**（2026-09-25）。
+         「控えは下の『書き出す（JSON）』で取れます」は消したが、
+         **そのボタンは同じタブのすぐ下に見えている**。だから見張る先を、
+         文からボタンへ付け替える（決まり15b「目印は、いまも画面に出るものへ」）。
+         消えることだけは**文でしか言えない**ので、そちらは文のまま見る。 */
+      ok("BH. 消えることを言う", /無くなります/.test(local), local.slice(0, 60));
+      {
+        /* **見えているかを測るなら、先にそのタブを開くこと。**
+           開かずに測ると高さが 0 になり、**ボタンがあっても「無い」と出る**
+           （決まり15d の「入力バーは会話タブでしか描かれない」と同じ穴を踏んだ）。 */
+        const keepT = view.tab;
+        showTab("p-set");
+        const b = Array.from($("#p-set").querySelectorAll("button"))
+          .find(x => /書き出す/.test(x.textContent));
+        ok("BH. 控えを取る道が、同じ画面にボタンとして出ている",
+           !!b && b.getBoundingClientRect().height > 1,
+           b ? "高さ" + Math.round(b.getBoundingClientRect().height) + "px" : "ボタンが無い");
+        showTab(keepT);
+      }
 
       // 共有の保存先につながっているとき（＝Artifact）
       DB = { doc: () => ({}) }; renderWhere();
       const shared = $("#whereNote").textContent;
-      ok("BH. つながっていれば、見えることを言う",
-         /リンクを開いた人/.test(shared) && /見られて困ること/.test(shared), shared.slice(0, 40));
-      ok("BH. 本物はAndroidアプリのほうだと書く",
-         /Android アプリ/.test(shared), shared.slice(0, 60));
+      /* **事実と条件は残す。助言は消した**（2026-09-25）。
+         「共有されている」という事実だけでなく、**「見られて困るものを入れない」という
+         条件も画面に残すこと**——共有したままにする判断は、その条件つきで
+         本人が決めたもので、条件が消えたら判断ごと壊れる（CLAUDE.md）。
+         「本当の予定は Android アプリのほうへ」は**助言**なので消した。
+         どちらを本物にするかは決まっていて、毎回読ませる必要が無い。
+         **消したものを見張り続けない**（決まり15b）ので、その1件はここから外した。 */
+      ok("BH. つながっていれば、見えることを言う", /リンクを開いた人/.test(shared), shared.slice(0, 40));
+      ok("BH. 見られて困るものを入れない、という条件も残っている",
+         /見られて困ること/.test(shared), shared.slice(0, 60));
+      ok("BH. ただし助言までは書かない（短く保つ）",
+         shared.length <= 60, shared.length + "字：" + shared.slice(0, 70));
 
       DB = keepDB; renderWhere();
     }
