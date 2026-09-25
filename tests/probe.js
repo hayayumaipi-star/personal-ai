@@ -3945,6 +3945,106 @@
       state.items = keepItems;
     }
 
+    /* ===== BR. 説明を減らす（2026-09-25・本人の指示「もっとスマートに」）=====
+       4つの画面を測ったら、**出ている文字のほぼ半分が説明文**だった（28か所・845字）。
+       減らし方は4つで、**どれも「消す」ではない**：
+       ① `hidden` なのに出ていたものを、本当に消す（これは説明ではなく不具合）
+       ② 使い方の案内は、**使えたら消す**（数えて消すと、まだ使っていない人から消える）
+       ③ 見出しと重なっている部分だけ削る（**見出しに無い中身は残す**）
+       ④ 状態は文ではなく行にする。残すものは短くする（**事実は落とさない**）。 */
+    {
+      const keepItems = state.items, keepTab = view.tab;
+
+      /* ① `hidden` を付けたら、本当に消えること。
+         **クラス側の `display` に負ける**のが落とし穴で、実際
+         設定タブの「最後に起きた不具合」が 214px 出たままだった（実測）。 */
+      showTab("p-set");
+      const err = $("#errCard");
+      ok("BR. 不具合が無いとき、その欄は出ていない",
+         !!err && err.hidden && err.getBoundingClientRect().height < 1,
+         err ? "高さ" + Math.round(err.getBoundingClientRect().height) + "px" : "#errCard が無い");
+      /* **1か所で守られていること**を見る（`#toast` だけ守る形に戻さない）。
+         作ったばかりの要素でも消えるなら、規則は全体に効いている。 */
+      {
+        const probe = document.createElement("div");
+        probe.className = "card stack"; probe.hidden = true;
+        probe.textContent = "見えてはいけない";
+        document.body.appendChild(probe);
+        const h = probe.getBoundingClientRect().height;
+        probe.remove();
+        ok("BR. クラスで display を書いてある要素でも、hidden なら消える", h < 1, "高さ" + Math.round(h) + "px");
+      }
+
+      /* ② 使い方の案内は、覚えたら消える。**片道にしないこと**——
+         覚えを消したらまた出る（戻せない道を作らない・決まり7.1）。 */
+      const tz2 = state.settings.timezone, day2 = dayKey(new Date(), tz2);
+      const at2 = (h, m) => { const p = parts(new Date(), tz2); return zoned(p.y, p.mo, p.d, h, m, tz2).toISOString(); };
+      state.items = [
+        { id: "br1", kind: "event", title: "打ち合わせ", status: "open", origin: "rule", fixed: true,
+          dayKey: day2, duePrecision: "exact", start: at2(14, 0), end: at2(15, 0), history: [], evidence: {} },
+        { id: "br2", kind: "task", title: "資料を作る", status: "open", origin: "rule",
+          dayKey: day2, duePrecision: "none", estimateMin: 60, history: [], evidence: {} }];
+      const keepDay = view.day; view.day = day2;
+      const forget = () => { try { localStorage.removeItem("hitohi.tips"); } catch {} };
+      const dayText = () => { renderDay(); return $("#p-day").textContent; };
+      forget();
+      ok("BR. まだ使っていない人には、なぞる案内が出る", /なぞると完了/.test(dayText()), "出ない");
+      ok("BR. まだ使っていない人には、枠の案内が出る", /枠を押すと/.test(dayText()), "出ない");
+      markTip("swipe");
+      ok("BR. 一度なぞれたら、なぞる案内は消える", !/なぞると完了/.test(dayText()), "残っている");
+      ok("BR. 消えるのはそれだけ（枠の案内は残る）", /枠を押すと/.test(dayText()), "一緒に消えた");
+      markTip("openblk");
+      ok("BR. 一度開けたら、枠の案内も消える", !/枠を押すと/.test(dayText()), "残っている");
+      forget();
+      ok("BR. 覚えを消したら、また出る（片道を作らない）", /なぞると完了/.test(dayText()), "戻らない");
+      /* **覚えは「この端末の中の、消えても困らないもの」**（決まり）。
+         読めない端末では、**案内を出したままにする**ほうへ倒す。 */
+      ok("BR. 覚えが読めなくても落ちない・案内は出したままにする",
+         /return false/.test(String(tipDone)) && /catch/.test(String(tipDone)),
+         "読めないときの逃げ道が無い");
+      ok("BR. 覚えを書けなくても落ちない", /catch/.test(String(markTip)), "try が無い");
+      /* 覚えるのは**実際に使えたときだけ**。できない項目をなぞっても覚えない。 */
+      ok("BR. なぞれたときだけ覚える（できない項目では覚えない）",
+         String(runSwipe).indexOf('if (!op) return false;') < String(runSwipe).indexOf('markTip'),
+         "できない項目でも覚えてしまう");
+      forget();
+
+      /* ③ 見出しと重なっていた説明が、戻っていないこと。
+         **未確認の知らせは、未確認が1件も無いと描かれない。**
+         そのまま測ると「古い案内が無い」が**いつでも通ってしまう**ので
+         （わざと古い文に戻しても落ちなかった・決まり14）、先に1件置く。 */
+      state.items = state.items.concat([{ id: "br3", kind: "profile", title: "朝は弱い",
+        status: "open", origin: "rule", category: "体のこと",
+        confirmed: false, corrected: false, history: [], evidence: {} }]);
+      showTab("p-me");
+      const me = $("#p-me").textContent;
+      ok("BR. 未確認の知らせが、実際に描かれている（測れていないのに通さない）",
+         /件が未確認です/.test(me), "知らせが出ていない");
+      const dup = [
+        "自己紹介でも、昔の日記でも構いません。読み取って下の一覧に足します。",
+        "あなたが渡した資料そのものです。",
+        "日付が無いので、スケジュールには置いていません。"
+      ].filter(t => me.includes(t));
+      ok("BR. 見出しと同じことを、下でもう一度言っていない", dup.length === 0, dup.join(" / "));
+      ok("BR. 見出しに無い中身は残っている（「資料」の印の話）",
+         /「資料」の印/.test(me), "消しすぎた");
+      /* 行のボタンは 2026-09-24 に「…」へ移した。**案内の文が古いまま残らないこと。** */
+      ok("BR. 未確認の知らせが、いまのボタンの場所を指している",
+         !/「訂正」か「取り消す」で直してください/.test(me), "古い案内が残っている");
+
+      /* ④ 状態は「項目｜値」の行で出す（文の中から数字を探させない）。 */
+      showTab("p-set");
+      const rows = Array.from($("#dataState").querySelectorAll(".kv"));
+      ok("BR. 設定の状態が、項目と値の行になっている", rows.length >= 4, "行が " + rows.length + "件");
+      const win = rows.find(r => /作業に使える時間帯/.test(r.textContent));
+      ok("BR. 作業に使える時間帯が、その行に出ている",
+         !!win && /\d\d:\d\d〜\d\d:\d\d/.test(win.textContent), win && win.textContent);
+      ok("BR. 名前と値が別々に読める",
+         rows.every(r => r.querySelector("span") && r.querySelector("b")), "組になっていない行がある");
+
+      state.items = keepItems; view.day = keepDay; showTab(keepTab);
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;

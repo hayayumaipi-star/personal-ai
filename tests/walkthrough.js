@@ -187,7 +187,14 @@
     /* **なぞる操作は `el.click()` では試せない**（2026-09-24・案A）。
        本物のポインタの動きを流して、**実際に状態が変わるところ**まで確かめる。 */
     await step("行を右へなぞると完了になる", async () => {
+      /* **案内は「使えたら消える」**（2026-09-25）。ここで初めてなぞるので、
+         その前に案内が出ていることまで見ておく（消えたことだけ見ると、
+         **最初から出ていなくても通ってしまう**）。 */
+      try { localStorage.removeItem("hitohi.tips"); } catch {}
       await click('nav.tabs [data-tab="p-day"]');
+      renderDay();
+      if (!/なぞると完了/.test($$("#p-day").textContent))
+        throw new Error("なぞり方の案内が、初めての人にも出ていない");
       const w = document.querySelector("#p-day .swipe");
       if (!w) throw new Error("なぞれる行が無い");
       const id = w.dataset.swipe;
@@ -198,6 +205,9 @@
       if (!u) throw new Error("なぞったあとに「元に戻す」が出ない");
       await click(u);
       if (findItem(id).status !== "open") throw new Error("戻せていない");
+      renderDay();
+      if (/なぞると完了/.test($$("#p-day").textContent))
+        throw new Error("一度なぞったのに、案内が消えない");
     });
     await step("行を左へなぞると明日へ移る", async () => {
       const w = document.querySelector("#p-day .swipe");
@@ -834,7 +844,12 @@
       const w = $$("#windowWarn");
       if (!w || w.hidden) throw new Error("狭いことを知らせない");
       if (!/05:00〜11:00/.test(w.textContent)) throw new Error("いまの値を出さない: " + w.textContent);
-      if (!/作業に使える時間帯：05:00〜11:00/.test($$("#dataState").textContent))
+      /* データ欄は「文」から「項目｜値」の行に変えた（2026-09-25）。
+         **目印を、いまも画面に出るものへ付け替える**（決まり15b）——
+         名前と値が同じ行にあることを見る。 */
+      const row = Array.from($$("#dataState").querySelectorAll(".kv"))
+        .find(r => /作業に使える時間帯/.test(r.textContent));
+      if (!row || !/05:00〜11:00/.test(row.textContent))
         throw new Error("データ欄にも出ていない: " + $$("#dataState").textContent);
       await click("#btnWholeDay");
       if (state.settings.workStart !== "00:00" || state.settings.workEnd !== "23:59")

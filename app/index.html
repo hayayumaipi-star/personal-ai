@@ -306,7 +306,14 @@ body.sheetopen{overflow:hidden}
      （食い込み 3.9px ＜ 左余白 15px）、見出しの長い用事なら本当に食う
      （実測：200字で角丸 122.8px・食い込み 55px）。18px は1行のとき（34px）にカプセルに見える値。 */
   width:max-content;max-width:min(92vw,440px)}
-#toast[hidden]{display:none!important}
+/* **`hidden` を付けたら、本当に消えること**（2026-09-25・測って見つけた）。
+   `[hidden]` の既定は `display:none` だが、**クラス側で `display` を書くと負ける**。
+   実際、設定タブの「最後に起きた不具合」は `.card{display:flex}` に打ち消されて、
+   **不具合が1件も無いのに 214px ずっと出ていた**（実測）。
+   トーストだけ `!important` で守ってあったが、**そこから漏れていた**——
+   決まり7e の「同じことをする道が2つあって、片方だけ守られている」そのもの。
+   1か所にまとめる。以後 `hidden` を付けた要素は、必ず消える。 */
+[hidden]{display:none!important}
 /* **消したら、その場で戻せること**（2026-09-24・本人の指示）。
    いままで戻す道は折りたたみの「振り返り」の中にしか無く、**押し間違いが怖かった**。
    怖いままだと行のボタンを減らせないので、**先にここを直す**（案C→案A の順）。
@@ -335,6 +342,15 @@ body.sheetopen{overflow:hidden}
    （1画面に同じものを2回出さない）。実測で足りていなかったのは、
    「わたしのこと」の2か所だけだった。 */
 .empty .btn{margin-top:11px}
+/* **状態は、文ではなく行で見せる**（2026-09-25・本人の指示「もっとスマートに」）。
+   前は『会話 0件 ／ 原文 0件 ／ 項目 4件 ／ …』と58字の1文だった。
+   字数はほとんど変わらないが、**探している1つがすぐ見つかる**ようになる
+   （iOS の設定の「情報」と同じ形）。左に名前・右に値。 */
+.kv{display:flex;justify-content:space-between;gap:12px;align-items:baseline;
+  padding:7px 0;border-bottom:1px solid var(--line);font-size:var(--fs-3)}
+.kv:last-child{border-bottom:0}
+.kv>span{color:var(--ink-2)}
+.kv>b{font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
 /* ---- 狭い画面（スマホ）向けの詰め ---- */
@@ -523,7 +539,7 @@ details.unconf>summary{color:var(--warn-ink)}
 <section class="panel" id="p-me">
   <div class="sect" style="margin-top:6px">
     <h2>わたしのこと</h2>
-    <p class="hint">日をまたいでも変わらないこと。その日の体調や気分は「スケジュール」に入ります。</p>
+    <p class="hint">日をまたいでも変わらないこと。その日の体調は「スケジュール」へ。</p>
   </div>
   <div id="meOut" class="stack" style="margin-top:12px"></div>
 </section>
@@ -580,7 +596,7 @@ details.unconf>summary{color:var(--warn-ink)}
       <div><label class="fld" for="findQ">さがす</label>
         <input type="search" id="findQ" placeholder="言葉を入れる（例：歯医者）"></div>
       <div id="findOut"></div>
-      <p class="hint" id="dataState"></p>
+      <div id="dataState"></div>
       <!-- 記録がどこにあるかは、**開き方で変わる**（2026-09-20・APKを本物にした日）。
            ここに固定の文を書くと、Android アプリでは**まるごと嘘**になる
            （あちらに `db` は渡らないので、共有の場所そのものが無い）。
@@ -605,8 +621,8 @@ details.unconf>summary{color:var(--warn-ink)}
       </div>
       <input type="file" id="impFile" accept=".json,application/json,text/plain" class="sr">
       <input type="file" id="icsFile" accept=".ics,text/calendar,text/plain" class="sr">
-      <p class="hint">読み込んでも<strong>いまの記録は消えません</strong>。同じものは二重に足しません。
-        <code>.ics</code> はこの端末で読むだけで、<strong>外へは送りません</strong>。</p>
+      <p class="hint"><strong>いまの記録は消えず</strong>、同じものは二重に足しません。
+        <code>.ics</code> を<strong>外へ送ることもありません</strong>。</p>
       <div id="expOut"></div>
     </div>
 
@@ -2034,6 +2050,28 @@ function lsRead() { try { return JSON.parse(localStorage.getItem(LS) || "null");
    記録が増えると localStorage は必ずいっぱいになる。
    claude.ai 側に保存できていれば実害は小さいが、そうでないときは**何も残らない**。
    どちらなのかを本人に伝える。 */
+/* ── 使い方の案内は、覚えたら消す（2026-09-25・本人の指示「もっとスマートに」）──────
+   一般的なアプリは、なぞる操作の案内を**ずっとは出さない**。1回覚えたら要らないので。
+   **数えて消すのではなく、「使えたら消す」**にした。回数で消すと、
+   **まだ使ったことがない人からも消えてしまう**——案内の役目はそこにしか無い。
+   使えた人からは消え、使っていない人には残る。これがいちばん素直だった。
+
+   **この端末の中だけの、消えても困らない覚え**（決まり「localStorage は
+   per-viewer の便利さだけに使う」）。読めなくても書けなくても、
+   **案内が出たままになるだけ**で、何も壊れない。だから全部 try で囲む。 */
+const TIPS_LS = "hitohi.tips";
+function tipDone(k) {
+  try { return !!(JSON.parse(localStorage.getItem(TIPS_LS) || "{}") || {})[k]; }
+  catch { return false; }            // 読めない端末では、案内を出したままにする
+}
+function markTip(k) {
+  try {
+    const t = JSON.parse(localStorage.getItem(TIPS_LS) || "{}") || {};
+    if (t[k]) return false;
+    t[k] = 1; localStorage.setItem(TIPS_LS, JSON.stringify(t));
+    return true;                     // 初めて覚えた。画面を描き直す合図
+  } catch { return false; }
+}
 let lsFailed = null;
 function lsWrite() {
   try {
@@ -3298,7 +3336,7 @@ function renderDay() {
         <span><i class="ld"></i>AIが読み取ったもの</span>
         ${plan.winCapped ? '<span>夜は空けています</span>' : ""}
       </div>
-      <p class="hint" style="margin-top:4px">枠を押すと、理由と操作が出ます。</p></div>` + tlHTML;
+      ${tipDone("openblk") ? "" : `<p class="hint" style="margin-top:4px">枠を押すと、理由と操作が出ます。</p>`}</div>` + tlHTML;
   }
   h += conflictHTML + timelessHTML;
 
@@ -3340,8 +3378,8 @@ function renderDay() {
   const elseDay = new Map((plan.elsewhere || []).map(i => [i.id, i.targetDay]));
   /* **なぞる操作は、書いておかないと見つからない**（案A の唯一の弱点）。
      ボタンは残してあるので、読み飛ばしても困らない。1行だけにする（決まり15b）。 */
-  h += `<div class="sect"><h2>この日にやること</h2>
-    <p class="hint" style="margin-top:3px">行を右へなぞると完了、左へなぞると明日へ。ボタンでもできます。</p></div>`;
+  h += `<div class="sect"><h2>この日にやること</h2>${tipDone("swipe") ? "" :
+    `<p class="hint" style="margin-top:3px">行を右へなぞると完了、左へなぞると明日へ。ボタンでもできます。</p>`}</div>`;
   if (!owed.length) {
     h += `<div class="card empty">ありません。</div>`;
   } else {
@@ -3574,11 +3612,10 @@ function renderMe() {
   /* ---- 渡す欄 ---- */
   h += `<div class="card stack">
     <h3 class="cardttl">自分について渡す</h3>
-    <p class="hint">自己紹介でも、昔の日記でも構いません。読み取って下の一覧に足します。</p>
     <div><label class="fld" for="docTitle">これは何ですか（任意）</label>
       <input type="text" id="docTitle" placeholder="例：研究の背景メモ"></div>
     <div><label class="fld" for="docText">本文</label>
-      <textarea id="docText" placeholder="ここに貼り付けるか、下からファイルを選んでください。"></textarea></div>
+      <textarea id="docText" placeholder="自己紹介でも、昔の日記でも。貼り付けるか、下からファイルを選んでください。"></textarea></div>
     <div class="row">
       <input type="file" id="docFile" accept=".txt,.md,.csv,text/plain" class="sr">
       <button class="btn" id="btnDocFile">ファイルを選ぶ</button>
@@ -3594,7 +3631,7 @@ function renderMe() {
       ? "話の中から集まったものです。" : "AIを使っていないので、はっきりした言い方だけを拾っています。"}</p></div>`;
 
   if (unconf.length) {
-    h += `<div class="note warn" style="margin-top:8px">${unconf.length}件が未確認です。合っていないものは「訂正」か「取り消す」で直してください。
+    h += `<div class="note warn" style="margin-top:8px">${unconf.length}件が未確認です。違っていたら「…」から直せます。
       <div class="row" style="margin-top:7px"><button class="btn sm" data-act="confirmprof">${unconf.length}件すべて「合ってる」にする</button></div></div>`;
   }
 
@@ -3616,7 +3653,7 @@ function renderMe() {
   const gaps = telosGaps();
   if (gaps.length) {
     h += `<div class="sect"><h2>まだ聞いていないこと（${gaps.length}件）</h2>
-      <p class="hint">答えるほど、予定の組み方があなたに合っていきます。答えなくても構いません。</p></div>
+      <p class="hint">答えるほど提案が合っていきます。答えなくても構いません。</p></div>
     <div class="stack">${gaps.map(a => `<div class="card row">
       <div style="flex:1 1 180px">${esc(a.q)}</div>
       <button class="btn sm" data-act="telosask" data-id="${a.key}" style="margin-left:auto">これを話す</button>
@@ -3625,7 +3662,7 @@ function renderMe() {
 
   /* ---- ② 自分で渡したもの ---- */
   h += `<div class="sect"><h2>自分で渡したもの（${state.docs.length}件）</h2>
-    <p class="hint">あなたが渡した資料そのものです。ここから読み取ったものには「資料」の印が付きます。</p></div>`;
+    <p class="hint">ここから読み取ったものには「資料」の印が付きます。</p></div>`;
 
   if (!state.docs.length) {
     h += `<div class="card empty">まだ渡した資料はありません。
@@ -3661,7 +3698,7 @@ function renderMe() {
 
   if (goals.length || ideas.length || memos.length || prefItems.length) {
     h += `<div class="sect"><h2>予定表に入らないもの</h2>
-      <p class="hint">日付が無いので、スケジュールには置いていません。ここに貯まります。</p></div>`;
+      <p class="hint">日付が決まっていないものです。</p></div>`;
 
     if (goals.length) {
       h += `<div class="cathead"><h3>続けたいこと</h3><span class="n">${goals.length}</span></div>
@@ -3689,7 +3726,7 @@ function renderMe() {
   }
 
   // 何が外へ送られるかは、短くしても消さない（新しい外部送信の決まり）
-  h += `<div class="sect"><p class="hint">AIに送るのは<strong>一覧にある短い文だけ</strong>です。
+  h += `<div class="sect"><p class="hint">AIに送るのは<strong>この一覧の短い文だけ</strong>。
     資料の全文は、読み取りのときにしか送りません。</p></div>`;
 
   host.innerHTML = h;
@@ -3707,9 +3744,15 @@ function renderSettings() {
      設定欄は v3.9 で外した（本人の指示）ので、ここは**入力欄ではなく事実の表示**。
      出す理由：この帯の外だと予定が置けず、`planFor` の理由文がこの数字を名指しする。
      数字が画面のどこにも出ていないと、理由を読んでも確かめようがない。 */
-  $("#dataState").textContent = `会話 ${turnCount}件 ／ 原文 ${state.notes.length}件 ／ 項目 ${state.items.length}件`
-    + ` ／ 作業に使える時間帯：${s.workStart}〜${s.workEnd}`
-    + ` ／ 保存先：${state.backend === "db" ? "claude.ai（あなたの記録）＋この端末" : "この端末のみ"}`;
+  const kv = [
+    ["会話", turnCount.toLocaleString() + "件"],
+    ["原文", state.notes.length.toLocaleString() + "件"],
+    ["項目", state.items.length.toLocaleString() + "件"],
+    ["作業に使える時間帯", `${s.workStart}〜${s.workEnd}`],
+    ["保存先", state.backend === "db" ? "claude.ai ＋ この端末" : "この端末のみ"]
+  ];
+  $("#dataState").innerHTML = kv.map(([k, v]) =>
+    `<div class="kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("");
   /* **狭いまま保存されている帯からの逃げ道**（v6.3・実機で報告）。
      設定欄は外してあるので、古い値が残っていると**画面から直す道が無い**。
      実機で 05:00〜11:00 のまま残り、11時より後に一切置けなくなっていた。
@@ -3758,17 +3801,20 @@ function renderSettings() {
    **固定の文を置かないこと。** 片方では必ず嘘になる。 */
 function renderWhere() {
   const el = $("#whereNote"); if (!el) return;
+  /* **短くはするが、事実は落とさない**（2026-09-25・本人の指示「もっとスマートに」）。
+     共有されているかどうかは**画面から消さない**と決めてある（条件つきの判断なので、
+     条件が見えなくなったら判断ごと壊れる）。だから縮めたのは**言い換えと補足だけ**：
+     「外にも、ほかの誰にも」→「誰にも」、「端末を変えたり、アプリを消したりすると」→
+     「アプリを消すと」。確かめた日付（2026-09-13）は CLAUDE.md に残してある。
+     **BH群 が見張っている5つの語は、どれも残っている。** */
   el.innerHTML = DB
-    ? "<strong>この記録は claude.ai の共有の場所にあります。</strong>"
-      + "このページのリンクを開いた人には、予定・会話・体調がそのまま見えます"
-      + "（2026-09-13 に別の人に開いてもらって確かめました）。"
-      + "共有している間は、見られて困ることを入れないでください。<br>"
-      + "本当の予定として使うなら、Android アプリのほうを使ってください。"
-      + "あちらは記録がこの端末の中だけに残り、誰にも渡りません。"
-    : "<strong>この記録は、この端末の中だけにあります。</strong>"
-      + "外にも、ほかの誰にも渡っていません。"
-      + "端末を変えたり、アプリを消したりすると無くなります。"
-      + "残しておきたいときは、下の「書き出す（JSON）」で控えを取ってください。";
+    ? "<strong>claude.ai の共有の場所にあります。</strong>"
+      + "このリンクを開いた人に、予定も会話もそのまま見えます。"
+      + "見られて困ることは入れないでください。<br>"
+      + "本当の予定は Android アプリのほうへ。あちらは、この端末の中だけに残ります。"
+    : "<strong>この端末の中だけにあります。</strong>"
+      + "誰にも渡っていません。アプリを消すと無くなります。"
+      + "控えは下の「書き出す（JSON）」で取れます。";
 }
 
 const view = { tab: "p-chat", day: null, ask: null };
@@ -4097,6 +4143,10 @@ async function act(a, id, el) {
   if (a === "blk") {                       // 枠をたたむ・開く
     const row = el && el.closest(".tlrow");
     if (row) { const open = row.classList.toggle("open"); el.setAttribute("aria-expanded", open ? "true" : "false"); }
+    /* 一度開けたら、案内はもう要らない（2026-09-25）。
+       **ここで描き直さないこと**——開いたばかりの枠が、その場で閉じる。
+       次にこのタブを開いたときに消える。 */
+    markTip("openblk");
     return;
   }
   /* まだ聞いていないことを、会話で聞く。**ここでは何も保存しない**——
@@ -5891,7 +5941,8 @@ async function runSwipe(id, dir) {
   const a = swipeActs(it);
   const op = dir === "right" ? a.right : a.left;
   if (!op) return false;
-  await act(op, id, null);
+  markTip("swipe");          // 一度なぞれたら、案内はもう要らない（2026-09-25）
+  await act(op, id, null);   // この中で描き直すので、案内はここで消える
   return true;
 }
 function swReset(s) {
