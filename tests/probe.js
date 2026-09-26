@@ -4854,6 +4854,38 @@
       state.turns = keepC; state.items = keepI2; state.notes = keepN2; view.chatDay = keepCD; showTab("p-chat");
     }
 
+    /* ===== CC群：暗いときの作り（2026-09-26・本人の指示「評価の高いアプリのダークモードと比べて完成版に」・決まり15r）=====
+       見るのは性質であって値ではない（決まり15）。明るいときは前と1pxも変えていないことも見る。 */
+    {
+      const root = document.documentElement, before = root.getAttribute("data-theme");
+      const rgb = h => { h = h.trim(); const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+      const L = h => { const c = rgb(h).map(v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); }); return .2126 * c[0] + .7152 * c[1] + .0722 * c[2]; };
+      const cr = (a, b) => { const x = L(a), y = L(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); };
+      const v = n => getComputedStyle(root).getPropertyValue(n).trim();
+      const read = theme => { root.setAttribute("data-theme", theme);
+        const o = {}; for (const n of ["--paper","--surface","--surface-up","--ink","--accent","--me-bub","--me-ink","--toast-bg","--toast-ink","--toast-btn","--toast-btn-ink","--focus","--accent-line","--shadow"]) o[n] = v(n); return o; };
+      const lt = read("light"), dk = read("dark");
+      if (before) root.setAttribute("data-theme", before); else root.removeAttribute("data-theme");
+      ok("CC. 暗いとき、自分の吹き出しは深い色（画面でいちばん明るい面にしない）", L(dk["--me-bub"]) < .15 && L(dk["--me-bub"]) < L(dk["--ink"]) / 4, dk["--me-bub"]);
+      ok("CC. 吹き出しの文字は両方のテーマで読める（4.5以上）", cr(lt["--me-bub"], lt["--me-ink"]) >= 4.5 && cr(dk["--me-bub"], dk["--me-ink"]) >= 4.5,
+         cr(lt["--me-bub"], lt["--me-ink"]).toFixed(2) + " / " + cr(dk["--me-bub"], dk["--me-ink"]).toFixed(2));
+      ok("CC. 暗いとき、高さは面の明るさで出す（地 < カード < 浮くもの）", L(dk["--paper"]) < L(dk["--surface"]) && L(dk["--surface"]) < L(dk["--surface-up"]),
+         [dk["--paper"], dk["--surface"], dk["--surface-up"]].join(" < "));
+      ok("CC. 暗いとき、トーストを白く反転させない", L(dk["--toast-bg"]) < .1, dk["--toast-bg"]);
+      ok("CC. トーストの文字と「元に戻す」は両方のテーマで読める", [lt, dk].every(t => cr(t["--toast-bg"], t["--toast-ink"]) >= 4.5 && cr(t["--toast-btn"], t["--toast-btn-ink"]) >= 4.5));
+      ok("CC. 暗いとき、文字を純白にしない（にじみを避ける）", dk["--ink"].toUpperCase() !== "#FFFFFF" && cr(dk["--paper"], dk["--ink"]) >= 12, dk["--ink"]);
+      ok("CC. 暗いとき、枠やフォーカスの線を鮮やかな差し色で光らせない", L(dk["--accent-line"]) < L(dk["--accent"]) && L(dk["--focus"]) < L(dk["--accent"])
+         && cr(dk["--paper"], dk["--focus"]) >= 3, [dk["--accent-line"], dk["--focus"], dk["--accent"]].join(" "));
+      ok("CC. 暗いとき、影ではなく細い明るい縁で浮かせる", /rgba\(255,\s*255,\s*255/.test(dk["--shadow"]), dk["--shadow"]);
+      ok("CC. 明るいときは前と同じ（吹き出し＝差し色・トースト＝文字の色・縁なし）", lt["--me-bub"].toUpperCase() === lt["--accent"].toUpperCase()
+         && lt["--toast-bg"].toUpperCase() === lt["--ink"].toUpperCase() && lt["--surface-up"].toUpperCase() === lt["--surface"].toUpperCase(),
+         [lt["--me-bub"], lt["--accent"], lt["--toast-bg"], lt["--ink"]].join(" "));
+      const bubRule = [...document.styleSheets].flatMap(ss => { try { return [...ss.cssRules]; } catch { return []; } })
+        .find(r => r.selectorText === ".turn.me .bub");
+      ok("CC. 吹き出し・トーストは明暗の役目の色を使う（直に差し色を塗らない）", !!bubRule && /--me-bub/.test(bubRule.style.background || bubRule.cssText)
+         && /--toast-bg/.test(String([...document.styleSheets].flatMap(ss => { try { return [...ss.cssRules]; } catch { return []; } }).find(r => r.selectorText === "#toast")?.cssText)));
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;
