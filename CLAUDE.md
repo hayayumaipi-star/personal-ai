@@ -1369,6 +1369,22 @@ Chromium 系が入っていれば同じ引数で代用できるが、**確かめ
       ①だけだと、数分の沈黙が「止まった」に見えるのは変わらない。
       **上の偽の道具では出てこない**——偽物は一瞬で返るので、遅さも問いかけも起きない。
       **「速い偽物で通った」は、「遅い本物で通る」ではない。**
+   ④ **道具が書き足した手元の変更で、`git pull` が止まる**（2026-09-26・実機で止まった）。
+      初めて `eas build` を通すと Expo が `app.json` に `extra.eas.projectId`（と `owner`）を書き足す。
+      こちらが `app.json` を直して push すると（通知の許可を足した・アイコンの色）、
+      本人の `git pull` が **「Your local changes … would be overwritten」** で止まり、
+      **古い中身の APK しか作れなくなった**。`mobile/keep-eas.js` が更新の前に番号を
+      `mobile/eas.local.json`（`.gitignore` の `*.local.json`）へ預けて `app.json` を git の版に戻し、
+      更新のあとで番号を戻す。**番号は git に入れない**（その人の Expo のプロジェクト・決まり11）。
+      **番号を失くさない**——別のプロジェクトとして作り直されると署名の鍵が変わり、上書きで入らない
+      （アプリを消して入れ直す＝**端末の中だけにある記録が消える**）。
+      **番号以外の書き換えがあるときは触らない**（本人の手の変更を黙って消さない）。
+      同じ形で `npm install` が書き換える `package-lock.json` も戻す（直後の `npm install` が作り直す）。
+      **古い台本は自分では直れない**（最初の `git pull` で止まる）ので、その1回だけは手で
+      `git stash; git pull --ff-only; git stash pop`（`docs/APKを作る手順.md` の表）。
+      確かめ方：本物の `git` と `node` と偽の `npm` / `npx` で、**写真と同じ止まり方を再現**してから、
+      新しい台本で通ること、`save` を外した台本では同じように止まることを A/B で見た。
+      手の書き換え（名前を変えた）があるときに触らないことも見た。**殻（App.js）は1行も変えていない。**
    **ただし走らせたのは PowerShell 7。本人のパソコンは Windows PowerShell 5.1。**
    使っているのは 5.1 にもあるものだけ（`Get-FileHash` / `[ordered]` / `ConvertTo-Json` /
    `$PSCommandPath` / `[IO.File]::WriteAllText`）だが、**同じではない**。そう書いておく。

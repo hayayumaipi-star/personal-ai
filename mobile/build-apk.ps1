@@ -41,8 +41,20 @@ if (Get-Command git -ErrorAction SilentlyContinue) {
   Write-Host "最新に更新しています..." -ForegroundColor DarkGray
   $prev = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
+  # **Expo が app.json に書き足した番号を、更新の前に預けて、あとで戻す**（2026-09-26・実機で止まった）。
+  # 初めて組み立てると Expo が `extra.eas.projectId` を書き足す。こちらが app.json を直すと、
+  # `git pull` が「手元の変更が上書きされる」で止まっていた。番号はその人のものなので git には入れない。
+  # 番号以外の書き換えがあるときは keep-eas.js が触らない（本人の手の変更を黙って消さない）。
+  if (Test-Path (Join-Path $PSScriptRoot "keep-eas.js")) {
+    $keepOut = (node keep-eas.js save 2>&1 | Out-String)
+    if ($keepOut.Trim() -ne "") { Write-Host $keepOut.Trim() -ForegroundColor DarkGray }
+  }
   $pullOut = (git -C .. pull --ff-only 2>&1 | Out-String)
   $pullOk = ($LASTEXITCODE -eq 0)
+  if (Test-Path (Join-Path $PSScriptRoot "keep-eas.js")) {
+    $keepOut = (node keep-eas.js restore 2>&1 | Out-String)
+    if ($keepOut.Trim() -ne "") { Write-Host $keepOut.Trim() -ForegroundColor DarkGray }
+  }
   $ErrorActionPreference = $prev
   if ($pullOut.Trim() -ne "") { Write-Host $pullOut.Trim() -ForegroundColor DarkGray }
   if (-not $pullOk) {
