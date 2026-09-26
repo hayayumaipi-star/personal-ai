@@ -569,7 +569,7 @@ details.unconf>summary{color:var(--warn-ink)}
 <section class="panel" id="p-me">
   <div class="sect" style="margin-top:6px">
     <h2>わたしのこと</h2>
-    <p class="hint">日をまたいでも変わらないこと。</p>
+    <p class="hint">予定表の外で、覚えておくこと。</p>
   </div>
   <div id="meOut" class="stack" style="margin-top:12px"></div>
 </section>
@@ -1167,9 +1167,15 @@ function profileCategory(s) {
 }
 
 /* 会話の一文から「ずっと変わらないこと」を拾う（保守的） */
+/* **「朝のほうが集中できるタイプ。」を体調にしない**（2026-09-26・「わたしのこと」の見直しで実測）。
+   前は「自分は〜」が無いと傾向の言葉（タイプ・しがち…）を拾わず、「集中でき」に RE_COND が当たって
+   **体調として**記録されていた——その日かぎりの話として扱われ、翌日には効かない。
+   **文の終わりが傾向の言葉**のときだけ拾う。「Aタイプの資料を作る」のように途中にあるものは用事のまま。 */
+const RE_PROFILE_END = /(タイプ|体質|性格|しがち|傾向がある|癖がある|になりやすい)(だ|です|なんだ|なんです|みたい|らしい)?(よね|ね|な)?[。！!…\s]*$/;
 function looksDurable(s) {
   if (RE_TODAYISH.test(s)) return false;
   if (RE_PROFILE.test(s)) return true;
+  if (RE_PROFILE_END.test(s)) return true;
   if (RE_PROFILE_SELF.test(s) && RE_PROFILE_TREND.test(s)) return true;
   return false;
 }
@@ -1425,6 +1431,9 @@ function classify(rawS, lineWhen) {
   // その日の体調ではなく、変わらない性質。looksDurable は「今日／昨日」が
   // 入っていたら false を返すので、その日の話はここをすり抜けて condition になる。
   if (looksDurable(s)) return "profile";
+  /* 「集中できるタイプになりたい」「よく眠れるようになりたい」は、**なりたい姿**であって今日の体調ではない
+     （2026-09-26・「わたしのこと」の見直しで実測）。体調にすると翌日には効かず、続けたいことにも出ない。 */
+  if (isCond && isGoal && /(になりたい|ようになりたい|ようにしたい|続けたい|目指)/.test(s)) return "goal";
   if (isCond) return "condition";
   /* 「毎日7時に起きる」は目標ではなく、くり返しの予定（v4.3）。
      `RE_GOAL` に「毎日」が入っているので、時刻まで言っていてもここまで来ると goal になる。
@@ -3215,7 +3224,8 @@ function itemHTML(it, opts = {}) {
   if (it.kind === "profile" && it.category && !opts.noCat) bits.push(`<span class="chip">${esc(it.category)}</span>`);
   if (it.docId) bits.push(`<span class="chip">資料から</span>`);
   const noWhen = it.kind === "memo" || it.kind === "preference";
-  const when = it.kind === "profile" ? `<span class="mono">${fmtDT(it.statedAt || it.createdAt, tz)} に言っていたこと</span>`
+  const when = it.kind === "profile" || it.kind === "idea" || (it.kind === "goal" && !it.due)
+    ? `<span class="mono">${fmtDT(it.statedAt || it.createdAt, tz)} に言っていたこと</span>`
     : noWhen ? `<span class="mono">${fmtDT(it.createdAt, tz)}</span>`
     : it.kind === "event"
     ? (it.start
@@ -3247,7 +3257,13 @@ function itemHTML(it, opts = {}) {
     it.status === "done" ? `<button class="btn sm" data-act="undone" data-id="${it.id}">戻す</button>` : "",
     it.kind === "task" && it.status !== "done" ? `<button class="btn sm" data-act="defer" data-id="${it.id}">明日へ</button>` : "",
     it.kind === "profile" && !it.confirmed && !it.corrected && it.status === "open" ? `<button class="btn sm" data-act="confirm" data-id="${it.id}">これで合ってる</button>` : "",
-    it.whenAlt && it.status === "open" ? `<button class="btn sm" data-act="usealt" data-id="${it.id}">${esc(altLabel(it, tz))}にする</button>` : ""
+    it.whenAlt && it.status === "open" ? `<button class="btn sm" data-act="usealt" data-id="${it.id}">${esc(altLabel(it, tz))}にする</button>` : "",
+    /* 続けたいことは、**いつやるかを決めると続きやすい**（実行意図・Gollwitzer & Sheeran 2006）。
+       予定にしたあとは、ボタンではなく「どれだけ続いているか」を出す（`goalNote`）。 */
+    it.kind === "goal" && it.status === "open" && !goalPlan(it) ? `<button class="btn sm pri" data-act="goalplan" data-id="${it.id}">予定にする</button>` : "",
+    /* 気になっていることは、**やると決めたら1回で**やることにできる（GTD の「いつか／たぶん」の見直し）。
+       前は「…」→「訂正」→種類を変える、の3手だった。 */
+    it.kind === "idea" && it.status === "open" ? `<button class="btn sm" data-act="ideatask" data-id="${it.id}">やることにする</button>` : ""
   ].filter(Boolean);
   /* **「…」しか無い行は、ボタンを右上の角へ置く**（2026-09-26）。目標・メモ・要望は
      行で押すものが「…」1つだけなので、そのために1行ぶんの高さを取っていた。
@@ -3796,6 +3812,71 @@ function renderChat(scroll) {
    ① 会話から集まったこと（profile）
    ② 自分で渡した資料（docs）と、そこから読み取ったもの
    ======================================================================= */
+/* ── 続けたいこと → 予定（2026-09-26・「わたしのこと」の見直し）──
+   「毎日30分は歩きたい」は一覧に並ぶだけで、**予定にも、続いているかにもつながっていなかった**。
+   目標は「いつ・どこで」を決めると実行されやすい（実行意図：Gollwitzer & Sheeran 2006、94研究で d=.65）。
+   習慣は**同じきっかけで繰り返す**ほど身につく（Lally ほか 2010）。このアプリは予定表なので、
+   その橋をかけるのが一番の近道。**時刻は本人が決める**（決まり6a「置き場所を言われた作業だけ置く」）——
+   こちらで勝手に置かない。作るのは、くり返しの予定1件（決まり4f・項目を増やさない）。 */
+function goalPlan(g) {
+  if (!g || !g.planId) return null;
+  return state.items.find(i => i.id === g.planId && i.status === "open" && i.repeat) || null;
+}
+/* この7日で何回できたか。**点数ではなく、数えた事実**（決まり3 は体調を数値にしないという決まりで、
+   完了した回数は本人が押した記録そのもの）。予定があった日の数も一緒に出し、割合にはしない。 */
+function goalCount(ev, key, tz) {
+  let done = 0, due = 0;
+  for (let k = 0; k < 7; k++) {
+    const d = dayKey(new Date(keyToDate(key, tz).getTime() - k * 86400000), tz);
+    const hit = (ev.doneDays || []).includes(d);
+    if (hit) done++;
+    if (hit || occursOn(ev, d, tz)) due++;
+  }
+  return { done, due };
+}
+function goalNote(g) {
+  const ev = goalPlan(g);
+  if (!ev) return "";
+  const tz = state.settings.timezone, st = validISO(ev.start) ? parts(new Date(ev.start), tz) : null;
+  const c = goalCount(ev, dayKey(new Date(), tz), tz);
+  const len = validISO(ev.start) && validISO(ev.end) ? durJa(Math.round((new Date(ev.end) - new Date(ev.start)) / 60000)) : "";
+  return `${repeatJa(ev.repeat)}${st ? " " + pad2(st.h) + ":" + pad2(st.mi) + "から" : ""}${len}の予定にしています。`
+    + (c.due ? `この7日で${c.done}回（予定は${c.due}日）。` : "");
+}
+/* 目標の言葉を、予定の名前の候補にする（「毎日30分は歩きたい」→「歩く」）。**欄に入れるだけで、直せる**。
+   「〜したい」は「〜する」、「〜きたい」のような形は言い切りに戻す。見分けられない形（「起きたい」）は
+   外れることがあるので、決めつけずに本人が直せる欄に置く。 */
+function goalActTitle(title) {
+  let t = cleanTitle(title, null);
+  if (/したい$/.test(t)) t = t.replace(/したい$/, "する");
+  else if (/[きぎしちにびみりい]たい$/.test(t)) t = t.replace(/([きぎしちにびみりい])たい$/, (_, c) => ({ き: "く", ぎ: "ぐ", し: "す", ち: "つ", に: "ぬ", び: "ぶ", み: "む", り: "る", い: "う" })[c]);
+  else if (/たい$/.test(t)) t = t.replace(/たい$/, "る");
+  return normalizeEnding(t) || title;
+}
+function openGoalPlan(g) {
+  const tz = state.settings.timezone;
+  const min = parseDuration(halfWidth(g.title)) || 30;
+  /* 見出しの候補は、目標の言葉から「毎日」「30分」「〜たい」を落としたもの。**直せる欄に入れるだけ**。 */
+  const base = goalActTitle(g.title);
+  const dow = parts(new Date(), tz).dow;
+  openSheet(`<h3>予定にする</h3>
+    <p class="hint">「${esc(g.title)}」を、いつやるか決めます。決めた時刻にくり返し入ります。</p>
+    <div class="stack" style="margin-top:10px">
+      <div><label class="fld" for="gpT">予定の名前</label><input type="text" id="gpT" value="${esc(base)}"></div>
+      <div class="row">
+        <div><label class="fld" for="gpH">時刻</label><input type="time" id="gpH" required></div>
+        <div><label class="fld" for="gpM">長さ（分）</label><input type="number" id="gpM" min="5" max="600" step="5" value="${min}"></div>
+      </div>
+      <div><label class="fld" for="gpR">くり返し</label><select id="gpR">
+        <option value="daily">毎日</option><option value="weekday">平日</option>
+        <option value="weekly">毎週${"日月火水木金土"[dow]}曜</option></select></div>
+      <p class="hint" id="gpMsg"></p>
+    </div>
+    <div class="foot"><button class="btn" data-close>やめる</button>
+      <button class="btn pri" data-act="goalplansave" data-id="${esc(g.id)}" style="margin-left:auto">予定にする</button></div>`);
+  setTimeout(() => { const h = $("#gpH"); if (h) h.focus(); }, 30);
+}
+
 function renderMe() {
   if (!state.settings) return;
   const tz = state.settings.timezone, host = $("#meOut");
@@ -3826,6 +3907,35 @@ function renderMe() {
   <div id="docProg"></div>`;
   const cnt = n => n ? `（${n}件）` : "";   // 0件は見出しに書かない（空の欄がそう言っている）
 
+  /* **並びは「いま効いているもの」から**（2026-09-26・「わたしのこと」の見直し）。
+     前は「会話から集まったこと」（AIに渡す短い文）がいちばん上で、**予定づくりに本当に効いている**
+     「こうしてほしい」と、予定にできる「続けたいこと」がタブのいちばん下にあった。
+     使われ方の近い順に並べ直す：①続けたいこと（予定にできる）②こうしてほしい（予定づくりが読む）
+     ③会話から集まったこと（AIが読む）④気になっていること・あとで見返すこと ⑤まだ聞いていないこと ⑥渡した資料。
+     **欄は1つも増やしていない。** 前の「予定表に入らないもの」の見出しは、続けたいことが予定に
+     できるようになったので当てはまらなくなり、外した。 */
+  const goals = liveItems().filter(i => i.kind === "goal" && i.status === "open");
+  const ideas = liveItems().filter(i => i.kind === "idea" && i.status === "open")
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const memos = liveItems().filter(i => i.kind === "memo" && i.status === "open")
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const prefItems = liveItems().filter(i => i.kind === "preference");
+
+  if (goals.length) {
+    const planned = goals.filter(g => goalPlan(g)).length;
+    h += `<div class="sect"><h2>続けたいこと${cnt(goals.length)}</h2>${
+      planned < goals.length ? `<p class="hint">いつやるかを決めると、続けやすくなります。</p>` : ""}</div>
+      <div class="catgroup">${goals.map(i => itemHTML(i, { noKind: true, note: goalNote(i) })).join("")}</div>`;
+  }
+  if (prefItems.length) {
+    const always = prefItems.filter(p => !p.scopeDay), oneDay = prefItems.filter(p => p.scopeDay);
+    h += `<div class="sect"><h2>こうしてほしい、と言ったこと${cnt(prefItems.length)}</h2>
+      <p class="hint">予定づくりがこれを読んでいます。</p></div>`;
+    if (always.length) h += `<div class="catgroup">${always.map(p => itemHTML(p, { noKind: true })).join("")}</div>`;
+    if (oneDay.length) h += `<p class="hint" style="margin-top:8px">その日だけの希望（過ぎた日のものは効いていません）</p>
+      <div class="catgroup">${oneDay.map(p => itemHTML(p, { noKind: true })).join("")}</div>`;
+  }
+
   /* ---- ① 会話から集まったこと ---- */
   h += `<div class="sect"><h2>会話から集まったこと${cnt(profs.length)}</h2>
     ${SAMPLEFN ? "" : `<p class="hint">AIを使っていないので、はっきりした言い方だけを拾っています。</p>`}</div>`;
@@ -3845,6 +3955,21 @@ function renderMe() {
       h += `<div class="cathead"><h3>${cat}</h3><span class="n">${list.length}</span></div>
         <div class="catgroup">${list.map(p => itemHTML(p, { noKind: true, noCat: true })).join("")}</div>`;
     }
+  }
+
+
+  /* 気になっていることは、**時々見直してこそ意味がある**（GTD の「いつか／たぶん」リストと週の見直し）。
+     やると決めたら「やることにする」で1回。いつ言ったかを行に出す（古いものほど、見直しどき）。 */
+  if (ideas.length) {
+    h += `<div class="sect"><h2>気になっていること${cnt(ideas.length)}</h2>
+      <p class="hint">やると決めたら「やることにする」。</p></div>
+      <div class="catgroup">${ideas.slice(0, 20).map(i => itemHTML(i, { noKind: true })).join("")}
+      ${ideas.length > 20 ? `<div class="card empty">ほか${ideas.length - 20}件</div>` : ""}</div>`;
+  }
+  if (memos.length) {
+    h += `<div class="sect"><h2>あとで見返すこと${cnt(memos.length)}</h2></div>
+      <div class="catgroup">${memos.slice(0, 20).map(i => itemHTML(i, { noKind: true })).join("")}
+      ${memos.length > 20 ? `<div class="card empty">ほか${memos.length - 20}件</div>` : ""}</div>`;
   }
 
   /* ---- ①b まだ聞いていないこと ----
@@ -3891,42 +4016,6 @@ function renderMe() {
     }).join("")}</div>`;
   }
   h += `<div style="margin-top:10px">${pasteForm}</div>`;
-
-  /* ---- ③ 予定表に入らないもの（スケジュールから引っ越し） ---- */
-  const goals = liveItems().filter(i => i.kind === "goal" && i.status === "open");
-  const ideas = liveItems().filter(i => i.kind === "idea" && i.status === "open");
-  const memos = liveItems().filter(i => i.kind === "memo" && i.status === "open")
-    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
-  const prefItems = liveItems().filter(i => i.kind === "preference");
-
-  if (goals.length || ideas.length || memos.length || prefItems.length) {
-    h += `<div class="sect"><h2>予定表に入らないもの</h2>
-      <p class="hint">やると決めたことではないので、予定表には出していません。</p></div>`;
-
-    if (goals.length) {
-      h += `<div class="cathead"><h3>続けたいこと</h3><span class="n">${goals.length}</span></div>
-        <div class="catgroup">${goals.map(i => itemHTML(i, { noKind: true })).join("")}</div>`;
-    }
-    if (ideas.length) {
-      h += `<div class="cathead"><h3>気になっていること</h3><span class="n">${ideas.length}</span></div>
-        <p class="hint">やると決めたわけではないこと。やると決めたら「…」→「訂正」で種類を「タスク」に変えてください。</p>
-        <div class="catgroup">${ideas.slice(0, 20).map(i => itemHTML(i, { noKind: true })).join("")}
-        ${ideas.length > 20 ? `<div class="card empty">ほか${ideas.length - 20}件</div>` : ""}</div>`;
-    }
-    if (memos.length) {
-      h += `<div class="cathead"><h3>あとで見返すこと</h3><span class="n">${memos.length}</span></div>
-        <div class="catgroup">${memos.slice(0, 20).map(i => itemHTML(i, { noKind: true })).join("")}
-        ${memos.length > 20 ? `<div class="card empty">ほか${memos.length - 20}件</div>` : ""}</div>`;
-    }
-    if (prefItems.length) {
-      const always = prefItems.filter(p => !p.scopeDay), oneDay = prefItems.filter(p => p.scopeDay);
-      h += `<div class="cathead"><h3>こうしてほしい、と言ったこと</h3><span class="n">${prefItems.length}</span></div>
-        <p class="hint">予定づくりがこれを読んでいます。やめたいときは「…」から取り消せます。</p>`;
-      if (always.length) h += `<div class="catgroup">${always.map(p => itemHTML(p, { noKind: true })).join("")}</div>`;
-      if (oneDay.length) h += `<p class="hint" style="margin-top:8px">その日だけの希望（過ぎた日のものは効いていません）</p>
-        <div class="catgroup">${oneDay.map(p => itemHTML(p, { noKind: true })).join("")}</div>`;
-    }
-  }
 
   /* 何が外へ送られるかは、短くしても消さない（新しい外部送信の決まり）。
      **ただしAIを使っていないときは、送るもの自体が無い**（2026-09-26）ので出さない。
@@ -4356,6 +4445,48 @@ async function act(a, id, el) {
     renderAll();
     toast(`提案した${hit.length}件を消しました`,
       { label: "元に戻す", run: () => restoreItems(snaps, "まとめて消したのを元に戻した") });
+    return;
+  }
+  if (a === "goalplan") { const g = findItem(id); if (!g) { toast("この項目が見つかりませんでした"); return; } openGoalPlan(g); return; }
+  if (a === "goalplansave") {
+    const g = findItem(id); if (!g) { toast("この項目が見つかりませんでした"); return; }
+    const t = ($("#gpT").value || "").trim(), h = $("#gpH").value, m = Math.round(+$("#gpM").value);
+    /* **時刻は本人が決める**（決まり6a）。空のまま押されたら、こちらで決めずに言う。 */
+    if (!t) { $("#gpMsg").textContent = "予定の名前を入れてください。"; return; }
+    if (!/^\d{1,2}:\d{2}$/.test(h || "")) { $("#gpMsg").textContent = "時刻を選んでください。"; return; }
+    if (!(m >= 5 && m <= 600)) { $("#gpMsg").textContent = "長さは5〜600分で入れてください。"; return; }
+    const kind = ["daily", "weekday", "weekly"].includes($("#gpR").value) ? $("#gpR").value : "daily";
+    const today = dayKey(new Date(), tz), [y, mo, dd] = today.split("-").map(Number), [hh, mm] = h.split(":").map(Number);
+    const st = zoned(y, mo, dd, hh, mm, tz), nowISO = new Date().toISOString();
+    const repeat = { kind };
+    if (kind === "weekly") repeat.dow = parts(new Date(), tz).dow;
+    const ev = {
+      id: uid(), noteId: g.noteId || null, kind: "event", title: t, origin: "user", corrected: false, confirmed: true,
+      status: "open", evidence: g.evidence || { text: g.title }, createdAt: nowISO, updatedAt: nowISO,
+      history: [{ at: nowISO, by: "user", what: `続けたいこと「${g.title}」から予定にした` }],
+      dayKey: today, duePrecision: "exact", fixed: true, start: st.toISOString(),
+      end: new Date(st.getTime() + m * 60000).toISOString(), repeat, goalId: g.id
+    };
+    ev.dedupeKey = dedupeKey(ev);
+    const gBefore = snapItem(g);
+    await putItem(ev);
+    g.planId = ev.id; note(g, `予定にした：${repeatJa(repeat)} ${h}から${durJa(m)}`); await putItem(g);
+    closeSheet(); renderAll();
+    toast(`予定にしました：${repeatJa(repeat)} ${h}から「${t}」`,
+      { label: "元に戻す", run: () => restoreItems([gBefore, Object.assign(snapItem(ev), { status: "dropped" })], "予定にしたのを元に戻した") });
+    return;
+  }
+  if (a === "ideatask") {
+    const it = findItem(id); if (!it) { toast("この項目が見つかりませんでした"); return; }
+    if (it.kind !== "idea") { toast("これは気になっていることではありません"); return; }
+    const before = snapItem(it);
+    it.kind = "task"; it.confirmed = true; it.duePrecision = it.duePrecision || "none";
+    if (it.note && !it.title) it.title = it.note;
+    note(it, "気になっていることから、やることにした");
+    it.dedupeKey = dedupeKey(it);
+    await putItem(it); renderAll();
+    toast(`やることにしました：${it.title}（スケジュールの「タスク」）`,
+      { label: "元に戻す", run: () => restoreItems([before], "やることにしたのを元に戻した") });
     return;
   }
   if (a === "addmanual") {

@@ -1053,6 +1053,41 @@
       state.items = keep; renderAll();
     }
 
+    /* 2026-09-26「わたしのこと」の見直し：続けたいことを予定にする／気になっていることをやることにする。
+       **本物の画面で押す**（ボタンを足したら実際にクリックさせる）。保存先を読み直すところまで見る。 */
+    {
+      const keep = state.items, nowISO = new Date().toISOString();
+      const base = { noteId: (state.notes[0] || {}).id || "n", origin: "rule", confirmed: false, status: "open", history: [],
+        createdAt: nowISO, evidence: { text: "点検", start: 0, end: 2 } };
+      const g = Object.assign({ id: uid(), kind: "goal", title: "毎日20分は本を読みたい（点検）", dedupeKey: "walk-goal" }, base);
+      const idea = Object.assign({ id: uid(), kind: "idea", title: "いつか陶芸（点検）", dedupeKey: "walk-idea" }, base);
+      await step("続けたいことを「予定にする」（時刻を選んで、毎日の予定になる）", async () => {
+        state.items = [g, idea]; await putItem(g); await putItem(idea);
+        await click('nav.tabs [data-tab="p-me"]');
+        const b = [...document.querySelectorAll('#p-me [data-act="goalplan"]')].find(x => x.dataset.id === g.id);
+        if (!b) throw new Error("「予定にする」が無い");
+        await click(b);
+        if (!await waitFor(() => has("#gpH"))) throw new Error("時刻を聞く画面が開かない");
+        $$("#gpH").value = "21:30";
+        await click('[data-act="goalplansave"]');
+        if (!await waitFor(() => state.items.some(i => i.goalId === g.id))) throw new Error("予定ができない");
+        const ev = state.items.find(i => i.goalId === g.id);
+        if (!ev.repeat || ev.repeat.kind !== "daily") throw new Error("毎日のくり返しになっていない");
+        const got = await DB.doc("items/" + ev.id).get();          // 保存先を読み直す
+        if (!got.exists) throw new Error("保存先に入っていない");
+        if (!/毎日 21:30から20分の予定にしています/.test($$("#p-me").textContent)) throw new Error("予定にしたことが行に出ない");
+      });
+      await step("気になっていることを「やることにする」（1回で、スケジュールのタスクへ）", async () => {
+        const b = [...document.querySelectorAll('#p-me [data-act="ideatask"]')].find(x => x.dataset.id === idea.id);
+        if (!b) throw new Error("「やることにする」が無い");
+        await click(b);
+        if (!await waitFor(() => findItem(idea.id).kind === "task")) throw new Error("やることにならない");
+        await click('nav.tabs [data-tab="p-day"]');
+        if (!/いつか陶芸（点検）/.test($$("#p-day").textContent)) throw new Error("スケジュールの「タスク」に出ない");
+      });
+      state.items = keep; renderAll();
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "WALK";
     pre.textContent = "===== 操作の総点検 =====\n" + R.join("\n") +

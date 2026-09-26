@@ -4403,6 +4403,85 @@
       state.items = keepItems; state.notes = keepNotes; state.turns = keepTurns; state.docs = keepDocs;
     }
 
+    /* ===== BW群：「わたしのこと」を、働く場所にする（2026-09-26・本人の指示「何のためにあるのか、機能しているのか」）=====
+       調べて分かったこと：①続けたいことは並ぶだけで予定にも記録にもつながっていなかった
+       ②気になっていることは「…」→「訂正」→種類を変える、の3手でしかやることにできなかった
+       ③「朝のほうが集中できるタイプ。」が体調として記録され、翌日には効かなかった
+       ④いちばん効いている「こうしてほしい」がタブのいちばん下にあった。 */
+    {
+      const keepItems = state.items, keepNotes = state.notes, keepTurns = state.turns, keepDocs = state.docs, keepTab = view.tab;
+      const tz = state.settings.timezone, today = dayKey(new Date(), tz);
+      const kinds = async t => { reset(); await say(t, T(9, 0)); return state.items.map(i => i.kind).join(","); };
+      ok("BW. 「〜なタイプ」で言い切る文は、わたしのこと", await kinds("朝のほうが集中できるタイプ。") === "profile");
+      ok("BW. 「〜な体質なんだよね」も、わたしのこと", await kinds("夜型の体質なんだよね") === "profile");
+      ok("BW. 途中に「タイプ」があるだけの用事は、用事のまま", await kinds("Aタイプの資料を作る") === "task");
+      ok("BW. 今日の話は、体調のまま（決まり3b）", await kinds("今日は集中できない") === "condition");
+      ok("BW. 「〜になりたい」は体調ではなく、続けたいこと", await kinds("集中できるタイプになりたい") === "goal");
+
+      ok("BW. 予定の名前の候補：「毎日30分は歩きたい」→「歩く」", goalActTitle("毎日30分は歩きたい") === "歩く");
+      ok("BW. 予定の名前の候補：「英語を勉強したい」→「英語を勉強する」", goalActTitle("英語を勉強したい") === "英語を勉強する");
+
+      // --- 続けたいこと → 予定（実際に act を通す） ---
+      reset();
+      await say("毎日30分は歩きたい。", T(9, 0));
+      const g = state.items.find(i => i.kind === "goal");
+      ok("BW. 予定にしていない目標には「予定にする」が出る", !!g && /data-act="goalplan"/.test(itemHTML(g)));
+      await act("goalplan", g.id, null);
+      ok("BW. 押すと、時刻を聞く画面が開く", !!$("#gpH") && $("#gpT").value === "歩く" && +$("#gpM").value === 30,
+         ($("#gpT") || {}).value + " / " + ($("#gpM") || {}).value);
+      $("#gpH").value = "";
+      await act("goalplansave", g.id, null);
+      ok("BW. 時刻を選ばずに押しても、こちらで決めない（決まり6a）",
+         !state.items.some(i => i.goalId === g.id) && /時刻を選んで/.test($("#gpMsg").textContent));
+      $("#gpH").value = "07:00";
+      await act("goalplansave", g.id, null);
+      const ev = state.items.find(i => i.goalId === g.id);
+      ok("BW. 毎日7時からの、くり返しの予定が1件だけできる（決まり4f）",
+         !!ev && ev.kind === "event" && ev.repeat && ev.repeat.kind === "daily" && fmtDT(ev.start, tz).slice(-5) === "07:00"
+         && Math.round((new Date(ev.end) - new Date(ev.start)) / 60000) === 30 && state.items.filter(i => i.goalId === g.id).length === 1,
+         ev ? JSON.stringify([ev.kind, ev.repeat, fmtDT(ev.start, tz), ev.end]) : "無い");
+      ok("BW. 目標と予定がつながる", g.planId === (ev || {}).id && goalPlan(g) === ev);
+      ok("BW. 予定にしたら、ボタンの代わりに予定と回数を書く",
+         !/data-act="goalplan"/.test(itemHTML(g)) && /毎日 07:00から30分の予定にしています/.test(goalNote(g)), goalNote(g));
+      ev.doneDays = [today];
+      ok("BW. 続いた回数は、押した記録から数える（点数にしない）", /この7日で1回（予定は1日）/.test(goalNote(g)), goalNote(g));
+      ok("BW. 始まる前の日は、予定のあった日に数えない", goalCount(ev, today, tz).due === 1);
+      const undo = document.querySelector("#toast button");
+      ok("BW. 「元に戻す」が出る", !!undo);
+      if (undo) { undo.click(); await waitUntil(() => !g.planId, 1500); }
+      ok("BW. 元に戻すと、予定は取り消し・目標は予定前に戻る",
+         !g.planId && (findItem(ev.id) || {}).status === "dropped", JSON.stringify([g.planId, (findItem(ev.id) || {}).status]));
+      closeSheet();
+
+      // --- 気になっていること → やること ---
+      reset();
+      await say("いつか陶芸をやってみたいかも。", T(9, 0));
+      const idea = state.items.find(i => i.kind === "idea");
+      ok("BW. 気になっていることには「やることにする」が出る", !!idea && /data-act="ideatask"/.test(itemHTML(idea)));
+      ok("BW. 気になっていることは、いつ言ったかを出す（見直しどき）", !!idea && /に言っていたこと/.test(itemHTML(idea)));
+      await act("ideatask", idea.id, null);
+      ok("BW. 1回で、やることになる", idea.kind === "task" && idea.status === "open" && (idea.history || []).some(h => /やることにした/.test(h.what)));
+      const u2 = document.querySelector("#toast button");
+      if (u2) { u2.click(); await waitUntil(() => idea.kind === "idea", 1500); }
+      ok("BW. 元に戻すと、気になっていることへ戻る", idea.kind === "idea");
+
+      // --- 並び：いま効いているものから ---
+      reset();
+      state.notes = [{ id: "n-bw", text: "x", hash: "bw", capturedAt: T(9, 0), source: "talk", createdAt: T(9, 0) }];
+      for (const t of ["毎日30分は歩きたい。", "夜は予定を入れないで。", "朝のほうが集中できるタイプ。", "いつか陶芸をやってみたいかも。"]) await say(t, T(9, 0));
+      showTab("p-me");
+      const tx = $("#p-me").textContent;
+      const at = w => tx.indexOf(w);
+      ok("BW. 並びは 続けたいこと → こうしてほしい → 会話から集まったこと → 気になっていること → 自分で渡したもの",
+         at("続けたいこと") >= 0 && at("続けたいこと") < at("こうしてほしい、と言ったこと")
+         && at("こうしてほしい、と言ったこと") < at("会話から集まったこと") && at("会話から集まったこと") < at("気になっていること")
+         && at("気になっていること") < at("自分で渡したもの"),
+         ["続けたいこと", "こうしてほしい、と言ったこと", "会話から集まったこと", "気になっていること", "自分で渡したもの"].map(at).join(","));
+      ok("BW. 古い案内（「…」→「訂正」で種類を変える）が戻っていない", !/種類を「タスク」に変えて/.test(tx));
+
+      state.items = keepItems; state.notes = keepNotes; state.turns = keepTurns; state.docs = keepDocs; hideToast(); showTab(keepTab);
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;
