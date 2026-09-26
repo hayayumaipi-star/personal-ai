@@ -908,12 +908,13 @@ function parseWhen(rawText, baseISO, tz) {
      どちらも過ぎていれば（23時半に「10時」）翌日の同じ時刻にする。
      日付を言われているとき（明日10時）は触らない。決めつけない。 */
   let dayShift = 0, altWhen = null;   // altWhen＝もう一方の読み方。聞き返すために持っておく
+  let pmPicked = false;               // 4b で午後へ寄せた（同じ行の別の時刻と並べ直すときに使う）
   if (bareHour && out.timeOnly && tH != null) {
     const at = (dd, hh) => zoned(bp.y, bp.mo, bp.d + dd, hh, tM, tz).getTime();
     const now = base.getTime();
     if (at(0, tH) < now) {
       // 言われたままの時刻が既に過ぎている＝どちらとも取れる。選ぶが、もう一方も覚えておく
-      if (at(0, tH + 12) >= now) { altWhen = { h: tH, dd: 1 }; tH += 12; pmShift = 12; }
+      if (at(0, tH + 12) >= now) { altWhen = { h: tH, dd: 1 }; tH += 12; pmShift = 12; pmPicked = true; }
       else { dayShift = 1; altWhen = { h: tH + 12, dd: 1 }; }
     }
   }
@@ -946,6 +947,8 @@ function parseWhen(rawText, baseISO, tz) {
     hasTime, vagueTime, isDeadline,
     // 日付の言葉がまったく無かった（時刻だけ）。AIが日付を足していないかの判定に使う
     timeOnly: !!out.timeOnly,
+    // 午前とも午後とも日付とも言われていない時刻（決まり4b）。同じ行の別の時刻と並べ直すときに見る（決まり0e）
+    ampmOpen: !!(bareHour && out.timeOnly && hasTime), pmPicked,
     rangeDays: out.spanDays || 0,
     span: span || tSpan
   };
@@ -1075,9 +1078,16 @@ function parseDuration(rawText) {
 const RE_TASK  = /(ないといけない|なければならない|なきゃいけない|しなきゃ|しないと|ないとまずい|ねばならない|必要がある|todo|やること|タスク|忘れてた|忘れずに|忘れないように)/i;
 /* 意志形（送ろう・やろう）も動詞として拾う。話し言葉ではこちらの方が多い。 */
 const RE_VERB  = /(する|しよ|やる|やら|やり|やろ|作る|作ら|作り|作ろ|書く|書か|書き|書け|書こ|送る|送ら|送り|送ろ|送信|出す|出さ|出し|出そ|提出|買う|買わ|買い|買お|予約|準備|連絡|返信|読む|読ま|読み|読も|確認|申し込|片付け|まとめ|調べ|練習|掃除|洗濯|支払|登録|予習|復習|行く|行か|行こ|会う|会い|会お|電話|メール)/;
-const RE_EVENT = /(会議|ミーティング|打ち合わせ|打合せ|面談|商談|授業|講義|ゼミ|アポ|診察|受診|通院|歯医者|歯科|病院|クリニック|健診|検診|予防接種|整体|接骨|整骨|リハビリ|カウンセリング|美容院|美容室|床屋|理容|面接|試験|ライブ|試合|出発|集合|飲み会|説明会|発表|銀行|役所|郵便局|ジム|レッスン|教習|面会|デート|内見|引っ越し|納品|搬入|出社|登校|健康診断|人間ドック|定期健診|説明|授与|式)/;
+const RE_EVENT = /(解散|会議|ミーティング|打ち合わせ|打合せ|面談|商談|授業|講義|ゼミ|アポ|診察|受診|通院|歯医者|歯科|病院|クリニック|健診|検診|予防接種|整体|接骨|整骨|リハビリ|カウンセリング|美容院|美容室|床屋|理容|面接|試験|ライブ|試合|出発|集合|飲み会|説明会|発表|銀行|役所|郵便局|ジム|レッスン|教習|面会|デート|内見|引っ越し|納品|搬入|出社|登校|健康診断|人間ドック|定期健診|説明|授与|式)/;
 /* 時刻が言われていて「〜に行く／向かう／予約」なら、単語リストに無くても固定の予定として扱う。
    「明日の5時に○○に行く」が予定にならないのは、秘書として使い物にならないため。 */
+/* その日のあり方（在宅・休み・何限・オンライン）。決まり0e・classify を見ること。
+   RE_DAY_WHOLE は、時刻が無ければ**終日**にするもの（一日まるごとの話）。 */
+const RE_DAY_STATE = /(在宅勤務|在宅|テレワーク|リモートワーク|リモート|お休み|休み|休日|祝日|有給|有休|代休|半休|午前休|午後休|休講|オンライン|対面|夜勤|日勤|早番|遅番|中番|出勤日?|定休日?)(です|だ|になった|になりました)?(けど|けれど|けれども|が)?[。！!、，,]*$/;
+const RE_DAY_WHOLE = /(在宅勤務|在宅|テレワーク|リモートワーク|リモート|お休み|休み|休日|祝日|有給|有休|代休|夜勤|日勤|早番|遅番|中番|出勤日?|定休日?)(です|だ|になった|になりました)?(けど|けれど|けれども|が)?[。！!、，,]*$/;
+const RE_FROM_NOUN = /\d\s*(?:時(?!間)|:\d{2})\s*(?:半|\d{1,2}\s*分)?\s*から[、，,]?\s*[^\s。！!?？]*[一-鿿々ァ-ヴー]{2,}[。！!、，,]*$/;
+const RE_FROM_NOUN_CUT = /(午前|午後|朝|昼|夕方|夜|晩|深夜|夜中)?\s*\d{1,2}\s*(?:時(?!間)|:\d{2})\s*(?:半|\d{1,2}\s*分)?\s*から/;
+const RE_WEATHER = /(雨|雪|晴れ|曇り|くもり|台風|雷|強風)/;
 const RE_GOTO  = /([にへ])\s*(行く|行き|いく|向かう|向かい|寄る|寄り|入る|集合|到着)|(予約(が|を|は|し)|アポ|待ち合わせ)/;
 /* 食事は言い方がばらばらで（ご飯・昼飯・ランチ…）、ひらがなが多いので語句として拾えない。
    専用に見て、スケジュールには「昼食を食べる」のように揃えた名前で入れる。
@@ -1224,8 +1234,9 @@ const RE_DONE  = /(した$|しました|終わった(?!ら)|終わりました|�
 const RE_CLOCK = /\d{1,2}\s*時(?!間)|\d{1,2}:\d{2}/;   // 「2時間」の「2時」は時刻ではない（テストで見つけた）
 const RE_SEQ = /^(そのあと|その後|それから|あとは|次に|終わったら)/;
 function splitLines(text) {
-  const out = []; let base = 0;
+  const out = []; let base = 0, lineNo = -1;
   for (const raw of text.split(/\r?\n/)) {
+    lineNo++;
     const s = raw.trim();
     if (s.length >= 2) {
       const rel = raw.indexOf(s), st = base + (rel < 0 ? 0 : rel);
@@ -1237,7 +1248,9 @@ function splitLines(text) {
         const t = c.text.trim();
         const clock = RE_CLOCK.test(c.text), seq = RE_SEQ.test(t);
         const openRange = cur && /から[、，,]?\s*$/.test(cur.text);
-        if (cur && t && !openRange && ((clock && cur.clock) || (seq && cur.text.trim().length >= 2))) { topics.push(cur); cur = null; }
+        // ③「明日は在宅だけど、10時から会議」——「けど、」で区切られた前の話に時刻が無く、次の話に時刻がある
+        const but = clock && !cur?.clock && cur && /(けど|けれど|けれども|だが)[、，,]\s*$/.test(cur.text);
+        if (cur && t && !openRange && ((clock && cur.clock) || (seq && cur.text.trim().length >= 2) || but)) { topics.push(cur); cur = null; }
         if (!cur) cur = { text: "", start: c.start, clock: false };
         cur.text += c.text; cur.clock = cur.clock || clock;
       }
@@ -1252,7 +1265,7 @@ function splitLines(text) {
           if (q.length >= 2) { const r = c.indexOf(q); sentences.push({ text: q, start: tst + o2 + (r < 0 ? 0 : r), end: tst + o2 + (r < 0 ? 0 : r) + q.length }); }
           o2 += c.length;
         }
-        out.push({ text: q0, start: tst, end: tst + q0.length, sentences: sentences.length ? sentences : [{ text: q0, start: tst, end: tst + q0.length }] });
+        out.push({ text: q0, start: tst, end: tst + q0.length, lineNo, sentences: sentences.length ? sentences : [{ text: q0, start: tst, end: tst + q0.length }] });
       }
     }
     base += raw.length + 1;
@@ -1349,6 +1362,7 @@ function cleanTitle(s, when, opts) {
      続けたいことでは「〜たい」が中身なので触らない（決まり3d）。 */
   t = t.replace(/^(そのあと|その後|それから|あとは|次に|終わったら)[、，,\s]*/, "");
   t = t.replace(/(に|へ)(変更|移動)(して|する|で|です)?$/, "").trim();
+  t = t.replace(/(だけど|けれども|けれど|けど|だが)$/, "").trim();     // 「在宅だけど、10時から会議」の前半
   // 話題を分けた前半の終わり（「会議で、そのあと…」「7時に起きて、…」）
   t = t.replace(/^(\S*[一-鿿々ァ-ヴー])で$/, (m, x) => x.length >= 2 ? x : m).replace(/(起き|寝)て$/, "$1る").replace(/家を出て$/, "家を出る");
   if (!keepHabit) t = t.replace(/したい$/, "する").replace(/([えけげせぜてでねへべめれ]|寝|見|出|着|得)たい$/, "$1る");
@@ -1480,7 +1494,16 @@ function classify(rawS, lineWhen) {
      （2026-09-26・実測で予定「会議の資料まだ」ができていた）。開いている用事との照合は ruleOps の NOTYET が受け持つ。 */
   if (/まだ(でき(て(い)?ない)?|終わって(い)?ない|やって(い)?ない)?[。！!]*$/.test(s) && !RE_SELFTASK.test(s)) return null;
   if (RE_CANCELLED.test(s) && !RE_SELFTASK.test(s)) return "memo";
+  /* 「明日は在宅勤務」「明日の2限はオンライン」「来週の月曜は祝日」——**その日のあり方**を言っているだけで、
+     動詞が無い（2026-09-26・何も記録されていなかった）。日付を言っているときだけ予定にする。
+     時刻が無ければ、在宅・休みのような一日の話は終日（extractByRule）、2限のようなものは時刻未定。 */
+  if (RE_DAY_STATE.test(s) && lineWhen && lineWhen.dayKey && !lineWhen.timeOnly && !RE_SELFTASK.test(s)) return "event";
   if (isEvent && lineWhen && lineWhen.hasTime) return "event";
+  /* 「13時から散歩」「夜9時からテレビ」——**始まりの時刻＋名詞**で終わる（動詞が無い）。
+     これも何も記録されていなかった。始まりを言っているので予定にする（終わりは仮置き・決まり6f）。
+     「3時から雨」は天気なので入れない。 */
+  if (lineWhen && lineWhen.hasTime && RE_FROM_NOUN.test(s) && !RE_WEATHER.test(s) && contentWords(s.replace(RE_FROM_NOUN_CUT, "")).length
+      && !RE_SELFTASK.test(s) && !isCond && !isGoal) return "event";
   /* 「1時から2時まで勉強する」——**始まりと終わりの両方**を言っているなら、
      語彙に無くても予定にする（v4.3）。用事(task)にすると所要時間だけが残り、
      `planFor` が空いている場所へ勝手に置く（言った時刻に置かれない）。
@@ -1525,15 +1548,72 @@ function classify(rawS, lineWhen) {
   return null;
 }
 
+/* **同じ行の時刻は、言った順に並ぶように読む**（2026-09-26・本人の指示「まだ読めていないものも直して」）。
+   14時に「10時から12時まで勉強して、13時から15時まで散歩」と言うと、決まり4b が「10時」を
+   **夜の22時**へ寄せ、あとに言った散歩（13時）より後ろになっていた。13時を名指しした人の「10時」は朝。
+   **動かすのは、午前とも午後とも日付とも言われていない時刻（`ampmOpen`）だけ**。
+   はっきり言った時刻（13時・午後3時・明日10時）は動かさない。どちらも**同じ日の中だけ**：
+   ① 4b で午後へ寄せた時刻が、**あとに言ったはっきりした時刻より後ろ**にある → 寄せたぶんを戻す
+   ② 寄せなかった時刻が、**前に言ったはっきりした時刻より前**にある → 午後へ寄せる
+   選ばなかったほうは `altStart` に残して聞き返す（決まり2・決まり4b）。
+   **ルールとAIで答えを割らない**（決まり4i）——`applyFields` の12時間の検算も、この結果を見る。 */
+function shiftWhen(w, ms) {
+  const mv = x => x ? new Date(new Date(x).getTime() + ms).toISOString() : x;
+  return Object.assign({}, w, { iso: mv(w.iso), start: mv(w.start), end: mv(w.end),
+    altStart: w.start || w.iso, altEnd: w.end || null, altDayKey: w.dayKey, pmPicked: ms > 0 });
+}
+function orderByLine(list, tz) {        // list: [{ line: 行番号, w: parseWhen の結果 }]
+  const H12 = 720 * 60000;
+  const at = w => (w && w.hasTime) ? new Date(w.start || w.iso).getTime() : null;
+  return list.map((x, i) => {
+    const w = x.w;
+    if (!w || !w.ampmOpen || at(w) == null) return w;
+    const firm = (y, j) => j !== i && y.line === x.line && y.w && !y.w.ampmOpen && at(y.w) != null && y.w.dayKey === w.dayKey;
+    const later = list.filter((y, j) => j > i && firm(y, j)), earlier = list.filter((y, j) => j < i && firm(y, j));
+    if (w.pmPicked && later.some(y => at(w) > at(y.w) && at(w) - H12 < at(y.w))) return shiftWhen(w, -H12);
+    if (!w.pmPicked && earlier.some(y => at(w) < at(y.w) && at(w) + H12 > at(y.w))) {
+      const f = shiftWhen(w, H12);
+      if (dayKey(new Date(f.start || f.iso), tz) === w.dayKey) return f;
+    }
+    return w;
+  });
+}
+
 function extractByRule(note, settings) {
   const tz = settings.timezone;
   const items = [];
   const noteDayKey = dayKey(new Date(note.capturedAt), tz);
   // 読み取りは半角にそろえた文で行い、根拠と引用は原文から取る（位置は1対1なのでずれない）
-  for (const line of splitLines(halfWidth(note.text))) {
+  const topics = splitLines(halfWidth(note.text));
+  /* **前の話で言った日付は、同じ行のあとの話にも効く**（2026-09-26・話題を分けたときに見つけた）。
+     「明日は9時に集合、17時に解散」を2つに分けると、「17時に解散」には日付の言葉が無く、**今日の17時**になった。
+     日本語では日付は一度言えば続く。**時刻だけの話**と「そのあと〜」で始まる話にだけ、前の話の日付を渡す。
+     渡すときは日付を添えて読み直すので、午前・午後の読み方も「日付を言われたとき」（決まり4c）になる。 */
+  const carryFrom = topics.map((l, i) => {
+    for (let j = i - 1; j >= 0; j--) {
+      if (topics[j].lineNo !== l.lineNo) break;
+      const wj = parseWhen(topics[j].text, note.capturedAt, tz);
+      if (wj && !wj.timeOnly && isDate(wj.dayKey) && wj.precision !== "week") return wj.dayKey;
+    }
+    return null;
+  });
+  const carryDay = (text, dk, orig) => {
+    if (!dk) return orig;
+    if (orig ? !orig.timeOnly : !RE_SEQ.test(text.trim())) return orig;
+    const [y, m, d] = dk.split("-").map(Number);
+    const w2 = parseWhen(`${y}年${m}月${d}日 ` + text, note.capturedAt, tz);
+    if (!w2 || w2.dayKey !== dk) return orig;            // 読めなければ元のまま
+    return Object.assign(w2, { span: orig ? orig.span : null, carried: true, isDeadline: orig ? orig.isDeadline : false });
+  };
+  const rawWhens = topics.map((l, i) => carryDay(l.text, carryFrom[i], parseWhen(l.text, note.capturedAt, tz)));
+  const lineWhens = orderByLine(topics.map((l, i) => ({ line: l.lineNo, w: rawWhens[i] })), tz);
+  for (const [ti, line] of topics.entries()) {
     const rawLine = note.text.slice(line.start, line.end);
     // 日時と所要時間は行全体から拾う（「今日中にやる。15分くらい。」に対応）
-    const when = parseWhen(line.text, note.capturedAt, tz);
+    const when = lineWhens[ti];
+    // 並べ直した（上の orderByLine）ぶんは、文ごとの読み取りにも同じだけ効かせる
+    const moved = when && rawWhens[ti] && when !== rawWhens[ti]
+      ? new Date(when.start || when.iso) - new Date(rawWhens[ti].start || rawWhens[ti].iso) : 0;
     // 所要時間は、移動時間の文を除いた部分から拾う
     // （「移動に30分かかる」の30分を、予定の長さにしない）
     const dur = parseDuration(line.sentences.filter(s => parseTravel(s.text) == null).map(s => s.text).join(""));
@@ -1568,7 +1648,9 @@ function extractByRule(note, settings) {
     }
     usedSen.add(sen.start);
     const s = sen.text;
-    const senWhen = parseWhen(s, note.capturedAt, tz);
+    const senWhen0 = carryDay(s, carryFrom[ti] && RE_CLOCK.test(s) ? carryFrom[ti] : null, parseWhen(s, note.capturedAt, tz));
+    const senWhen = (moved && senWhen0 && senWhen0.ampmOpen && senWhen0.hasTime
+      && (senWhen0.start || senWhen0.iso) === (rawWhens[ti].start || rawWhens[ti].iso)) ? shiftWhen(senWhen0, moved) : senWhen0;
     // 1行に複数の話題があるときは、行全体の日時を他の話題に持ち込まない。
     // （「来週の水曜に美容院。今年は走る習慣をつけたい。」の目標に水曜の期限を付けない）
     /* **目標は、別の文の日付を借りない**（2026-09-26・本人の指示）。
@@ -1657,6 +1739,14 @@ function extractByRule(note, settings) {
           base.start = zoned(sy, sm, sd, 0, 0, tz).toISOString();
           base.timeUnknown = false;
         }
+      }
+      /* 「明日は在宅勤務」「来週の月曜は休み」——時刻が無い一日の話は**終日**（決まり4g と同じ扱い）。
+         終日の枠は作業時間をふさがない。ふさぎたいときは「その日は予定を入れないで」（restDay）。 */
+      if (!w.hasTime && !base.allDay && RE_DAY_WHOLE.test(halfWidth(s))) {
+        const [sy, sm, sd] = base.dayKey.split("-").map(Number);
+        base.allDay = true; base.timeUnknown = false; base.endUnknown = false;
+        base.start = zoned(sy, sm, sd, 0, 0, tz).toISOString();
+        base.end = zoned(sy, sm, sd, 23, 59, tz).toISOString();
       }
       const mtE = mealTitle(s, note.capturedAt, tz);   // 「12時からランチ」も名前を揃える
       if (mtE) { base.title = mtE; base.isMeal = true; }
@@ -2178,16 +2268,19 @@ function tellNativeTheme() {
 /* 「今日は詰めないで」はその日だけの希望。「しばらくそうして」はずっとの希望。
    混ぜると、一日の気分が永久のルールになってしまう。 */
 function prefs(forDay) {
-  const out = { nextOnly: false, buffer: false, noEveningWork: null, lightDay: false, noSuggest: [], free: [] };
+  const out = { nextOnly: false, buffer: false, noEveningWork: null, lightDay: false, restDay: false, noSuggest: [], free: [] };
   const day = forDay || dayKey(new Date(), state.settings.timezone);
   for (const p of liveItems().filter(i => i.kind === "preference")) {
-    if (p.scopeDay && p.scopeDay !== day) continue;     // その日限りの希望は、その日にだけ効く
+    // その日限りの希望は、その日にだけ効く。「週末は」のように**続く日**なら scopeEnd までの全部の日に効く
+    if (p.scopeDay && (day < p.scopeDay || day > (p.scopeEnd || p.scopeDay))) continue;
     if (p.preferKey === "nextOnly") out.nextOnly = p.preferValue !== false;
     else if (p.preferKey === "buffer") out.buffer = p.preferValue !== false;
     // 「夜までずっと作業したくない」＝ 終了を早めるだけでなく、
     //   残り時間を別の作業で埋めない。急がないものは今日に置かない。
     else if (p.preferKey === "noEveningWork") { out.noEveningWork = typeof p.preferValue === "number" ? p.preferValue : EVENING_DEFAULT_MIN; out.lightDay = true; }
     else if (p.preferKey === "noSuggest") { if (typeof p.preferValue === "string") out.noSuggest.push(p.preferValue); }
+    // 「週末は何もしたくない」「明日は予定を入れないで」（2026-09-26）。急がないものをその日に置かない
+    else if (p.preferKey === "restDay") { out.lightDay = true; out.restDay = true; }
     else out.free.push(p);
   }
   return out;
@@ -3084,7 +3177,9 @@ function planFor(key, opts) {
     // 「今日は詰めない」と言われている日は、急がないものを今日に置かない
     if (pref.lightDay && bucket >= 2) {
       unplaced.push({ item: t, need: t.remainingMin != null ? t.remainingMin : (t.estimateMin || st.defaultEstimate),
-        reason: "今日はこれ以上詰めないでおきます（夜まで作業したくないと言っていたので）" });
+        // 理由は、効いている希望を名指しする（決まり6n）。どちらも言っていれば、この日そのものの希望を先に
+        reason: pref.restDay ? "この日は予定を入れたくないと言っていたので、急がないものは置いていません"
+                             : "今日はこれ以上詰めないでおきます（夜まで作業したくないと言っていたので）" });
       continue;
     }
     const assumed = t.estimateMin == null && t.remainingMin == null;
@@ -3314,7 +3409,8 @@ function itemHTML(it, opts = {}) {
     : (it.due ? `<span class="mono">${it.duePrecision === "exact" ? fmtDT(it.due, tz) : fmtDT(it.due, tz).slice(0, 5) + (it.duePrecision === "week" ? " ごろ" : " まで")}</span>` : `<span>期限なし</span>`);
   const est = it.kind === "task" && (it.remainingMin != null || it.estimateMin != null)
     ? `<span class="mono">${it.remainingMin != null ? "残り" + durJa(it.remainingMin) : durJa(it.estimateMin)}${it.estimateUncertain ? "＋予備" : ""}</span>` : "";
-  if (it.kind === "preference") bits.push(`<span class="chip">${it.scopeDay ? "この日だけ" : "ずっと"}</span>`);
+  if (it.kind === "preference") bits.push(`<span class="chip">${!it.scopeDay ? "ずっと"
+    : it.scopeEnd ? `${it.scopeDay.slice(5).split("-").map(Number).join("/")}〜${it.scopeEnd.slice(5).split("-").map(Number).join("/")}` : "この日だけ"}</span>`);
   if (it.kind === "task" && it.winFrom != null && it.winTo != null)
     bits.push(`<span class="chip">${hhmm(it.winFrom)}〜${hhmm(it.winTo)}の間に</span>`);
   else if (it.kind === "task" && it.preferWindow) bits.push(`<span class="chip">${({ morning: "午前中に", afternoon: "午後に", evening: "夕方以降に" })[it.preferWindow]}</span>`);
@@ -4375,10 +4471,14 @@ function renderWhere() {
      **端末の中だけのときは、出さない**（2026-09-26・本人の指示「この端末のみという表示はいらない」）。
      端末に記録を置くのはアプリとしてふつうのことで、**知らせるべき事実が無い**。
      共有の場所のほうは**条件つきの判断**なので、ここは消さない（事実＋条件の1文）。 */
+  /* **2026-09-26 に本人が共有をやめた。** 前の「リンクを開いた人に見えるので、見られて困ることは
+     入れないでください」は**共有しているとき**の条件で、いまは嘘になる。共有しているかどうかは
+     このページからは分からない（共有の設定は claude.ai 側）ので、**どちらでも本当の1文**にする：
+     保存先の事実と、共有したらどうなるか。条件つきの判断ごと本人が決め直したので、条件は外した。 */
   el.hidden = !DB;
   el.innerHTML = DB
-    ? "<strong>claude.ai の共有の場所にあります。</strong>"
-      + "リンクを開いた人に見えるので、見られて困ることは入れないでください。"
+    ? "<strong>claude.ai の保存先にあります。</strong>"
+      + "このページを共有すると、開いた人にも記録が見えます。"
     : "";
 }
 
@@ -5129,7 +5229,7 @@ function askConfirm({ title, body, yes, danger, alt }) {
    ops はすべて検証してから適用する。AIの言い値では書き換えない。
    ======================================================================= */
 const OPS = ["add", "update", "done", "defer", "drop", "prefer", "memo", "condition", "profile", "progress", "idea"];
-const PREF_KEYS = ["nextOnly", "buffer", "noEveningWork", "noSuggest", "free"];
+const PREF_KEYS = ["nextOnly", "buffer", "noEveningWork", "noSuggest", "restDay", "free"];
 /* 「夜は予定を入れないで」の既定＝18:00（分）。**3か所に同じ数字が散っていた**（v6.0・5周目）。
    ルールが作る値・検算のフォールバック・`prefs` の読み取り、その全部でこれを使う。
    **`WINDOWS.afternoon` の `18 * 60` とは別物**——あちらは「午後の終わり」で、意味が違う。
@@ -5156,6 +5256,29 @@ function evidenceOf(note, quote) {
 const RE_FINISH = /((できた|出来た|終わった|終えた|送った|送信した|提出した|済んだ|済ませた)(?!ら)|終わりました|完了(?!したら|次第)|やった(よ|わ)?$)/;
 const RE_NEXTONLY = /((一つ|ひとつ|1つ)(だけ)?|次にやること(だけ)?).{0,12}(分かる|わかる|表示|出して|教えて|の方が|でいい|にして)/;
 const RE_BUFFER = /(詰めすぎ|詰め込ま|余裕を持|余裕がほしい|余裕が欲しい|ゆとり)/;
+/* 「週末は何もしたくない」「明日は予定を入れないで」「土曜はのんびりしたい」（2026-09-26・何も記録されていなかった）。
+   **日付を言っているときだけ**（「何もしたくない」だけなら気分の話）。夜・午前などの時間帯つきは
+   その時間帯の話なので入れない（「夜は予定を入れないで」は noEveningWork）。
+   返すのはその日から最後の日まで（「週末」なら土・日）。 */
+const RE_REST_DAY = /(何もしたくない|何もしない|何もやりたくない|何も入れないで|何も入れたくない|予定(を|は)?入れないで|予定(を|は)?入れたくない|空けておいて|空けといて|のんびりしたい|のんびり過ごしたい|ゆっくりしたい|ゆっくり休みたい|ゆっくり過ごしたい|休養日にしたい)/;
+function restScope(sx, note) {
+  const s = halfWidth(sx);
+  if (!RE_REST_DAY.test(s) || /(朝|昼|夕方|夜|晩|午前|午後|深夜)(は|に|の間|中)/.test(s) || RE_CLOCK.test(s)) return null;
+  const tz = state.settings.timezone;
+  const w = parseWhen(s, note.capturedAt, tz);
+  if (!w) return null;                                   // 時刻は上で外してあるので、w があれば日付を言っている
+  /* 「週末」は土曜から日曜へ（前向き）、「今週」「来週」は**その週の終わり**が dayKey なので後ろ向きに数える。 */
+  const add = (k, n) => dayKey(new Date(keyToDate(k, tz).getTime() + n * 86400000), tz);
+  let from = w.dayKey, to = w.spanEndKey || null;
+  if (!to && w.rangeDays > 0) {
+    if (/週末/.test(s)) to = add(from, w.rangeDays);
+    else { to = from; from = add(from, -w.rangeDays); }
+  }
+  const today = dayKey(new Date(note.capturedAt), tz);
+  if (from < today) from = today;                        // 過ぎた日を空けても意味が無い
+  if (to && to > add(from, 31)) to = add(from, 31);
+  return { from, to: to && to > from ? to : null };
+}
 const RE_NOEVENING = /(夜まで.{0,6}(したくない|やりたくない|作業)|早めに寝|早く寝|夜は.{0,6}(やらない|入れない)|寝る前に.{0,8}始めないように)/;
 const RE_KEEP = /(見返せる|見返し|残しておき|残しておいて|あとで読|後で読|メモしておいて)/;
 /* 家にあるもの・食材の話。あとで「何を食べよう」と聞かれたときに参照する。 */
@@ -5247,11 +5370,13 @@ function ruleOps(note) {
   for (const l of splitLines(text)) for (const st of l.sentences) {
     if (suggestKeyIn(st.text) && (RE_NO_SUGGEST.test(st.text) || RE_YES_SUGGEST.test(st.text)))
       wishSents.push(st.text);
+    if (restScope(st.text, note)) wishSents.push(st.text);
   }
   const inWish = t => wishSents.some(sx => sx.includes(t) || t.includes(sx));
   for (const it of extractByRule(note, state.settings)) {
-    if (it.evidence && inWish(it.evidence.text)) continue;
+    // 体調は要望の文の中にあっても残す（「今日は疲れたから何もしたくない」の「疲れた」）
     if (it.kind === "condition") { ops.push({ op: "condition", text: it.selfReport, quote: it.evidence.text }); continue; }
+    if (it.evidence && inWish(it.evidence.text)) continue;
     const twin = restating && state.items.find(x =>
       x.status === "open" && x.kind === it.kind && sameTopic(x.title, it.title));
     if (twin) { needsAi = true; continue; }       // 既にあるものの言い直し。作らずに本人へ伝える
@@ -5318,7 +5443,20 @@ function ruleOps(note) {
   const scope = oneDay ? dayKey(new Date(note.capturedAt), state.settings.timezone) : null;
   if (RE_NEXTONLY.test(text)) ops.push({ op: "prefer", key: "nextOnly", value: true, scopeDay: scope, text: "次にやることを一つだけ見せてほしい", quote: q });
   if (RE_BUFFER.test(text)) ops.push({ op: "prefer", key: "buffer", value: true, scopeDay: scope, text: "予定を詰めすぎず、余裕を持たせてほしい", quote: q });
-  if (RE_NOEVENING.test(text)) ops.push({ op: "prefer", key: "noEveningWork", value: EVENING_DEFAULT_MIN, scopeDay: scope, text: "夜は作業を入れないでほしい", quote: q });
+  /* 「明日の夜は予定を入れないで」は**明日の夜だけ**（2026-09-26・休みの日の希望を足したときに見つけた）。
+     前は「今日」と言わない限り**ずっと**の希望になり、毎晩が使えなくなっていた。
+     その文で日付を言っていて、「から／以降／しばらく」が無いときだけ、その日に限る。 */
+  if (RE_NOEVENING.test(text)) {
+    const sx = sents.find(x => RE_NOEVENING.test(x)) || text;
+    const dw = parseWhen(sx, note.capturedAt, state.settings.timezone);
+    const dated = !scope && dw && !dw.timeOnly && dw.precision === "day" && !/(から|以降|しばらく|これから|ずっと|いつも|今後|毎日|基本的に)/.test(sx);
+    ops.push({ op: "prefer", key: "noEveningWork", value: EVENING_DEFAULT_MIN, scopeDay: dated ? dw.dayKey : scope, text: "夜は作業を入れないでほしい", quote: q });
+  }
+  // 「週末は何もしたくない」「明日は予定を入れないで」——その日（日々）を空けておきたい（2026-09-26）
+  for (const sx of sents) {
+    const r = restScope(sx, note); if (!r) continue;
+    ops.push({ op: "prefer", key: "restDay", value: true, scopeDay: r.from, scopeEnd: r.to, text: sx.slice(0, 60), quote: sx.slice(0, 60) });
+  }
   /* 「片付けは提案しないで」「片付けも提案して」（v7.1）。**文ごとに**見る——
      1回の発言で2つ外すことがあるし、他の話題を巻き込まないため。 */
   for (const sx of sents) {
@@ -5633,6 +5771,10 @@ async function applyOps(rawOps, note) {
       const text = typeof o.text === "string" && o.text.trim() ? o.text.trim().slice(0, 120) : String(o.quote || "").slice(0, 120);
       if (!text) continue;
       const scopeDay = isDate(o.scopeDay) ? o.scopeDay : null;
+      // 続く日（「週末は」）の終わり。始まり以降・31日以内のものだけ受け取る（決まり9）
+      const scopeEnd = scopeDay && isDate(o.scopeEnd) && o.scopeEnd > scopeDay
+        && (keyToDate(o.scopeEnd, tz) - keyToDate(scopeDay, tz)) <= 31 * 86400000 ? o.scopeEnd : null;
+      if (key === "restDay" && !scopeDay) { asks.push("どの日を空けておきたいのか分かりませんでした。「明日は予定を入れないで」のように日にちを添えてください。"); continue; }
       /* 値の検算は**1か所**（v5.9・4周目の調査で発見）。
          新しく作るときだけ検算していて、**既にある希望を更新する道は素通し**だった。
          `noEveningWork` は「分」として `planFor` に効くので、`0` が入ると
@@ -5646,16 +5788,17 @@ async function applyOps(rawOps, note) {
       /* `noSuggest` は**1件ずつ別の希望**なので、値まで見て突き合わせる（v7.1）。
          key だけで見ると、2つ目を言ったときに1つ目が上書きされて消える。 */
       const existing = liveItems().find(i => i.kind === "preference" && i.preferKey === key && key !== "free"
-        && (i.scopeDay || null) === scopeDay
+        && (i.scopeDay || null) === scopeDay && (i.scopeEnd || null) === scopeEnd
         && (key !== "noSuggest" || i.preferValue === value));
       if (existing) { existing.preferValue = value; existing.title = text; existing.updatedAt = new Date().toISOString(); note2(existing, "言い直しで更新"); await putItem(existing); }
       else {
         await putItem({
           id: uid(), noteId: note.id, kind: "preference", title: text, preferKey: key, scopeDay,
+          ...(scopeEnd ? { scopeEnd } : {}),
           preferValue: value,
           evidence: evidenceOf(note, o.quote), origin: "user", corrected: false, confirmed: true, status: "open",
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: [],
-          dedupeKey: "pref|" + key + (key === "noSuggest" ? "|" + value : "") + "|" + (scopeDay || "always")
+          dedupeKey: "pref|" + key + (key === "noSuggest" ? "|" + value : "") + "|" + (scopeDay || "always") + (scopeEnd ? "~" + scopeEnd : "")
         });
       }
       changes.push(scopeDay ? `今日の出し方：${text}` : `これからの出し方：${text}`);
@@ -5748,6 +5891,19 @@ function dateWasSpoken(note, tz) {
    本体AIの文章はもう受け取らないので（決まり7b）、v5.1 が心配した
    「予定表は今日なのに返事だけ明日」のズレは、そもそも起きようがない。
    引き戻した事実は `it.dateInferred` に残る（`srcChip()` の由来の印と同じ役目）。 */
+/* ルールが話題ごとに読んだ時刻（分）。同じ発言の ops で何度も読まないよう、発言ごとに覚えておく。 */
+const RULE_MINS = new WeakMap();
+function ruleClockMins(note, tz) {
+  if (RULE_MINS.has(note)) return RULE_MINS.get(note);
+  let mins = [];
+  try {
+    mins = extractByRule(note, state.settings)
+      .filter(i => !i.timeUnknown && !i.allDay && (i.start || (i.duePrecision === "exact" && i.due)))
+      .map(i => minOfDay(i.start || i.due, tz));
+  } catch { mins = []; }
+  RULE_MINS.set(note, mins);
+  return mins;
+}
 function applyFields(it, o, tz, note, opts) {
   /* 同じ発言を、ルールでも読んでおく。AIの読み違いを見つけるための「もう一つの目」。 */
   const rw = (note && note.text)
@@ -5805,10 +5961,15 @@ function applyFields(it, o, tz, note, opts) {
      速い返事へのヒントも「夜」を渡していたのに、AIの時刻がそのまま通った。
      12時間ぴったりのズレは、午前/午後の取り違え以外にはほとんど起きない。
      決まり8「時刻はコードが作る」に揃える。 */
+  /* **比べる相手は「話題ごとの」ルールの時刻**（2026-09-26）。前は発言まるごとの最初の時刻1つと比べていたので、
+     「10時から12時まで勉強して、13時から15時まで散歩」で、AIが正しく返した勉強の10時まで
+     ルールの（並べ直す前の）22時に戻していた。ルールのどれかと一致していれば、そのまま使う。 */
   if (clock && rw && rw.hasTime && (rw.start || rw.iso)) {
-    const ruleMin = minOfDay(rw.start || rw.iso, tz);
     const aiMin = (+clock.slice(0, 2)) * 60 + (+clock.slice(3, 5));
-    if (Math.abs(ruleMin - aiMin) === 720) { clock = hhmm(ruleMin); it.dateInferred = true; }
+    const mins = ruleClockMins(note, tz);
+    const cands = mins.length ? mins : [minOfDay(rw.start || rw.iso, tz)];
+    const hit = cands.includes(aiMin) ? null : cands.find(m => Math.abs(m - aiMin) === 720);
+    if (hit != null) { clock = hhmm(hit); it.dateInferred = true; }
   }
   if (!clock && it.kind === "event" && it.start && !it.timeUnknown) {
     const p = parts(new Date(it.start), tz); clock = pad2(p.h) + ":" + pad2(p.mi);   // 日付だけ動かす
@@ -6202,6 +6363,9 @@ opsに使える形：
 {"op":"defer","id":"既存id","toDate":"YYYY-MM-DD|null","quote":"…"}
 {"op":"drop","id":"既存id","quote":"…"}
 {"op":"prefer","key":"nextOnly|buffer|noEveningWork|free","value":true,"text":"本人の要望を一言で","quote":"…"}
+{"op":"prefer","key":"restDay","scopeDay":"YYYY-MM-DD","scopeEnd":"YYYY-MM-DD|null","text":"本人の言葉のまま","quote":"…"}
+  restDay は「週末は何もしたくない」「明日は予定を入れないで」のように、**ある日（日々）を空けておきたい**とき。
+  scopeDay は最初の日、scopeEnd は最後の日（1日だけなら null）。日付を言っていなければ使わない。
 {"op":"memo","text":"あとで見返したい内容","quote":"…"}
 {"op":"condition","text":"体調についての本人の言葉そのまま","quote":"…"}
 {"op":"profile","text":"この人について日をまたいでも変わらないこと（40字以内）","category":"性格・傾向|好み|苦手・制約|仕事・勉強|体のこと|大事にしていること|その他","quote":"…"}

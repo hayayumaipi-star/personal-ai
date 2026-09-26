@@ -3223,9 +3223,12 @@
          どちらを本物にするかは決まっていて、毎回読ませる必要が無い。
          **消したものを見張り続けない**（決まり15b）ので、その1件はここから外した。 */
       ok("BH. つながっていれば、置き場所の欄を出す", $("#whereNote").hidden === false, "隠れている");
-      ok("BH. つながっていれば、見えることを言う", /リンクを開いた人/.test(shared), shared.slice(0, 40));
-      ok("BH. 見られて困るものを入れない、という条件も残っている",
-         /見られて困ること/.test(shared), shared.slice(0, 60));
+      /* **2026-09-26 に本人が共有をやめた。** 「リンクを開いた人に見えるので、見られて困ることは
+         入れないでください」は共有しているときの条件で、いまは嘘になる。共有しているかどうかは
+         ページからは分からないので、**どちらでも本当の1文**（共有すると見える）にした。 */
+      ok("BH. つながっていれば、共有したら記録も見えることを言う", /共有すると/.test(shared) && /開いた人にも/.test(shared), shared.slice(0, 50));
+      ok("BH. いま共有している、と決めつけない（本人が共有をやめた）",
+         !/見えるので|入れないでください|リンクを開いた人に見え/.test(shared), shared.slice(0, 60));
       ok("BH. ただし助言までは書かない（短く保つ）",
          shared.length <= 60, shared.length + "字：" + shared.slice(0, 70));
 
@@ -4711,6 +4714,116 @@
       r = await read("今日は10時から12時まで会議で、そのあと資料を作る。2時間くらい。");
       ok("BZ. 「会議で、そのあと…」の見出しは「会議」", r.items.some(i => i.kind === "event" && i.title === "会議")
          && (r.items.find(i => i.kind === "task") || {}).estimateMin === 120, sig(r));
+      state.items = keepItems; state.notes = keepNotes; state.turns = keepTurns; state.docs = keepDocs;
+    }
+
+    /* ===== CA群：まだ読めていなかった言い方（2026-09-26・本人の指示「まだ読めていないものも直して」）=====
+       ①その日のあり方（在宅・2限はオンライン）②その日を空けたい（週末は何もしたくない）
+       ③同じ行の時刻は言った順に並ぶ ④前の話の日付は、同じ行のあとの話にも効く */
+    {
+      const keepItems = state.items, keepNotes = state.notes, keepTurns = state.turns, keepDocs = state.docs;
+      const read = async (t, at) => { reset(); const r = await say(t, at || T(9, 0)); return { items: state.items.slice(), asks: r.asks || [] }; };
+      const sig = r => r.items.map(i => i.kind + ":" + i.title).join(" / ");
+      const hm = iso => fmtDT(iso, TZ);
+      const ev = (r, t) => r.items.find(i => i.title === t) || {};
+      let r;
+      r = await read("明日は在宅勤務");
+      ok("CA. 「明日は在宅勤務」は明日の終日の予定", r.items.length === 1 && r.items[0].kind === "event" && r.items[0].title === "在宅勤務"
+         && r.items[0].allDay === true && r.items[0].dayKey === NEXT, sig(r));
+      r = await read("明日の2限はオンライン");
+      ok("CA. 「明日の2限はオンライン」は明日の時刻未定の予定（終日にしない）", r.items.length === 1 && r.items[0].kind === "event"
+         && r.items[0].timeUnknown === true && !r.items[0].allDay && r.items[0].dayKey === NEXT, sig(r));
+      r = await read("明日は在宅だけど、10時から会議");
+      ok("CA. 「在宅だけど、10時から会議」は終日の在宅と、明日10時の会議の2つ", sig(r) === "event:在宅 / event:会議"
+         && ev(r, "在宅").allDay === true && hm(ev(r, "会議").start) === "9/13 10:00", sig(r) + " " + hm(ev(r, "会議").start));
+      r = await read("明日は9時に集合、17時に解散");
+      ok("CA. 前の話の「明日」は、あとの話（17時に解散）にも効く", hm(ev(r, "解散").start) === "9/13 17:00", sig(r) + " " + hm(ev(r, "解散").start));
+      r = await read("明日は10時に歯医者、そのあと買い物");
+      ok("CA. 「そのあと買い物」も、前に言った日（明日）の用事", ev(r, "買い物").dayKey === NEXT, sig(r));
+      r = await read("10時に歯医者、そのあと買い物");
+      ok("CA. 日付を言っていないなら、あとの話に日付を作らない", ev(r, "買い物").kind === "task" && !ev(r, "買い物").dayKey, sig(r));
+      r = await read("明日は1時から会議、そのあと3時から面談");
+      ok("CA. 渡した日付では、午前・午後も「日付を言われたとき」の読み方（1時・3時は午後）",
+         hm(ev(r, "会議").start) === "9/13 13:00" && hm(ev(r, "面談").start) === "9/13 15:00", sig(r));
+      r = await read("週末は何もしたくない");
+      const wk = r.items.find(i => i.kind === "preference") || {};
+      ok("CA. 「週末は何もしたくない」は土日を空けたいという希望（ほかの項目を作らない）", r.items.length === 1 && wk.preferKey === "restDay"
+         && wk.scopeDay === "2026-09-12" && wk.scopeEnd === "2026-09-13", JSON.stringify([wk.preferKey, wk.scopeDay, wk.scopeEnd]) + sig(r));
+      ok("CA. 空けたい日にだけ効く（土日は効き、月曜は効かない）", prefs("2026-09-12").restDay && prefs("2026-09-13").restDay && !prefs("2026-09-14").restDay);
+      ok("CA. 続く日の希望は、その日付で出す（「この日だけ」と出さない）", /9\/12〜9\/13/.test(itemHTML(wk)) && !/この日だけ/.test(itemHTML(wk)));
+      r = await read("明日は予定を入れないで");
+      ok("CA. 「明日は予定を入れないで」は明日1日だけ", r.items.length === 1 && r.items[0].preferKey === "restDay"
+         && r.items[0].scopeDay === NEXT && !r.items[0].scopeEnd, sig(r));
+      r = await read("何もしたくない");
+      ok("CA. 日付の無い「何もしたくない」は気分の話で、空ける日を作らない", !r.items.some(i => i.preferKey === "restDay"), sig(r));
+      r = await read("夜は予定を入れないで");
+      ok("CA. 「夜は予定を入れないで」は今までどおり夜の希望（一日を空けない）", r.items.some(i => i.preferKey === "noEveningWork")
+         && !r.items.some(i => i.preferKey === "restDay"), sig(r));
+      r = await read("明日は何もしないで過ごす");
+      ok("CA. 空けたいと言った文から、用事（何もしないで過ごす）を作らない", r.items.length === 1 && r.items[0].preferKey === "restDay", sig(r));
+      r = await read("明日の夜は予定を入れないで");
+      ok("CA. 「明日の夜は予定を入れないで」は明日の夜だけ（一日を空けない・毎晩にもしない）", r.items.length === 1 && r.items[0].preferKey === "noEveningWork"
+         && r.items[0].scopeDay === NEXT, JSON.stringify(r.items.map(i => [i.preferKey, i.scopeDay])));
+      r = await read("明日から夜は予定を入れないで");
+      ok("CA. 「明日から夜は〜」は明日だけにしない（今までどおりずっとの希望）", r.items.length === 1 && r.items[0].preferKey === "noEveningWork" && !r.items[0].scopeDay,
+         JSON.stringify(r.items.map(i => [i.preferKey, i.scopeDay])));
+      r = await read("今日は疲れたから何もしたくない");
+      ok("CA. 要望の文の中の体調（疲れた）も残す", r.items.some(i => i.kind === "condition") && r.items.some(i => i.preferKey === "restDay"), sig(r));
+      reset();
+      await say("午前中に資料を作る。1時間。", T(9, 0));        // 期限の無い用事（急がない）
+      await say("明日は予定を入れないで", T(9, 1));
+      const pn = planFor(NEXT, { nowMin: -1 });
+      const un = (pn.unplaced || []).find(u => u.item.title === "資料を作る");
+      ok("CA. 空けたい日には急がないものを置かず、その希望を理由に名指しする", !!un && /予定を入れたくないと言っていた/.test(un.reason),
+         un ? un.reason : JSON.stringify((pn.blocks || []).map(b => b.item && b.item.title)));
+      reset();
+      const nx = { id: uid(), text: "x", capturedAt: T(9, 0) };
+      let ax = await applyOps([{ op: "prefer", key: "restDay", text: "いつか休みたい", quote: "x" }], nx);
+      ok("CA. 日付の無い restDay は受け取らず、言う（決まり9）", !state.items.length && ax.asks.some(a => /どの日を空けて/.test(a)), JSON.stringify(ax.asks));
+      ax = await applyOps([{ op: "prefer", key: "restDay", scopeDay: NEXT, scopeEnd: "2027-01-30", text: "しばらく休む", quote: "x" }], nx);
+      ok("CA. 31日を超える終わりは受け取らない（その日だけにする）", state.items.length === 1 && state.items[0].scopeDay === NEXT && !state.items[0].scopeEnd,
+         JSON.stringify(state.items.map(i => [i.scopeDay, i.scopeEnd])));
+      ok("CA. AIへの依頼文に restDay の形を書いている", /"key":"restDay"/.test(String(buildPrompt)));
+
+      r = await read("10時から12時まで勉強して、13時から15時まで散歩", T(14, 0));
+      ok("CA. 14時に「10時から12時まで勉強して、13時から15時まで散歩」——勉強は13時より前の朝10時（夜22時にしない）",
+         hm(ev(r, "勉強する").start) === "9/12 10:00" && hm(ev(r, "散歩").start) === "9/12 13:00", sig(r) + " " + hm(ev(r, "勉強する").start));
+      ok("CA. 並べ直しても黙って確定させない（夜22時のほうを聞き返す）", ev(r, "勉強する").whenAlt && hm(ev(r, "勉強する").whenAlt.start) === "9/12 22:00"
+         && r.asks.some(a => /22:00/.test(a)), JSON.stringify(r.asks));
+      {
+        reset();
+        const n = { id: uid(), text: "10時から12時まで勉強して、13時から15時まで散歩", hash: "ca" + Math.random(), capturedAt: T(14, 0), source: "talk", createdAt: T(14, 0) };
+        ok("CA. 速い返事に渡す時間帯も夜にしない（ルールと同じ根拠・決まり7b）", !/夜/.test(quickWhenHint(n, TZ)), quickWhenHint(n, TZ));
+        await putNote(n);
+        await applyOps([{ op: "add", kind: "event", title: "勉強する", dueDate: KEY, dueTime: "22:00", estimateMin: 120, quote: "10時から12時まで勉強して" },
+                        { op: "add", kind: "event", title: "散歩", dueDate: KEY, dueTime: "13:00", estimateMin: 120, quote: "13時から15時まで散歩" }], n);
+        ok("CA. AIが勉強を22時と返しても、ルールの並べ方（10時）に揃える（決まり4i）", hm((state.items.find(i => i.title === "勉強する") || {}).start) === "9/12 10:00"
+           && hm((state.items.find(i => i.title === "散歩") || {}).start) === "9/12 13:00", JSON.stringify(state.items.map(i => [i.title, hm(i.start)])));
+        reset();
+        const n2 = Object.assign({}, n, { id: uid(), hash: "cb" + Math.random() });
+        await putNote(n2);
+        await applyOps([{ op: "add", kind: "event", title: "勉強する", dueDate: KEY, dueTime: "10:00", estimateMin: 120, quote: "10時から12時まで勉強して" }], n2);
+        ok("CA. AIが正しく10時と返したら、そのまま使う（前は22時に戻していた）", hm((state.items[0] || {}).start) === "9/12 10:00", hm((state.items[0] || {}).start));
+        reset();
+        const n3 = { id: uid(), text: "朝10時に会議、夜10時に電話する", hash: "cc" + Math.random(), capturedAt: T(8, 0), source: "talk", createdAt: T(8, 0) };
+        await putNote(n3);
+        await applyOps([{ op: "add", kind: "task", title: "電話する", dueDate: KEY, dueTime: "22:00", quote: "夜10時に電話する" }], n3);
+        ok("CA. AIの時刻がルールのどれかと同じなら、別の話の時刻（12時間ずれ）へ動かさない", hm((state.items[0] || {}).due) === "9/12 22:00", hm((state.items[0] || {}).due));
+      }
+      r = await read("10時から12時まで勉強して、13時から15時まで散歩", T(8, 0));
+      ok("CA. 朝8時なら、今までどおり10時（聞き返さない）", hm(ev(r, "勉強する").start) === "9/12 10:00" && !ev(r, "勉強する").whenAlt, sig(r));
+      r = await read("10時から12時まで勉強する", T(14, 0));
+      ok("CA. 時刻が1つだけなら、今までどおり夜22時（決まり4b）", hm(ev(r, "勉強する").start) === "9/12 22:00", hm(ev(r, "勉強する").start));
+      r = await read("10時から12時まで勉強して\n13時から15時まで散歩", T(14, 0));
+      ok("CA. 改行で分けた別の行どうしは並べ直さない", hm(ev(r, "勉強する").start) === "9/12 22:00", hm(ev(r, "勉強する").start));
+      r = await read("13時から散歩、そのあと4時から勉強", T(3, 0));
+      ok("CA. 夜中3時の「13時から散歩、そのあと4時から勉強」——勉強は散歩のあとの16時", hm(ev(r, "散歩").start) === "9/12 13:00"
+         && hm(ev(r, "勉強").start) === "9/12 16:00", sig(r) + " " + hm(ev(r, "勉強").start));
+      r = await read("夜9時からテレビ");
+      ok("CA. 「夜9時からテレビ」（始まりの時刻＋名詞）は予定", r.items.length === 1 && r.items[0].kind === "event" && r.items[0].title === "テレビ"
+         && hm(r.items[0].start) === "9/12 21:00", sig(r));
+      r = await read("3時から大雨");
+      ok("CA. 「3時から大雨」（天気）は予定にしない", !r.items.length, sig(r));
       state.items = keepItems; state.notes = keepNotes; state.turns = keepTurns; state.docs = keepDocs;
     }
 
