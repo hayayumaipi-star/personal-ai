@@ -4185,6 +4185,78 @@
       state.items = keepItems; state.notes = keepNotes; view.day = keepDay; showTab(keepTab);
     }
 
+    /* ===== BT群：読み取りの3つ（2026-09-26・本人の指示「読み取りの３つも直して」）=====
+       15l の最後に「気づいたが直していないこと」として挙げた3つ。
+       ① 目標の見出しから「毎日30分」を落とさない（くり返しと長さが目標の中身そのもの）
+       ② 同じ行の別の文の「今日」を、目標の期限に持ち込まない
+       ③ 「今日は少し頭が痛い。」を体調として拾う（前は何も記録されなかった）
+       **③は広げすぎない**：「頭が痛いから病院に行かないと」は用事、
+       「夜はいつも頭が痛くなる」は変わらないこと（わたしのこと）のまま。 */
+    {
+      const keepItems = state.items, keepNotes = state.notes, keepTurns = state.turns, keepDocs = state.docs;
+      const by = k => state.items.filter(i => i.kind === k);
+
+      reset();
+      await say("毎日30分は歩きたい。", T(9, 0));
+      const g1 = by("goal")[0];
+      ok("BT. 目標の見出しに「毎日30分」が残る",
+         !!g1 && /毎日/.test(g1.title) && /30分/.test(g1.title), g1 ? g1.title : "目標が無い");
+
+      reset();
+      await say("今日は少し頭が痛い。夜は予定を入れないで。毎日30分は歩きたい。", T(9, 0));
+      const g2 = by("goal")[0];
+      ok("BT. 別の文の「今日」を、目標の期限にしない",
+         !!g2 && !g2.dayKey && g2.duePrecision !== "day",
+         g2 ? (g2.dayKey || "-") + " / " + g2.duePrecision : "目標が無い");
+      /* 上の行は体調も拾うので `single` が偽になり、行の日付はもともと渡らない。
+         **③を直したせいで②が見えなくなる**ので、目標しか拾わない行でも測る。 */
+      reset();
+      await say("今日は雨で出かけられなかった。毎日30分は歩きたい。", T(9, 0));
+      const g3 = by("goal")[0];
+      ok("BT. 目標しか拾わない行でも、別の文の「今日」を期限にしない",
+         !!g3 && state.items.length === 1 && !g3.dayKey && g3.duePrecision !== "day",
+         JSON.stringify(state.items.map(i => i.kind + ":" + i.title + "/" + (i.dayKey || "-"))));
+      reset();
+      await say("今日は少し頭が痛い。夜は予定を入れないで。毎日30分は歩きたい。", T(9, 0));
+      const c2 = by("condition")[0];
+      ok("BT. 同じ行の体調は、その文だけを本人の言葉として残す",
+         !!c2 && c2.selfReport === "今日は少し頭が痛い。", c2 ? c2.selfReport : "体調が無い");
+      ok("BT. 同じ行の要望は、要望のまま",
+         by("preference").length === 1, JSON.stringify(state.items.map(i => i.kind)));
+
+      reset();
+      await say("今日は少し頭が痛い。", T(9, 0));
+      ok("BT. 「今日は少し頭が痛い」を体調として拾う",
+         by("condition").length === 1 && state.items.length === 1,
+         JSON.stringify(state.items.map(i => i.kind + ":" + i.title)));
+
+      reset();
+      await say("お腹が痛い。明日までに資料を作らないと。", T(9, 0));
+      ok("BT. 体調と用事が同じ行でも、両方拾う",
+         by("condition").length === 1 && by("task").length === 1,
+         JSON.stringify(state.items.map(i => i.kind + ":" + i.title)));
+
+      reset();
+      await say("頭が痛いから病院に行かないと", T(9, 0));
+      ok("BT. 「痛いから病院に行かないと」は用事のまま",
+         by("condition").length === 0 && (by("task").length + by("event").length) === 1,
+         JSON.stringify(state.items.map(i => i.kind + ":" + i.title)));
+
+      reset();
+      await say("歯が痛いので歯医者に行く", T(9, 0));
+      ok("BT. 「痛いので歯医者に行く」は体調にしない",
+         by("condition").length === 0 && (by("task").length + by("event").length) === 1,
+         JSON.stringify(state.items.map(i => i.kind + ":" + i.title)));
+
+      reset();
+      await say("夜はいつも頭が痛くなる", T(9, 0));
+      ok("BT. 「いつも頭が痛くなる」は変わらないこと（体調にしない・決まり3b）",
+         by("condition").length === 0 && by("profile").length === 1,
+         JSON.stringify(state.items.map(i => i.kind + ":" + i.title)));
+
+      state.items = keepItems; state.notes = keepNotes; state.turns = keepTurns; state.docs = keepDocs;
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;

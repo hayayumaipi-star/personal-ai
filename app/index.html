@@ -1137,6 +1137,11 @@ function looksDurable(s) {
 }
 const RE_GOAL  = /(目標|目指|なりたい|続けたい|習慣|毎日|週\d回|ようにしたい|していきたい)/;
 const RE_COND  = /(疲れ|眠(い|く|れ)|だる|体調|調子|寝(て|た|られ)|睡眠|頭痛|元気|集中(でき|が)|しんどい|回復|風邪|むくみ|食欲)/;
+/* **体の不調の言い方**（2026-09-26・本人の指示）。「頭痛」は拾えるのに「頭が痛い」が拾えず、
+   「今日は少し頭が痛い。」を言っても**何も記録されなかった**。
+   ただし「頭が痛いから病院に行かないと」は用事なので、自分に課す言い方・「〜に行く」があるときは
+   体調にしない（体調にすると、用事が消える）。 */
+const RE_PAIN = /((頭|あたま|お腹|おなか|腹|胃|腰|肩|首|背中|喉|のど|歯|目|耳|足|膝|ひざ|関節|生理)(が|も|は)?\s*(少し|ちょっと|すごく|かなり|ずっと)?\s*(痛|いた)|腹痛|胃痛|腰痛|歯痛|生理痛|肩こり|肩が凝|熱が(ある|出|高)|熱っぽ|微熱|発熱|吐き気|気持ち悪|寒気|めまい|咳が|鼻水|鼻づまり|くしゃみ|頭が重|体が重|具合が悪|気分が悪|胃もたれ)/;
 const RE_DONE  = /(した$|しました|終わった|終わりました|終わり[。、]?$|終了[。、]?$|済んだ|済み[。、]?$|できた|やった$)/;
 
 /* 行＝ひとつの話題、として扱う。話し言葉では「〜やる。15分くらい。」のように
@@ -1193,10 +1198,15 @@ const RE_CUT_WINDOW = new RegExp(
   "(?:" + [RE_WIN_MORNING, RE_WIN_AFTERNOON, RE_WIN_EVENING]
     .map(r => r.source.replace(/^\(|\)$/g, "")).join("|") + ")(?:には|には|に|は|から)?", "g");
 
-function cleanTitle(s, when) {
+/* `opts.keepHabit`＝目標の見出し（2026-09-26・本人の指示）。「毎日30分は歩きたい」の
+   **「毎日」「30分」は目標の中身そのもの**で、予定の飾りではない。予定なら「毎日」は
+   くり返しの印（`repeat`）に、「30分」は所要時間に移るので落としてよいが、
+   目標にはその入れ物が無い——落とすと「歩きたい」だけが残り、何を続けたいのか消える。 */
+function cleanTitle(s, when, opts) {
+  const keepHabit = !!(opts && opts.keepHabit);
   let t = s;
   if (when && when.span) t = t.slice(0, when.span[0]) + CUT + t.slice(when.span[1]);
-  t = t.replace(RE_REPEAT_WORD, CUT);
+  if (!keepHabit) t = t.replace(RE_REPEAT_WORD, CUT);
   /* 時間帯の希望も見出しから落とす（v4.4）。項目には「午前中に」の印が別に出るので、
      見出しに残すと「午前中に研究計画書を書く」と二度書くことになる。
      **読み取る側（`parseIntent`）と同じ言い方を使うこと**（決まり7e・2026-09-21）。
@@ -1208,7 +1218,7 @@ function cleanTitle(s, when) {
   // 左の「時」は省かれることがある（「6〜9時の間に」）。見出しに「6〜」が残らないように
   t = t.replace(new RegExp(AMPM + "\\s*\\d{1,2}\\s*(?:[:：時](?!間)\\s*\\d{0,2}\\s*分?半?)?\\s*(から|〜|～|-|–)\\s*" + AMPM + "\\s*\\d{1,2}\\s*[:：時](?!間)\\s*\\d{0,2}\\s*分?半?", "g"), CUT);
   t = t.replace(new RegExp(AMPM + "\\s*\\d{1,2}\\s*[:：時](?!間)\\s*\\d{0,2}\\s*分?半?", "g"), CUT);
-  t = t.replace(/(\d+\s*時間\s*半?(\d+\s*分)?|\d+\s*分)(くらい|ほど|程度)?/g, CUT);
+  if (!keepHabit) t = t.replace(/(\d+\s*時間\s*半?(\d+\s*分)?|\d+\s*分)(くらい|ほど|程度)?/g, CUT);
   t = deModal(t);
   /* **落とした跡を、空白でつながない**（v6.2・実機で報告）。
      「お風呂に30分入る」の所要時間を落とすと「お風呂に 入る」になっていた。
@@ -1319,7 +1329,8 @@ function taskStrength(s) {
 
 function classify(rawS, lineWhen) {
   const s = halfWidth(rawS);
-  const isCond = RE_COND.test(s), isGoal = RE_GOAL.test(s);
+  const isCond = RE_COND.test(s) || (RE_PAIN.test(s) && !RE_SELFTASK.test(s) && !RE_GOTO.test(s));
+  const isGoal = RE_GOAL.test(s);
   const isEvent = RE_EVENT.test(s) || RE_GOTO.test(s);
   const isTask = RE_TASK.test(s) || RE_VERB.test(s) || RE_NOUN_TASK.test(s);
   /* 「10時から11時まで勉強しようかな」——ここまで具体的に時刻を言うのは、迷いではない。
@@ -1421,7 +1432,12 @@ function extractByRule(note, settings) {
     const senWhen = parseWhen(s, note.capturedAt, tz);
     // 1行に複数の話題があるときは、行全体の日時を他の話題に持ち込まない。
     // （「来週の水曜に美容院。今年は走る習慣をつけたい。」の目標に水曜の期限を付けない）
-    let w = senWhen || (single ? when : null);
+    /* **目標は、別の文の日付を借りない**（2026-09-26・本人の指示）。
+       「今日は少し頭が痛い。毎日30分は歩きたい。」で、1文目の「今日」が目標の期限になり
+       「9/26 まで」と出ていた。行全体の日付を使うのは「〜やる。15分くらい。」のように
+       **1つの用事が文をまたいでいる**ときのためで、続けたいことに締切は付かない。
+       その文の中で言った日付（「来月までに5kg」）は今までどおり使う。 */
+    let w = senWhen || (single && kind !== "goal" ? when : null);
     // ただし「昨日言ってた資料を、明日までに送る」のように、その文が過去の話を指していて
     // 同じ行に期限らしい日付があるときは、そちらを採る。
     if (when && w && w !== when) {
@@ -1433,7 +1449,7 @@ function extractByRule(note, settings) {
 
     const base = {
       id: uid(), noteId: note.id, kind,
-      title: cleanTitle(s, kind === "condition" ? null : senWhen),
+      title: cleanTitle(s, kind === "condition" ? null : senWhen, { keepHabit: kind === "goal" }),
       evidence: { text: rawLine, start: line.start, end: line.end },
       origin: "rule", corrected: false,
       status: "open", confirmed: false,
@@ -1451,9 +1467,13 @@ function extractByRule(note, settings) {
     }
 
     if (kind === "condition") {
-      base.title = rawLine.length > 60 ? rawLine.slice(0, 58) + "…" : rawLine;
+      /* 1行に別の話題もあるときは、**体調の文だけ**を本人の言葉として残す（2026-09-26）。
+         行ごと入れると「今日は少し頭が痛い。夜は予定を入れないで。毎日30分は歩きたい。」が
+         まるごと体調の申告になっていた。言い換えはしない——原文の切り出しのまま（決まり3）。 */
+      const said = single ? rawLine : note.text.slice(sen.start, sen.end);
+      base.title = said.length > 60 ? said.slice(0, 58) + "…" : said;
       base.reportedAt = note.capturedAt;      // 出典の日時。現在の事実として扱わない
-      base.selfReport = rawLine;              // 本人の言葉そのまま（全角も原文のまま）
+      base.selfReport = said;                 // 本人の言葉そのまま（全角も原文のまま）
     } else if (kind === "event" && !w) {
       // 日付も時刻も言っていない「郵便局に行く」は予定ではなく用事。
       // ここで捨てると、発言がまるごと消えてしまう。
@@ -4838,7 +4858,7 @@ async function applyOps(rawOps, note) {
            実機で「勉強しようかな」「30分勉強する」がそのまま見出しになった。
            これは言い換えではない——時刻や所要時間や語尾をそろえるだけで、
            中身の語は変わらないので `dedupeKey` も照合も揺れない（決まり7cb）。 */
-        const title = typeof o.title === "string" ? cleanTitle(o.title.trim(), null).slice(0, 80) : "";
+        const title = typeof o.title === "string" ? cleanTitle(o.title.trim(), null, { keepHabit: kind === "goal" }).slice(0, 80) : "";
         /* 見出しが空になったら黙って捨てない（v5.2・実機で報告）。
            画面には何も出ないので、本人からは「送れていない」ようにしか見えない。 */
         if (!title) { asks.push("いまの話から用事の名前を取り出せませんでした。「スケジュール」タブの「＋ 自分で足す」から入れてください。"); continue; }
@@ -4880,7 +4900,7 @@ async function applyOps(rawOps, note) {
     else if (o.op === "update") {
       const before = { title: target.title, day: target.dayKey, est: target.estimateMin, start: target.start };
       applyFields(target, o, tz, note);
-      if (typeof o.title === "string" && o.title.trim()) target.title = cleanTitle(o.title.trim(), null).slice(0, 80);
+      if (typeof o.title === "string" && o.title.trim()) target.title = cleanTitle(o.title.trim(), null, { keepHabit: target.kind === "goal" }).slice(0, 80);
       target.corrected = true; target.confirmed = true; target.whenAlt = null;   // 本人が決めたので、もう一方は要らない
       target.dedupeKey = dedupeKey(target);
       const d = [];
