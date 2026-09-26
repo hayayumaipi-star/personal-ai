@@ -581,7 +581,7 @@
     {
       // 日付の跡地に残るかけら
       const titleCases = [
-        ["来週あたり部屋の片付けをしたい。", "部屋の片付けをしたい"],   // 「あたり」が残っていた
+        ["来週あたり部屋の片付けをしたい。", "部屋の片付けをする"],   // 「あたり」が残っていた（「したい」は言い切りにそろえる・2026-09-26）
         ["今週中にレポートを出す。",         "レポートを出す"],         // 「中に」が残っていた
         ["3時からの会議に出る。",            "会議に出る"],             // 先頭に「の」が残っていた
         ["掃除は20分くらい。",               "掃除"],                   // 末尾に「は」が残っていた
@@ -3741,8 +3741,11 @@
       // ⑤ 範囲を2つ言われたのに1つしか使えなかったら、黙らない
       reset();
       const r5 = await feed("5時から7時まで勉強して8時から10まで散歩する");
-      ok("BN. 使えなかった時間帯を、黙って捨てない",
-         r5.asks.some(a => /時刻の範囲を2つ/.test(a)), JSON.stringify(r5.asks));
+      /* 2026-09-26：1行に時刻つきの話が2つあれば、話題を分けて**両方入れる**ようにした（splitLines）。
+         前は1つしか使えず、黙らないよう知らせていた（決まり4l）。いまは知らせる必要が無い。 */
+      ok("BN. 1行に範囲が2つあっても、両方とも予定になる（知らせるまでもない）",
+         state.items.filter(i => i.kind === "event").length === 2 && !r5.asks.some(a => /時刻の範囲を2つ/.test(a)),
+         state.items.map(i => i.title).join(" / ") + " " + JSON.stringify(r5.asks));
       // 行を分けたときは、両方とも入る（知らせの文が案内しているとおり）
       reset();
       await feed("5時から7時まで勉強する\n8時から10時まで散歩する");
@@ -4645,6 +4648,70 @@
       ok("BY. 空の内容では保存しない", await (async () => { $("#eT").value = " "; await save(tk); return tk.title === "資料" && /内容を入れて/.test($("#eMsg").textContent); })());
       closeSheet();
       state.items = keepItems; state.notes = keepNotes; hideToast(); showTab(keepTab);
+    }
+
+    /* ===== BZ群：ふだんの言い方をまとめて流して見つけた読み違い（2026-09-26・本人の指示「もっとよりよいアプリに」）=====
+       42通りの言い方を流し、13か所でつまずいた。どれも本人がふつうに言いそうな形。 */
+    {
+      const keepItems = state.items, keepNotes = state.notes, keepTurns = state.turns, keepDocs = state.docs;
+      const read = async t => { reset(); const r = await say(t, T(9, 0)); return { items: state.items.slice(), asks: r.asks || [] }; };
+      const sig = r => r.items.map(i => i.kind + ":" + i.title).join(" / ");
+      let r;
+      r = await read("10時に歯医者、そのあと買い物");
+      ok("BZ. 「10時に歯医者、そのあと買い物」は予定と用事の2つ", sig(r) === "event:歯医者 / task:買い物", sig(r));
+      r = await read("10時から12時まで勉強して、13時から15時まで散歩");
+      ok("BZ. 時刻の範囲が2つあれば、予定も2つ", r.items.filter(i => i.kind === "event").length === 2
+         && r.items.some(i => i.title === "勉強する") && r.items.some(i => i.title === "散歩"), sig(r));
+      r = await read("9時に歯医者。そのあと11時から会議。");
+      ok("BZ. 句点で分けても、同じ行の2つの予定が両方入る", r.items.filter(i => i.kind === "event").length === 2, sig(r));
+      r = await read("明日の午後5時に歯医者に行く。今日は資料を作らないと。2時間くらい。");
+      ok("BZ. 時刻の無い言い足し（2時間くらい）は、今までどおり前の話に付く", (r.items.find(i => i.kind === "task") || {}).estimateMin === 120, sig(r));
+      r = await read("10時から、12時まで勉強");
+      ok("BZ. 範囲が読点をまたいでも、1つの予定のまま", r.items.filter(i => i.kind === "event").length === 1, sig(r));
+      r = await read("3時間目の授業に出る");
+      ok("BZ. 「3時間目」は所要時間ではない（見出しも欠けない）", r.items.length === 1 && /3時間目/.test(r.items[0].title) && r.items[0].estimateMin == null, sig(r));
+      r = await read("10分前に着くようにする");
+      ok("BZ. 「10分前」は所要時間ではない", r.items.length === 1 && /10分前/.test(r.items[0].title) && r.items[0].estimateMin == null, sig(r));
+      ok("BZ. 所要時間の読み取り：「30分後」「1時間おき」は長さではなく、「2時間半」は長さ",
+         parseDuration("30分後に出る") == null && parseDuration("1時間おきに休む") == null && parseDuration("2時間半かかる") === 150);
+      r = await read("30分だけ昼寝する");
+      ok("BZ. 「30分だけ」の「だけ」を見出しに残さない", sig(r) === "task:昼寝する" && r.items[0].estimateMin === 30, sig(r));
+      r = await read("さっきジム行ってきた");
+      ok("BZ. 「行ってきた」は済んだ報告で、やることにしない", r.items.length === 0, sig(r));
+      r = await read("打ち合わせ15時からに変更");
+      ok("BZ. 「に変更」を見出しに残さない", sig(r) === "event:打ち合わせ", sig(r));
+      r = await read("毎朝ストレッチを10分やりたい");
+      ok("BZ. 「毎朝〜したい」は続けたいこと", r.items.length === 1 && r.items[0].kind === "goal", sig(r));
+      r = await read("23時には寝たい");
+      ok("BZ. 「23時には寝たい」は体調ではなく、23時に寝る", sig(r) === "task:寝る" && fmtDT(r.items[0].due, TZ).slice(-5) === "23:00", sig(r));
+      r = await read("今日は寝不足で眠い");
+      ok("BZ. 時刻の無い眠気は、今までどおり体調", r.items.length === 1 && r.items[0].kind === "condition", sig(r));
+      r = await read("今週中に部屋を片付けたい");
+      ok("BZ. 「〜たい」の用事は言い切りにそろえる", r.items.length === 1 && r.items[0].title === "部屋を片付ける", sig(r));
+      r = await read("明日の会議の資料まだ");
+      ok("BZ. 「〜まだ」は予定にしない（未完了の報告・決まり0）", !r.items.some(i => i.kind === "event"), sig(r));
+      r = await read("明日12時に友達とランチ");
+      ok("BZ. 「明日12時に友達とランチ」は昼食の予定", r.items.length === 1 && r.items[0].title === "昼食を食べる", sig(r));
+      r = await read("夜ごはんのあと、21時からお風呂");
+      ok("BZ. 「夜ごはんのあと」は夕食の予定にしない", !r.items.some(i => /夕食/.test(i.title)), sig(r));
+      r = await read("朝9時に起きて、10時に家を出る");
+      ok("BZ. 「9時に起きて、10時に家を出る」は2つとも入る", sig(r) === "task:起きる / task:家を出る", sig(r));
+      r = await read("19時から飲み会、終わったら帰って寝る");
+      ok("BZ. 「終わったら」は報告ではない（どれが終わったのか、と聞かない）", !r.asks.some(a => /どれが終わった/.test(a)), JSON.stringify(r.asks));
+      r = await read("お昼は友達とランチ");
+      ok("BZ. 「お昼は友達とランチ」（時刻なし）も昼食の予定", r.items.length === 1 && r.items[0].title === "昼食を食べる", sig(r));
+      r = await read("昨日の夜は友達とディナー");
+      ok("BZ. 「昨日の夜は〜ディナー」は済んだ話で、予定にしない", !r.items.some(i => /夕食/.test(i.title)), sig(r));
+      r = await read("資料が終わったら先生に連絡する");
+      ok("BZ. 「〜が終わったら◯◯する」の◯◯を、済んだ報告として捨てない", r.items.length === 1 && r.items[0].kind === "task", sig(r));
+      r = await read("レポートができたら提出する");
+      ok("BZ. 「〜ができたら」は条件で、迷い（気になっていること）ではない", r.items.length === 1 && r.items[0].kind === "task", sig(r));
+      r = await read("できたら明日ジムに行きたい");
+      ok("BZ. 「できたら〜したい」は今までどおり迷い", r.items.length === 1 && r.items[0].kind === "idea", sig(r));
+      r = await read("今日は10時から12時まで会議で、そのあと資料を作る。2時間くらい。");
+      ok("BZ. 「会議で、そのあと…」の見出しは「会議」", r.items.some(i => i.kind === "event" && i.title === "会議")
+         && (r.items.find(i => i.kind === "task") || {}).estimateMin === 120, sig(r));
+      state.items = keepItems; state.notes = keepNotes; state.turns = keepTurns; state.docs = keepDocs;
     }
 
     const fails = R.filter(x => x.startsWith("FAIL"));
