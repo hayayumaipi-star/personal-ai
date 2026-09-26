@@ -71,8 +71,8 @@ const CATEGORY = "hitohiplan";
    **ここは「最初の一瞬」だけ**で、読み込めたらページが本当の色を教えてくる
    （`kind:"chrome"`）。2か所に持っているように見えるが、こちらは待っている間の
    仮置きで、決めているのは向こう側だけ（決まり7e）。 */
-const PAPER_LIGHT = "#F2F4F3";
-const PAPER_DARK  = "#101615";
+const PAPER_LIGHT = "#F7F7F4";
+const PAPER_DARK  = "#0B0B0B";
 /* その色の上で、時計の文字が読めるほうを選ぶ。 */
 function inkOn(hex) {
   const m = /^#([0-9a-fA-F]{6})$/.exec(String(hex || ""));

@@ -824,8 +824,9 @@
       state.items = state.items.filter(i => i.kind !== "task");
       renderDay();
       const html2 = document.querySelector("#dayOut").innerHTML;
-      ok("タスクが無いときは「ありません」と出す",
-         /<h2>タスク<\/h2>/.test(html2) && /ありません/.test(html2.slice(html2.indexOf("<h2>タスク</h2>"))));
+      /* 2026-09-26（決まり15s）：無いときは**欄ごと出さない**。「ありません。」の箱は、
+         何も無い日ほど画面を埋める。前は「ありません」と出すことを見張っていた。 */
+      ok("タスクが無いときは、欄ごと出さない（空の箱を並べない）", !/<h2>タスク<\/h2>/.test(html2));
 
       state.items = savedI; state.notes = savedN; lsWrite();
     }
@@ -852,8 +853,11 @@
 
       view.day = "2026-09-11"; showTab("p-day"); renderDay();
       const html = document.querySelector("#dayOut").innerHTML;
-      const from = html.indexOf("<h2>この日にやること</h2>"), to = html.indexOf("<h2>タスク</h2>");
-      const sect = html.slice(from, to > from ? to : undefined);
+      /* 欄の終わりは「タスク」の見出しか、その下の折りたたみ。**タスクが無い日は「タスク」の欄が
+         出ない**ので（決まり15s）、それだけを目印にすると、折りたたみの「この先の予定」まで切り出してしまう。 */
+      const endOf = (h, from) => Math.min(...["<h2>タスク</h2>", 'class="allplan"'].map(m => h.indexOf(m, from)).filter(i => i > from).concat([h.length]));
+      const from = html.indexOf("<h2>この日にやること</h2>");
+      const sect = html.slice(from, endOf(html, from));
 
       ok("今日が期限のものは、この欄に出す", /今日が期限のもの/.test(sect));
       ok("期限が切れているものも、この欄に出す", /期限が切れているもの/.test(sect));
@@ -884,10 +888,10 @@
       state.items = state.items.filter(i => !/今日が期限|期限が切れ|今日やりたい/.test(i.title));
       renderDay();
       const html2 = document.querySelector("#dayOut").innerHTML;
-      const f2 = html2.indexOf("<h2>この日にやること</h2>"), t2 = html2.indexOf("<h2>タスク</h2>");
-      const sect2 = html2.slice(f2, t2 > f2 ? t2 : undefined);
-      ok("今日やるはずのものが無ければ、この欄は空になる",
-         /ありません/.test(sect2) && !/三週間後/.test(sect2), sect2.replace(/<[^>]+>/g, " ").slice(0, 90));
+      // 2026-09-26（決まり15s）：空の箱は出さず、**欄ごと出さない**
+      const f2 = html2.indexOf("<h2>この日にやること</h2>");
+      ok("今日やるはずのものが無ければ、この欄は出さない", f2 < 0,
+         f2 < 0 ? "" : html2.slice(f2, endOf(html2, f2)).replace(/<[^>]+>/g, " ").slice(0, 90));
 
       state.items = savedI; state.notes = savedN; state.settings = savedSet; lsWrite();
     }

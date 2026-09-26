@@ -5,23 +5,23 @@
 :root{
   color-scheme:light;
   --scrim:rgba(0,0,0,.38);
-  /* **地と差し色は、アプリのアイコン（一日のタイムライン）から取る**（2026-09-26・本人の指示
-     「アプリアイコンのデザインと親和性が高いものに」）。地＝アイコンの淡い青緑、
-     注意＝アイコンの黄、「いま」・警告＝アイコンの赤。差し色（青緑）は前から同じ。 */
-  --paper:#F1F6F5; --surface:#FFFFFF; --surface-2:#E3ECEA;
-  --ink:#172120; --ink-2:#55605E; --ink-3:#85908E;
-  --line:#D3DEDB; --line-strong:#BCC9C6;
-  --accent:#0D6E6B; --accent-soft:#DDEFEC; --accent-ink:#0A4E4C;
+  /* **白と黒を基調にする**（2026-09-26・本人の指示「白と黒を基調として」・決まり15s）。
+     地はほぼ白、差し色は墨（文字と同じ黒）。**色が付くのは意味のある所だけ**——
+     注意＝アイコンの黄、「いま」・警告＝アイコンの赤、終わった＝緑。 */
+  --paper:#F7F7F4; --surface:#FFFFFF; --surface-2:#EEEEEA;
+  --ink:#121212; --ink-2:#5A5A56; --ink-3:#8A8A85;
+  --line:#E2E2DD; --line-strong:#C6C6C0;
+  --accent:#121212; --accent-soft:#ECECE8; --accent-ink:#121212;
   --warn:#F2A541; --warn-soft:#FDF1DD; --warn-ink:#855000;
   --done:#34C759; --done-soft:#E3F7E8; --done-ink:#1B7030;
   --alert:#E8705E; --alert-soft:#FCEAE6; --alert-ink:#AA3226;
   /* 明暗で役目が変わる色（2026-09-26・決まり15r）。明るいときは前と1pxも変えない値。 */
-  --surface-up:#FFFFFF; --edge:transparent; --accent-line:#0D6E6B; --focus:#0D6E6B;
-  --me-bub:#0D6E6B; --me-ink:#F1F6F5;
-  --toast-bg:#172120; --toast-ink:#F1F6F5; --toast-btn:#F1F6F5; --toast-btn-ink:#172120;
+  --surface-up:#FFFFFF; --edge:#E8E8E3; --accent-line:#CFCFC9; --focus:#121212;
+  --me-bub:#121212; --me-ink:#FFFFFF;
+  --toast-bg:#121212; --toast-ink:#FFFFFF; --toast-btn:#FFFFFF; --toast-btn-ink:#121212;
   --mark-filter:none;
-  --mark-tile:#DCEDEA; --mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='9.3' y='6' width='2.4' height='20' rx='1.2' fill='%23BFD8D4'/%3E%3Ccircle cx='10.5' cy='9.5' r='3.3' fill='%230E6F6B'/%3E%3Ccircle cx='10.5' cy='16' r='3.3' fill='%23F2A541'/%3E%3Ccircle cx='10.5' cy='22.5' r='3.3' fill='%23E8705E'/%3E%3Crect x='16' y='7.3' width='11' height='4.4' rx='2.2' fill='%230E6F6B'/%3E%3Crect x='16' y='13.8' width='7.5' height='4.4' rx='2.2' fill='%23F2A541'/%3E%3Crect x='16' y='20.3' width='9.5' height='4.4' rx='2.2' fill='%23E8705E'/%3E%3C/svg%3E");
-  --shadow:0 1px 2px rgba(16,40,38,.05), 0 6px 20px rgba(16,40,38,.07);
+  --mark-tile:#ECECE8; --mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='9.3' y='6' width='2.4' height='20' rx='1.2' fill='%23BFD8D4'/%3E%3Ccircle cx='10.5' cy='9.5' r='3.3' fill='%230E6F6B'/%3E%3Ccircle cx='10.5' cy='16' r='3.3' fill='%23F2A541'/%3E%3Ccircle cx='10.5' cy='22.5' r='3.3' fill='%23E8705E'/%3E%3Crect x='16' y='7.3' width='11' height='4.4' rx='2.2' fill='%230E6F6B'/%3E%3Crect x='16' y='13.8' width='7.5' height='4.4' rx='2.2' fill='%23F2A541'/%3E%3Crect x='16' y='20.3' width='9.5' height='4.4' rx='2.2' fill='%23E8705E'/%3E%3C/svg%3E");
+  --shadow:0 1px 2px rgba(0,0,0,.04), 0 6px 20px rgba(0,0,0,.06);
   --r:12px;
   /* **文字の大きさは rem で持つ**（2026-09-24・案⑥「端末の文字サイズに追従させる」）。
      px で書くと、端末やブラウザで既定の文字を大きくしている人に**何も効かない**。
@@ -32,7 +32,7 @@
      （決まり15e の床）。段を増やさないこと。 */
   --fs-1:.6875rem; --fs-2:.75rem; --fs-3:.8125rem; --fs-4:.9375rem;
   --fs-5:1.0625rem; --fs-6:1.25rem; --fs-in:1rem;
-  --fs-7:1.625rem;   /* 画面の名前だけ（各タブの一番上・2026-09-26）。ほかに使わない */
+  --fs-7:1.875rem;   /* 画面の名前だけ（各タブの一番上・2026-09-26）。ほかに使わない */
   --f-disp:-apple-system,BlinkMacSystemFont,"SF Pro Display","Hiragino Sans","Zen Kaku Gothic New","Noto Sans JP","Yu Gothic",sans-serif;
   --f-body:-apple-system,BlinkMacSystemFont,"SF Pro Text","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;
   --f-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Roboto Mono","Noto Sans Mono",monospace;
@@ -43,18 +43,18 @@
   /* **暗いときの作り**（2026-09-26・本人の指示「評価の高いアプリのダークモードと比べて完成版に」・決まり15r）。
      高さは影ではなく**面の明るさ**で出す（地 < カード < 浮くもの）。純白を避ける。
      大きな面に鮮やかな色を塗らない。光る太い枠を使わない。トーストは反転させない。 */
-  --paper:#0B1110; --surface:#162120; --surface-2:#243130; --surface-up:#1E2B29;
-  --ink:#E6EDEB; --ink-2:#A3AFAC; --ink-3:#88958F;
-  --line:#2A3634; --line-strong:#3A4744;
-  --edge:rgba(255,255,255,.055); --accent-line:#2E8A84; --focus:#3FA39C;
-  --me-bub:#1D5E5A; --me-ink:#EAF6F4;
-  --toast-bg:#2A3836; --toast-ink:#E6EDEB; --toast-btn:#3A4A47; --toast-btn-ink:#8BDBD5;
+  --paper:#0B0B0B; --surface:#171717; --surface-2:#252525; --surface-up:#1E1E1E;
+  --ink:#EDEDEA; --ink-2:#A5A5A0; --ink-3:#85857F;
+  --line:#2A2A2A; --line-strong:#454545;
+  --edge:rgba(255,255,255,.06); --accent-line:#5E5E5A; --focus:#A8A8A3;
+  --me-bub:#2B2B2B; --me-ink:#EDEDEA;
+  --toast-bg:#2A2A2A; --toast-ink:#EDEDEA; --toast-btn:#3C3C3C; --toast-btn-ink:#F2F2EF;
   --mark-filter:saturate(.82) brightness(.94);
-  --accent:#4FC3BC; --accent-soft:#14332F; --accent-ink:#8BDBD5;
+  --accent:#EDEDEA; --accent-soft:#262626; --accent-ink:#F2F2EF;
   --warn:#F5B25C; --warn-soft:#3A2C12; --warn-ink:#FFC97E;
   --done:#30D158; --done-soft:#123A1C; --done-ink:#5BE07E;
   --alert:#F07A6E; --alert-soft:#3D1C18; --alert-ink:#FF9D90;
-  --mark-tile:#1E302E;
+  --mark-tile:#222222;
   --shadow:0 0 0 1px rgba(255,255,255,.05), 0 8px 24px rgba(0,0,0,.35);
 }}
 :root[data-theme="dark"]{
@@ -63,18 +63,18 @@
   /* **暗いときの作り**（2026-09-26・本人の指示「評価の高いアプリのダークモードと比べて完成版に」・決まり15r）。
      高さは影ではなく**面の明るさ**で出す（地 < カード < 浮くもの）。純白を避ける。
      大きな面に鮮やかな色を塗らない。光る太い枠を使わない。トーストは反転させない。 */
-  --paper:#0B1110; --surface:#162120; --surface-2:#243130; --surface-up:#1E2B29;
-  --ink:#E6EDEB; --ink-2:#A3AFAC; --ink-3:#88958F;
-  --line:#2A3634; --line-strong:#3A4744;
-  --edge:rgba(255,255,255,.055); --accent-line:#2E8A84; --focus:#3FA39C;
-  --me-bub:#1D5E5A; --me-ink:#EAF6F4;
-  --toast-bg:#2A3836; --toast-ink:#E6EDEB; --toast-btn:#3A4A47; --toast-btn-ink:#8BDBD5;
+  --paper:#0B0B0B; --surface:#171717; --surface-2:#252525; --surface-up:#1E1E1E;
+  --ink:#EDEDEA; --ink-2:#A5A5A0; --ink-3:#85857F;
+  --line:#2A2A2A; --line-strong:#454545;
+  --edge:rgba(255,255,255,.06); --accent-line:#5E5E5A; --focus:#A8A8A3;
+  --me-bub:#2B2B2B; --me-ink:#EDEDEA;
+  --toast-bg:#2A2A2A; --toast-ink:#EDEDEA; --toast-btn:#3C3C3C; --toast-btn-ink:#F2F2EF;
   --mark-filter:saturate(.82) brightness(.94);
-  --accent:#4FC3BC; --accent-soft:#14332F; --accent-ink:#8BDBD5;
+  --accent:#EDEDEA; --accent-soft:#262626; --accent-ink:#F2F2EF;
   --warn:#F5B25C; --warn-soft:#3A2C12; --warn-ink:#FFC97E;
   --done:#30D158; --done-soft:#123A1C; --done-ink:#5BE07E;
   --alert:#F07A6E; --alert-soft:#3D1C18; --alert-ink:#FF9D90;
-  --mark-tile:#1E302E;
+  --mark-tile:#222222;
   --shadow:0 0 0 1px rgba(255,255,255,.05), 0 8px 24px rgba(0,0,0,.35);
 }
 
@@ -319,18 +319,60 @@ details.dz summary{color:var(--alert-ink)}
 /* 下までたどっても「どの日の予定か」を見失わないよう、画面の上端に貼り付ける。
    前は見出しの帯の下に貼っていたので `fitTopbar()` が帯の実寸を測っていたが、
    帯を外したので（2026-09-26）測るものが無くなった。上端の切り欠きだけ避ける。 */
-.datebar{display:flex;align-items:center;gap:4px;
-  position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--surface-up);
-  border-radius:16px;padding:4px;box-shadow:var(--shadow)}
-.datebar .d{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);flex:1;text-align:center}
+/* **スケジュールの頭**（2026-09-26・本人の指示「このUI、UXを参考にして作り直して。白と黒を基調として」・決まり15s）。
+   上から：画面の名前と右上の「＋」→ 年月（押すと日付を選べる）と「今日」→ 1週間の帯 → その日の行。
+   **貼り付くのは「その日の行」だけ**（日付・件数・‹ ›）。下までたどっても、どの日の話かを見失わない
+   （決まり15e）。1週間の帯まで貼ると、画面の3分の1が動かなくなる。 */
+.phead .addbig{margin-left:auto;flex:none;width:3.25rem;height:3.25rem;min-height:0;padding:0;border:0;
+  border-radius:16px;background:var(--accent);color:var(--paper);justify-content:center}
+.phead .addbig svg{width:1.6rem;height:1.6rem;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;display:block}
+.calhead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;min-height:44px}
+.monthpick{display:inline-flex;align-items:center;gap:8px;line-height:1.3;min-height:44px;
+  font-family:var(--f-disp);font-weight:700;font-size:var(--fs-6);letter-spacing:-.01em}
+.monthpick svg{width:1.15rem;height:1.15rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;display:block}
+.btn.sm.linkbtn{background:transparent;color:var(--accent-ink);font-weight:700;font-size:var(--fs-4)}
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:6px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.week button{display:flex;flex-direction:column;align-items:center;gap:1px;padding:8px 0 7px;border:0;
+  border-radius:18px;background:transparent;color:var(--ink);font-family:var(--f-disp);min-height:4.25rem;min-width:0}
+.week .wd{font-size:var(--fs-2);color:var(--ink-2);font-weight:500;line-height:1.4}
+.week .wn{font-size:var(--fs-6);font-weight:700;line-height:1.25;font-variant-numeric:tabular-nums}
+/* その日にあるものの印。●＝予定表に入っている予定がある／○＝時刻の無いものだけ。
+   判定は `dayMark()` ひとつ（決まり7e）。 */
+.week .wdot{width:6px;height:6px;border-radius:50%;margin-top:3px;box-sizing:border-box}
+.week .wdot.some{background:var(--ink)}
+.week .wdot.loose{border:1.5px solid var(--ink-2)}
+.week button.today:not([aria-current]){box-shadow:inset 0 0 0 1.5px var(--line-strong)}
+.week button[aria-current="date"]{background:var(--accent);color:var(--paper)}
+.week button[aria-current="date"] .wd{color:var(--paper);opacity:.75}
+.week button[aria-current="date"] .wdot.some{background:var(--paper)}
+.week button[aria-current="date"] .wdot.loose{border-color:var(--paper)}
+.week button:active{opacity:.6}
+.sect.tlhead{margin-top:6px}
+.datebar{display:flex;align-items:center;gap:2px;
+  position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--paper);padding:10px 0 6px}
+.datebar .dh{flex:1;min-width:0}
+.datebar .d{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);line-height:1.4}
+.datebar .d .dow{margin-left:1px}
+.datebar .d .dtag{font-size:var(--fs-2);color:var(--ink-2);font-weight:500;margin-left:6px}
+.datebar .dsum{font-size:var(--fs-3);color:var(--ink-2);line-height:1.5}
 .datebar .btn.sm{background:transparent}
 .datebar svg{width:1.25rem;height:1.25rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;display:block}
-.datebar .d .dow{font-size:var(--fs-2);color:var(--ink-2);font-weight:500;margin-left:5px}
-/* 日付を飛ぶ入口（v4.3）。日付の表示は左のラベルが受け持っているので、
-   入力欄そのものは見せない。小さなボタンの上に、透明なまま重ねて置く。 */
+/* 日付を飛ぶ入口（v4.3）。年月の文字の上に、入力欄を透明なまま重ねて置く。 */
 .pickwrap{position:relative;display:inline-block;line-height:0}
+.pickwrap.monthpick{display:inline-flex;line-height:1.3}
 .pickwrap input[type=date]{position:absolute;inset:0;width:100%;height:100%;
   opacity:0;border:0;padding:0;margin:0;min-height:0;cursor:pointer}
+/* **予定が1つも無い日**（2026-09-26・同じ指示）。空の欄を並べるのではなく、
+   大きく1つだけ「まだ何も入っていない」と言い、そこから始められるようにする（決まり15h）。 */
+.bigempty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:30px 12px 18px}
+.bigempty .beic{width:6.5rem;height:6.5rem;border-radius:2rem;background:var(--surface-2);color:var(--ink);
+  display:grid;place-items:center;margin-bottom:12px}
+.bigempty .beic svg{width:2.6rem;height:2.6rem;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.bigempty h2{font-size:var(--fs-6);letter-spacing:-.01em}
+.bigempty p{font-size:var(--fs-4);color:var(--ink-2);line-height:1.8}
+.bigempty .btn{margin-top:14px;background:var(--surface);border:1px solid var(--line-strong);color:var(--ink);
+  border-radius:999px;padding:12px 22px;font-weight:700;gap:10px}
+.bigempty .btn svg{width:1.15rem;height:1.15rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--surface);
   background:color-mix(in srgb, var(--surface) 80%, transparent);
@@ -339,11 +381,14 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--surf
   display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
 nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px;border-radius:8px;
   font-family:var(--f-disp);font-size:var(--fs-1);font-weight:500;color:var(--ink-3);min-height:46px;justify-content:center}
-nav.tabs button .ic{display:block;line-height:0}
+nav.tabs button .ic{display:block;line-height:0;border-radius:999px;padding:4px 18px}
 nav.tabs button .ic svg{width:1.5rem;height:1.5rem;fill:none;stroke:currentColor;stroke-width:1.7;
   stroke-linecap:round;stroke-linejoin:round}
 nav.tabs button[aria-current="page"] .ic svg{stroke-width:2.2}
 nav.tabs button[aria-current="page"]{color:var(--accent-ink);font-weight:700}
+/* 選んだタブは、絵の後ろに淡い丸帯を敷く（2026-09-26・本人の指示で参考にした画面の作り）。
+   前は「色と太さだけ」（iOS）だったが、白黒では色の差が出ないので、形で示す。 */
+nav.tabs button[aria-current="page"] .ic{background:var(--accent-soft)}
 nav.tabs button:active{opacity:.5}
 @media (min-width:720px){
   nav.tabs{max-width:520px;margin:0 auto 14px;border:1px solid var(--line);border-radius:999px;
@@ -613,12 +658,16 @@ details.unconf>summary{color:var(--warn-ink)}
   <div class="phead">
     <span class="mark" aria-hidden="true"></span>
     <div class="ptl"><h1>スケジュール</h1></div>
+    <button class="btn addbig" id="btnManual" aria-label="予定を自分で足す"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
   </div>
-  <div class="datebar" style="margin-top:4px">
+  <div class="calhead">
+    <span class="pickwrap monthpick"><span id="dMonth"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg><input type="date" id="dPick" aria-label="日付を選ぶ"></span>
+    <button class="btn sm linkbtn" id="dToday">今日</button>
+  </div>
+  <div class="week" id="dWeek"></div>
+  <div class="datebar">
+    <div class="dh"><div class="d" id="dLabel"></div><div class="dsum" id="dSum"></div></div>
     <button class="btn sm" id="dPrev" aria-label="前の日"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
-    <span class="d" id="dLabel"></span>
-    <button class="btn sm" id="dToday">今日</button>
-    <span class="pickwrap"><button class="btn sm" tabindex="-1" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></button><input type="date" id="dPick" aria-label="日付を選ぶ"></span>
     <button class="btn sm" id="dNext" aria-label="次の日"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
   </div>
   <div id="dayOut" class="stack" style="margin-top:12px"></div>
@@ -3606,11 +3655,57 @@ function timelineHTML(plan, na, demo) {
   return h + `</div>`;
 }
 
+/* 1週間の帯（月曜はじまり）。日付を作るときは正午を足す——夏時間のある地域で
+   0時ちょうどに足し算すると、前の日へずれることがある（決まり4：日付は tz を通す）。 */
+function weekKeys(key, tz) {
+  const base = keyToDate(key, tz).getTime(), off = (parts(keyToDate(key, tz), tz).dow + 6) % 7;
+  return Array.from({ length: 7 }, (_, i) => dayKey(new Date(base + (i - off) * 86400000 + 43200000), tz));
+}
+/* その日にあるものの印（週の帯の点）。**判定はここだけ**（決まり7e）。
+   ●＝予定表に入る予定がある（時刻のある予定・その日のために置いた作業）
+   ○＝時刻の無いものだけ（時刻未定の予定・その日が期限の用事・その日にやると言った用事）
+   **日付の無い用事は数えない**——毎日に点が付くと、点の意味が無くなる。 */
+function dayMark(k) {
+  const plan = planFor(k, { nowMin: -1 });
+  if (plan.events.length) return "some";
+  if (plan.blocks.some(b => b.item && b.item.kind === "task" && (b.item.dayKey === k || b.item.targetDay === k))) return "some";
+  if ((plan.timeless || []).length) return "loose";
+  return liveItems().some(i => i.kind === "task" && i.status === "open"
+    && ((i.dayKey === k && i.duePrecision !== "week") || i.targetDay === k)) ? "loose" : "";
+}
+function renderWeek(key, tz, demo) {
+  const host = $("#dWeek"); if (!host) return;
+  const today = dayKey(new Date(), tz);
+  host.innerHTML = weekKeys(key, tz).map(k => {
+    const p = parts(keyToDate(k, tz), tz), m = demo ? "" : dayMark(k);
+    return `<button type="button" data-day="${k}" class="${k === today ? "today" : ""}"${k === key ? ' aria-current="date"' : ""}
+      aria-label="${p.mo}月${p.d}日（${DOW_JA[p.dow]}）${k === today ? "・今日" : ""}${m === "some" ? "・予定あり" : m === "loose" ? "・時刻の無いものあり" : ""}"><span class="wd">${DOW_JA[p.dow]}</span><span class="wn">${p.d}</span><span class="wdot ${m}"></span></button>`;
+  }).join("");
+}
+/* 日付の行の下の一言。数えるのは予定表の中身と「この日にやること」だけ（画面に出ているもの）。 */
+function daySummary(plan, owed) {
+  const ids = new Set();
+  for (const b of plan.blocks) if (b.item && b.type !== "brk" && b.type !== "buf") ids.add(b.item.id);
+  for (const i of plan.timeless || []) ids.add(i.id);
+  const n = ids.size, m = owed.filter(i => !ids.has(i.id)).length;
+  if (!n && !m) return "まだ予定はありません";
+  return [n ? `予定${n}件` : "", m ? `やること${m}件` : ""].filter(Boolean).join("・");
+}
+/* 何も無い日（2026-09-26・決まり15s）。空の欄を3つ並べる代わりに、1つだけ大きく。
+   **そこから始められること**（決まり15h）——押すとチャットへ移り、入力欄に焦点が当たる。 */
+function bigEmptyHTML(isToday) {
+  return `<div class="bigempty"><div class="beic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/></svg></div>
+    <h2>${isToday ? "今日" : "この日"}は、まっさら。</h2>
+    <p>チャットでひとこと話すと、<br>ここに予定が並びます。</p>
+    <button class="btn" data-act="gochat">チャットで予定を足す<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>`;
+}
 function renderDay() {
   const tz = state.settings.timezone, key = view.day;
   notifyPlan(key);          // 殻があれば通知を取り直す。無ければ何もしない
   const isToday = key === dayKey(new Date(), tz);
-  $("#dLabel").innerHTML = fmtDay(key, tz) + (isToday ? ' <span class="dow">今日</span>' : "");
+  $("#dLabel").innerHTML = fmtDay(key, tz) + (isToday ? ' <span class="dtag">今日</span>' : "");
+  const kp = parts(keyToDate(key, tz), tz);
+  if ($("#dMonth")) $("#dMonth").textContent = `${kp.y}年 ${kp.mo}月`;
   /* 今日を見ているときに「今日」ボタンを出すと、日付の横の「今日」と2つ並ぶ（2026-09-26）。
      戻る先が無いときは出さない。別の日へ動いたら出る。 */
   if ($("#dToday")) $("#dToday").hidden = isToday;
@@ -3621,7 +3716,39 @@ function renderDay() {
   const plan = demo ? demoPlan() : planFor(key);
   const na = nextAction(plan);
   const conds = demo ? [] : recentConditions(key);
+  renderWeek(key, tz, demo);
   let h = "";
+  /* 日付が決まっていない用事は、下の「タスク」に出す。
+     ここに重ねると、夕方以降は同じ3件が1画面に2回並ぶ（実際にそうなっていた）。
+     この欄は「今日のはずだったのに入らなかったもの」だけにする。 */
+  const backlog = demo ? [] : liveItems()
+    .filter(i => i.kind === "task" && i.status === "open"
+              && (!i.dayKey || i.duePrecision === "week" || i.duePrecision === "none"))
+    .sort((a, b) => (a.dayKey || "9999").localeCompare(b.dayKey || "9999")
+                 || String(a.createdAt).localeCompare(String(b.createdAt)));
+  const backlogIds = new Set(backlog.map(i => i.id));
+  /* この欄は「今日やるはずだったのに入らなかったもの」だけにする（v2.8）。
+     planFor は先の期限のものも今日の空きに置こうとするので、置けないと
+     「3週間後が期限」まで毎日ここに並んでいた。それは今日の話ではないし、
+     「この先の予定とタスク」に本当の期限つきで出ている。
+     残すのは ①期限が今日以前（今日が期限・期限切れ） ②今日やりたいと言った（targetDay）。
+     ほとんどの日は空になる。それが正しい——出たときだけ意味のある警告にする。 */
+  const owedToday = i => (i.dayKey && i.dayKey <= key) || i.targetDay === key;
+  /* **この日にやること**（v4.4 で作り直した）。
+     以前は「入りきらなかったもの」で、`planFor` が置こうとして置けなかったものだけを出していた。
+     いまは**時刻を言っていない作業はそもそも置きにいかない**ので、その欄は空のままになり、
+     期限が今日のものがどこにも出なくなる。そこで、欄の中身を
+     「この日が期限（または期限切れ・今日やりたいと言った）で、予定表に無いもの」に変えた。
+     置こうとして置けなかったものは、理由も一緒に出す（「詰め込まず理由を示す」は守る）。
+     日付を決めていないものは下の「タスク」に出るので、ここには重ねない。 */
+  const inTL = new Set(plan.blocks.filter(b => b.item).map(b => b.item.id));
+  const reasonFor = id => (plan.unplaced.find(u => u.item.id === id) || {}).reason || "";
+  const owed = demo ? [] : liveItems()
+    .filter(i => i.kind === "task" && i.status === "open"
+              && !backlogIds.has(i.id) && !inTL.has(i.id) && owedToday(i))
+    .sort((a, b) => (a.dayKey || "9999").localeCompare(b.dayKey || "9999"));
+  const owedMin = owed.reduce((n, i) => n + (i.remainingMin != null ? i.remainingMin : (i.estimateMin || 0)), 0);
+  if ($("#dSum")) $("#dSum").textContent = demo ? "サンプルの一日" : daySummary(plan, owed);
 
   if (demo) {
     h += `<div class="note info"><strong>これはサンプルです。</strong>「チャット」で話しかけると、自分の一日に変わります。</div>`;
@@ -3682,41 +3809,17 @@ function renderDay() {
         ${kinds.ai ? '<span><i class="ld"></i>AIが読み取ったもの</span>' : ""}
         ${plan.winCapped ? '<span>夜は空けています</span>' : ""}
       </div>` : (plan.winCapped ? `<div class="legend" style="margin-top:5px"><span>夜は空けています</span></div>` : "");
-    h += `<div class="sect"><h2>今日の案</h2>${legend}
-      ${!hasB || tipDone("openblk") ? "" : `<p class="hint" style="margin-top:4px">枠を押すと、理由と操作が出ます。</p>`}</div>` + tlHTML;
+    /* **見出し「今日の案」は置かない**（2026-09-26・決まり15s）。すぐ上の日付の行が
+       「どの日の予定か」を言っている。別の日を見ているときに「今日の案」と出るのは嘘でもあった。
+       **その日に何も無いときだけ**、空の欄を並べずに大きく1つ出す（`bigEmptyHTML`）。 */
+    const emptyDay = !demo && !hasB && !owed.length && !(plan.timeless || []).length;
+    if (emptyDay) h += legend + bigEmptyHTML(isToday);
+    else if (hasB) h += `<div class="sect tlhead">${legend}
+      ${tipDone("openblk") ? "" : `<p class="hint" style="margin-top:4px">枠を押すと、理由と操作が出ます。</p>`}</div>` + tlHTML;
+    else h += legend;
   }
   h += conflictHTML + timelessHTML;
 
-  /* 日付が決まっていない用事は、下の「タスク」に出す。
-     ここに重ねると、夕方以降は同じ3件が1画面に2回並ぶ（実際にそうなっていた）。
-     この欄は「今日のはずだったのに入らなかったもの」だけにする。 */
-  const backlog = demo ? [] : liveItems()
-    .filter(i => i.kind === "task" && i.status === "open"
-              && (!i.dayKey || i.duePrecision === "week" || i.duePrecision === "none"))
-    .sort((a, b) => (a.dayKey || "9999").localeCompare(b.dayKey || "9999")
-                 || String(a.createdAt).localeCompare(String(b.createdAt)));
-  const backlogIds = new Set(backlog.map(i => i.id));
-  /* この欄は「今日やるはずだったのに入らなかったもの」だけにする（v2.8）。
-     planFor は先の期限のものも今日の空きに置こうとするので、置けないと
-     「3週間後が期限」まで毎日ここに並んでいた。それは今日の話ではないし、
-     「この先の予定とタスク」に本当の期限つきで出ている。
-     残すのは ①期限が今日以前（今日が期限・期限切れ） ②今日やりたいと言った（targetDay）。
-     ほとんどの日は空になる。それが正しい——出たときだけ意味のある警告にする。 */
-  const owedToday = i => (i.dayKey && i.dayKey <= key) || i.targetDay === key;
-  /* **この日にやること**（v4.4 で作り直した）。
-     以前は「入りきらなかったもの」で、`planFor` が置こうとして置けなかったものだけを出していた。
-     いまは**時刻を言っていない作業はそもそも置きにいかない**ので、その欄は空のままになり、
-     期限が今日のものがどこにも出なくなる。そこで、欄の中身を
-     「この日が期限（または期限切れ・今日やりたいと言った）で、予定表に無いもの」に変えた。
-     置こうとして置けなかったものは、理由も一緒に出す（「詰め込まず理由を示す」は守る）。
-     日付を決めていないものは下の「タスク」に出るので、ここには重ねない。 */
-  const inTL = new Set(plan.blocks.filter(b => b.item).map(b => b.item.id));
-  const reasonFor = id => (plan.unplaced.find(u => u.item.id === id) || {}).reason || "";
-  const owed = demo ? [] : liveItems()
-    .filter(i => i.kind === "task" && i.status === "open"
-              && !backlogIds.has(i.id) && !inTL.has(i.id) && owedToday(i))
-    .sort((a, b) => (a.dayKey || "9999").localeCompare(b.dayKey || "9999"));
-  const owedMin = owed.reduce((n, i) => n + (i.remainingMin != null ? i.remainingMin : (i.estimateMin || 0)), 0);
 
   /* **理由が違えば、本人の打つ手も変わる**（決まり6n）。「時刻を言っていないので」は、
      **本当に時刻も時間帯も言っていないものにだけ**当てはまる。別の日に進めると
@@ -3732,10 +3835,10 @@ function renderDay() {
   const swipeTipHTML = `<p class="hint" style="margin-top:3px">右へなぞると完了、左へなぞると明日へ。</p>`;
   let swipeTip = !demo && !tipDone("swipe");
   const tipHere = list => (swipeTip && swipable(list)) ? (swipeTip = false, swipeTipHTML) : "";
-  h += `<div class="sect"><h2>この日にやること</h2>${tipHere(owed)}</div>`;
-  if (!owed.length) {
-    h += `<div class="card empty">ありません。</div>`;
-  } else {
+  /* 無い日は欄ごと出さない（2026-09-26）。「ありません。」の箱を並べると、
+     何も無い日ほど画面が埋まる。何も無いことは、上の日付の行と空の日の表示が言っている。 */
+  if (owed.length) {
+    h += `<div class="sect"><h2>この日にやること</h2>${tipHere(owed)}</div>`;
     /* 全部が「時刻を言っていない」ものなら今までどおりの文、混ざっているなら「〜ものは」。
        1件も無ければ書かない——**当てはまらない理由を出さない**（決まり6n）。 */
     const noPlace = owed.filter(i => !elseDay.has(i.id) && !reasonFor(i.id)).length;
@@ -3753,14 +3856,15 @@ function renderDay() {
     h += `</div>`;
   }
 
-  h += `<div class="sect"><button class="btn" id="btnManual">＋ 自分で足す</button></div>`;
+  // 「＋ 自分で足す」は画面の右上へ移した（`#btnManual`・2026-09-26）。ここには重ねない。
 
   /* --- 日付が決まっていない「やること」（v2.7） ---
      予定表は日付を必要とするが、これらには日付が無い。
      日付なし（duePrecision:"none"）は `ahead` にも入らないので、今日の案に入らなかった日は
      どこにも出ず、そのまま忘れられていた。スケジュールの一番下に、常に見える場所を作る。
-     「今日の案」と重なる分は、行ごとに書かず、見出しの下に件数だけ出す（二度見せない）。 */
-  if (!demo) {
+     「今日の案」と重なる分は、行ごとに書かず、見出しの下に件数だけ出す（二度見せない）。
+     **1件も無いときは欄ごと出さない**（2026-09-26）。「ありません。」の箱は、何も無い日ほど画面を埋める。 */
+  if (!demo && backlog.length) {
     // 今日の案に入っているものは、上のタイムラインに出ている。ここには重ねない。
     // 代わりに件数だけ書いて、一覧が欠けて見えないようにする。
     const inPlan = new Set(plan.blocks.filter(b => b.item).map(b => b.item.id));
@@ -4900,6 +5004,7 @@ async function act(a, id, el) {
     showTab("p-day");
     return;
   }
+  if (a === "gochat") { showTab("p-chat"); return; }   // showTab が入力欄に焦点を当てる
   if (a === "gotopaste") {
     showTab("p-me");
     const el = $("#docText");
@@ -5743,7 +5848,7 @@ async function applyOps(rawOps, note) {
         const title = typeof o.title === "string" ? cleanTitle(o.title.trim(), null, { keepHabit: kind === "goal" }).slice(0, 80) : "";
         /* 見出しが空になったら黙って捨てない（v5.2・実機で報告）。
            画面には何も出ないので、本人からは「送れていない」ようにしか見えない。 */
-        if (!title) { asks.push("いまの話から用事の名前を取り出せませんでした。「スケジュール」タブの「＋ 自分で足す」から入れてください。"); continue; }
+        if (!title) { asks.push("いまの話から用事の名前を取り出せませんでした。「スケジュール」タブの右上の「＋」から入れてください。"); continue; }
         it = {
           id: uid(), noteId: note.id, kind, title,
           evidence: evidenceOf(note, o.quote),
@@ -6079,7 +6184,7 @@ function dupeAsk(dup, tz) {
   const state_ja = dup.status === "done" ? "もう完了にしてある"
     : dup.status === "dropped" ? "取り消してある" : "もう入っている";
   return `「${dup.title}」${when}が${state_ja}ので、足さなかったよ。`
-    + `別のものなら「スケジュール」タブの「＋ 自分で足す」から入れてね。`;
+    + `別のものなら「スケジュール」タブの右上の「＋」から入れてね。`;
 }
 function describeWhen(it, tz) {
   if (it.kind === "event" && it.start) {
@@ -7116,6 +7221,10 @@ const goDay = k => { view.day = k; view.chatDay = k; renderDay(); };
 $("#dPrev").addEventListener("click", () => goDay(dayKey(new Date(keyToDate(view.day, state.settings.timezone).getTime() - 86400000), state.settings.timezone)));
 $("#dNext").addEventListener("click", () => goDay(dayKey(new Date(keyToDate(view.day, state.settings.timezone).getTime() + 86400000), state.settings.timezone)));
 $("#dToday").addEventListener("click", () => goDay(dayKey(new Date(), state.settings.timezone)));
+$("#dWeek").addEventListener("click", e => {
+  const b = e.target.closest("[data-day]");
+  if (b && isDate(b.dataset.day)) goDay(b.dataset.day);
+});
 $("#dPick").addEventListener("change", () => {
   const v = $("#dPick").value;
   if (isDate(v)) { view.day = v; view.chatDay = v; renderDay(); }
