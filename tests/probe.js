@@ -416,7 +416,7 @@
       const cx = { p: { mo: 9, d: 12, h: 9, mi: 0 }, me: ["好み：コーヒーが好き"], pf: ["詰めすぎないで"] };
       const pr = quickPrompt({ text: "ちょっと眠い。" }, cx);
       ok("N. 速い返事には、数字や時刻を書かせない", /数字は一切出さない/.test(pr) && /時刻・所要時間・件数・予定表を書かない/.test(pr));
-      ok("N. 速い返事に「記録した」と言わせない", /「記録した」「完了にした」「予定を変えた」と言わない/.test(pr));
+      ok("N. 速い返事に「記録した」と言わせない", /「記録した」「完了にした」「予定を変えた」「覚えておく」と言わない/.test(pr));
       ok("N. 速い返事に「わたしのこと」を渡す", pr.includes("コーヒーが好き"));
       ok("N. 発話そのものを渡す", pr.includes("ちょっと眠い。"));
     }
@@ -4255,6 +4255,118 @@
          JSON.stringify(state.items.map(i => i.kind + ":" + i.title)));
 
       state.items = keepItems; state.notes = keepNotes; state.turns = keepTurns; state.docs = keepDocs;
+    }
+
+    /* ===== BU群：使っていて気持ちがいい瞬間（2026-09-26・本人の指示「全て取り入れて」）=====
+       A 終わったときに気持ちいい／B 分かってくれている／C 開いた瞬間にほっとする／D 見た目。
+       **本物の時計に寄りかからない**（決まり6p の BM群と同じ）：時刻に左右される「次は」の枠は
+       ここでは見ず、時刻の無い用事と、完了したものだけで測る。 */
+    {
+      const keepItems = state.items, keepNotes = state.notes, keepTurns = state.turns, keepDocs = state.docs;
+      const keepChatDay = view.chatDay, keepDay = view.day, keepTab = view.tab;
+      const tz = state.settings.timezone, today = dayKey(new Date(), tz);
+      const nowISO = new Date().toISOString();
+      const mkTask = (title, extra) => Object.assign({ id: uid(), noteId: "n-bu", kind: "task", title, origin: "rule",
+        confirmed: false, status: "open", history: [], evidence: { text: title, start: 0, end: title.length },
+        dayKey: today, duePrecision: "day", due: nowISO, estimateMin: 15, createdAt: nowISO, dedupeKey: "bu-" + title }, extra || {});
+
+      // --- B：置いた理由は、本人の言葉を指すものだけ ---
+      ok("BU. 本人の言葉を指す理由は出す", saidWhy({ reason: "14:00からと言っていました" }) === "14:00からと言っていました");
+      ok("BU. こちらが数えた理由は出さない", saidWhy({ reason: "期限まであと4日" }) === "" && saidWhy({}) === "");
+      {
+        const b = { s: 600, e: 660, type: "flex", reason: "今日中にと言っていたので前倒しです", item: { id: "x", title: "資料を作る", kind: "task" } };
+        const sn = planSnapshot({ blocks: [b], unplaced: [], timeless: [], winS: 0, winE: 1440, pref: {} }, { block: b, nowMin: 500 });
+        ok("BU. 返事の「次にすること」に、本人の言葉の理由が載る", sn.next && sn.next.why === "今日中にと言っていたので前倒しです");
+        const h = turnHTML({ role: "assistant", text: "了解", at: nowISO, plan: sn, changes: [] });
+        ok("BU. 吹き出しの下に、その1行が出る", /class="nw">今日中にと言っていたので前倒しです/.test(h));
+      }
+      // --- B：覚えたことを、本人の言葉のまま返す ---
+      {
+        state.items = [];
+        const n = { id: "n-bu" };
+        const pf = { id: uid(), noteId: "n-bu", kind: "profile", title: "昔から朝のほうが集中できるタイプ", status: "open" };
+        const gl = { id: uid(), noteId: "n-bu", kind: "goal", title: "毎日30分は歩きたい", status: "open" };
+        const cd = { id: uid(), noteId: "n-bu", kind: "condition", title: "頭が痛い", status: "open" };
+        state.items = [pf, gl, cd];
+        ok("BU. わたしのことは、本人の言葉で「覚えておくね」", learnedLine(n, [pf.id]) === "「昔から朝のほうが集中できるタイプ」、覚えておくね。");
+        ok("BU. 続けたいことは、そうと言って覚える", learnedLine(n, [gl.id]) === "「毎日30分は歩きたい」、続けたいこととして覚えておくね。");
+        ok("BU. 体調は「覚えた」に入れない（決まり3・その日の話）", learnedLine(n, [cd.id]) === "");
+        ok("BU. 別の発言のものは言わない", learnedLine({ id: "other" }, [pf.id]) === "");
+        const pr = quickPrompt({ text: "眠い" }, { p: { mo: 9, d: 26, h: 9, mi: 0 }, me: ["性格・傾向：朝型"], pf: [] });
+        ok("BU. 速い返事は「覚えておく」と言わない（言うのはコード）", /「覚えておく」と言わない/.test(pr));
+        ok("BU. 速い返事は、関係するときだけ前の話に触れてよい", /前に〜と言っていましたね/.test(pr) && /関係が薄ければ触れない/.test(pr));
+      }
+      /* **形だけ見て終わらせない。速い返事がある道を、実際に1回流す**（決まり14）。
+         `learnedLine` が正しくても、吹き出しへ入れる1行を消したら画面には出ない。 */
+      {
+        const keepAI = SAMPLEFN, keepView = view.day, keepChat = view.chatDay;
+        const stub = () => Promise.resolve({ text: "そうなんだね。" });
+        stub.json = () => Promise.resolve({ ops: [], habit: "" });   // 本体AIは何も返さない → ルールが読む（決まり7）
+        SAMPLEFN = stub; reset();
+        await sendTurn("昔から朝のほうが集中できるタイプ。");
+        const turn = (state.turns[today] || []).filter(t => t.role === "assistant").pop();
+        SAMPLEFN = keepAI; view.day = keepView; view.chatDay = keepChat;
+        const txt = turn ? turn.text : "";
+        ok("BU. AIがあっても、覚えたことを本人の言葉で返す",
+           /「昔から朝のほうが集中できるタイプ」、覚えておくね/.test(txt) && txt.startsWith("そうなんだね。"), txt.slice(0, 80));
+      }
+      // --- C／A：会話の下のカード ---
+      state.notes = [{ id: "n-bu", text: "x", hash: "bu", capturedAt: nowISO, source: "talk", createdAt: nowISO }];
+      state.turns = {}; view.chatDay = today;
+      {
+        state.items = [mkTask("請求書を送る")];
+        const h = nowCardHTML();
+        ok("BU. 時刻の無い今日の用事が残っていれば、カードが件数を言う", /id="nowCard"/.test(h) && /1件/.test(h) && /data-act="openday"/.test(h), h.slice(0, 120));
+        ok("BU. 残っているうちは「全部です」と言わない", finishedLine(today) === "" && leftToday(planFor(today)) === 1);
+        state.items = [mkTask("請求書を送る", { status: "done", completedAt: nowISO })];
+        const f = nowCardHTML();
+        ok("BU. 全部終えたら、今日できたことを1枚にまとめる", /class="nowcard fin"/.test(f) && /請求書を送る/.test(f) && /これで全部です/.test(f), f.slice(0, 160));
+        ok("BU. 最後の1つのあとなら「全部です」と言う", /これで全部です/.test(finishedLine(today)));
+        view.chatDay = "2000-01-01";
+        ok("BU. 前の日の会話を見ているときは、今日のカードを出さない", nowCardHTML() === "");
+        view.chatDay = today;
+        const keepN = state.notes; state.notes = [];
+        ok("BU. 見本の画面では出さない", nowCardHTML() === "");
+        state.notes = keepN;
+        state.items = [];
+        ok("BU. 何も無い日は、カードを出さない", nowCardHTML() === "");
+      }
+      // --- A：完了したとき、最後の1つならそう言う（実際に act を通す） ---
+      {
+        const t1 = mkTask("メールを返す"), t2 = mkTask("牛乳を買う");
+        state.items = [t1, t2];
+        await act("done", t1.id, null);
+        const m1 = ($("#toast") && $("#toast").textContent) || "";
+        ok("BU. 1つ目の完了では「全部です」と言わない", /完了にしました：メールを返す/.test(m1) && !/これで全部/.test(m1), m1.slice(0, 60));
+        await act("done", t2.id, null);
+        const m2 = ($("#toast") && $("#toast").textContent) || "";
+        ok("BU. 最後の1つを完了すると「これで全部です」", /完了にしました：牛乳を買う。今日の予定は、これで全部です/.test(m2), m2.slice(0, 80));
+        ok("BU. 「元に戻す」は残っている（押し間違いから戻れる）", !!document.querySelector("#toast button"));
+        const t3 = mkTask("来週の資料", { dayKey: "2099-01-01", due: "2099-01-01T00:00:00.000Z" });
+        state.items = [t3];
+        await act("done", t3.id, null);
+        ok("BU. 今日の用事でないものを終えても「全部です」と言わない", !/これで全部/.test(($("#toast") && $("#toast").textContent) || ""));
+      }
+      // --- A：動きを減らす設定なら、待たずに描き直す ---
+      {
+        const row = document.createElement("div"); row.className = "item"; document.body.appendChild(row);
+        const btn = document.createElement("button"); row.appendChild(btn);
+        const t0 = Date.now(); await celebrate(btn, null);
+        const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        ok("BU. 動きを減らす設定では、光らせずにすぐ進む", reduce && !row.classList.contains("celebrate") && Date.now() - t0 < 200, String(reduce));
+        row.remove();
+        let css = ""; for (const sh of document.styleSheets) { try { for (const r of sh.cssRules) css += r.cssText + "\n"; } catch {} }
+        ok("BU. 完了の光り方が定義されている", /\.celebrate/.test(css) && /donepop/.test(css));
+      }
+      // --- D：予定表の行に、アイコンと同じ「時間軸の上の丸」 ---
+      {
+        const h = timelineHTML(demoPlan(), null, true);
+        ok("BU. 動かさない予定の行は、塗った丸", /class="tlrow b d-fix/.test(h));
+        ok("BU. 動かせる作業の行は、輪の丸", /class="tlrow b d-flex/.test(h));
+        ok("BU. 空き時間の行には丸を付けない", !/tlrow gaprow b/.test(h) && !/class="tlrow b[^"]*gaprow/.test(h));
+      }
+      state.items = keepItems; state.notes = keepNotes; state.turns = keepTurns; state.docs = keepDocs;
+      view.chatDay = keepChatDay; view.day = keepDay; hideToast(); showTab(keepTab);
     }
 
     const fails = R.filter(x => x.startsWith("FAIL"));

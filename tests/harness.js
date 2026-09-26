@@ -920,7 +920,7 @@
         return i > 0 && i < a && a < z;
       })());
       ok("進行中の枠は強調され、開いた状態になる",
-         /tlrow open/.test(html) && /blk[^"]*running/.test(html));
+         /class="tlrow[^"]*\bopen\b/.test(html) && /blk[^"]*running/.test(html));
 
       // 空いている時間にいるときは、今までどおり線を引く
       const GAP = 10 * 60 + 45;                      // 10:45 ＝ 打ち合わせの後、歯医者の前

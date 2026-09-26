@@ -166,13 +166,13 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
 .tlrow{display:grid;grid-template-columns:54px 1fr;gap:10px;align-items:stretch}
 .tltime{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:var(--fs-2);color:var(--ink-2);
   padding-top:11px;text-align:right;white-space:nowrap}
-.blk{border-radius:8px;padding:10px 12px;margin-bottom:5px;display:flex;flex-direction:column;gap:6px;
+.blk{border-radius:12px;padding:10px 12px;margin-bottom:5px;display:flex;flex-direction:column;gap:6px;
   min-height:max(calc(var(--min,30) * var(--tlscale)), 42px)}
 .blk.fixed{background:var(--accent-soft);border:1px solid var(--accent);border-left-width:4px}
 .blk.flex{background:var(--surface);border:1px solid var(--line);border-left:4px dashed var(--line-strong)}
 .blk.now{box-shadow:0 0 0 2px var(--accent)}
 /* 休憩・予備は枠にしない。細い帯にして、短さがそのまま見えるようにする */
-.blk.thin{border-radius:6px;padding:0 11px;justify-content:center;gap:0;
+.blk.thin{border-radius:10px;padding:0 11px;justify-content:center;gap:0;
   min-height:max(calc(var(--min,10) * var(--tlscale)), 22px)}
 .blk.thin .bhead{gap:8px}
 .blk.thin .bttl{font-size:var(--fs-3);font-weight:400;color:var(--ink-2)}
@@ -212,6 +212,17 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
 .blk.running{border-color:var(--alert);box-shadow:none}
 .blk.running.past{opacity:1}
 /* いまの位置（空いている時間にいるときだけ引く） */
+/* **D：アイコンと同じ「時間軸の上の丸」**（2026-09-26・本人の指示「全て取り入れて」）。
+   アイコン（一日のタイムライン）は、縦の線の上に丸があり、その横に長さの違う枠が並ぶ。
+   予定表も同じ顔にする。**色は今までの決まりのまま**（決まり6f「色を使うのは動かさない予定だけ」）：
+   固定＝accent の塗り／動かせる作業＝灰色の輪／休憩・予備・移動＝小さな灰色の点／いま＝赤。 */
+.tlrow{position:relative}
+.tlrow.b::before{content:"";position:absolute;left:54px;top:14px;width:9px;height:9px;border-radius:50%;
+  box-sizing:border-box;background:var(--surface);border:2px solid var(--line-strong);z-index:1;pointer-events:none}
+.tlrow.b.d-fix::before{background:var(--accent);border-color:var(--accent)}
+.tlrow.b.d-thin::before{width:5px;height:5px;left:56px;top:calc(50% - 5px);border:none;background:var(--line-strong)}
+.tlrow.b.d-run::before{background:var(--alert);border-color:var(--alert)}
+.tlrow.b.d-past::before{opacity:.45}
 .tlrow.nowline{align-items:center;margin:2px 0 6px}
 .tlrow.nowline .tltime{padding-top:0;color:var(--alert-ink);font-weight:600}
 .tlrow.nowline>div:last-child{position:relative;height:1px;background:var(--alert)}
@@ -222,6 +233,31 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
   border-top:3px solid var(--accent);padding:13px 14px;display:flex;flex-direction:column;gap:8px}
 .next .nt{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);line-height:1.45}
 .next .nr{font-size:var(--fs-3);color:var(--ink-2);line-height:1.7}
+/* B：前に本人が言ったことを、置いた理由として1行だけ（「今日中にと言っていたので前倒しです」） */
+.next .nw,.nowcard .ncw{font-size:var(--fs-2);color:var(--accent-ink);line-height:1.6}
+
+/* **C：開いた瞬間の「次はこれだけ」**（2026-09-26）。会話のいちばん下（入力欄のすぐ上）に1枚だけ。
+   保存しない——開くたびに、いまの予定表から作る（決まり1「現在状態は保存しない」）。
+   形はアイコンと同じ：左に時間軸の丸、右に中身。 */
+.nowcard{display:grid;grid-template-columns:14px 1fr;gap:10px;background:var(--surface);border-radius:var(--r);
+  padding:13px 14px;margin-top:10px}
+.nowcard .ncdot{width:10px;height:10px;border-radius:50%;background:var(--accent);margin-top:6px;justify-self:center}
+.nowcard.fin .ncdot{background:var(--done)}
+.nowcard .ncbody{display:flex;flex-direction:column;gap:4px;min-width:0}
+.nowcard .nct{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);line-height:1.45}
+.nowcard .ncr{font-size:var(--fs-3);color:var(--ink-2)}
+.nowcard .ncdone{font-size:var(--fs-3);color:var(--done-ink)}
+.nowcard ul{margin:2px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}
+.nowcard li{font-size:var(--fs-3);padding-left:18px;position:relative}
+.nowcard li::before{content:"✓";position:absolute;left:0;color:var(--done-ink);font-weight:700}
+.nowcard .row{margin-top:6px}
+
+/* **A：完了したとき、消える前に「済んだ」が見える**（2026-09-26）。
+   前は押した瞬間に行が消えるだけで、うまくいった手ごたえが無かった。
+   0.4秒だけ緑に光ってから横へ抜ける。動きを減らす設定の端末では動かさない（下の規則が止める）。 */
+.celebrate{animation:donepop .42s ease forwards;pointer-events:none}
+.celebrate .blk,.celebrate .item,.celebrate.item{background:var(--done-soft)!important;border-color:var(--done)!important}
+@keyframes donepop{0%{transform:none;opacity:1}35%{transform:scale(1.015);opacity:1}100%{transform:translateX(22px);opacity:0}}
 .reasons{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:3px}
 .reasons li{font-size:var(--fs-3);color:var(--ink-2);padding-left:14px;position:relative;line-height:1.65}
 .reasons li::before{content:"—";position:absolute;left:0;color:var(--ink-3)}
@@ -350,6 +386,8 @@ body.sheetopen{overflow:hidden}
   /* 時刻の欄を詰めて、予定の中身に幅を回す */
   .tlrow{grid-template-columns:44px 1fr;gap:8px}
   .tl::before{left:48px}
+  .tlrow.b::before{left:45px;width:7px;height:7px;top:15px}
+  .tlrow.b.d-thin::before{left:46px;width:5px;height:5px;top:calc(50% - 5px)}
   .tltime{font-size:var(--fs-1)}
   /* 縮尺だけを下げる。比例は崩さない（1時間 ≈ 78px） */
   :root{--tlscale:1.3px}
@@ -3277,7 +3315,10 @@ function timelineHTML(plan, na, demo) {
     const thin = b.type === "brk" || b.type === "buf" || b.sub === "travel" || b.sub === "prep" || b.sub === "allday";
     // 赤い線を消したぶん、「いま」の印はこの枠が引き受ける
     const tag = running ? `<span class="nowtag">いま</span>` : "";
-    h += `<div class="tlrow ${isNow ? "open" : ""}">
+    // アイコンと同じ「時間軸の上の丸」（D）。色の意味は枠の左の帯と同じ（決まり6f）
+    const dotCls = ["b", thin ? "d-thin" : b.type === "fixed" ? "d-fix" : "d-flex",
+      running ? "d-run" : "", past ? "d-past" : ""].filter(Boolean).join(" ");
+    h += `<div class="tlrow ${dotCls} ${isNow ? "open" : ""}">
       <div class="tltime">${b.sub === "allday" ? "終日" : hhmm(b.s)}</div>
       <div class="blk ${cls} ${thin ? "thin" : ""} ${isNow ? "now" : ""} ${running ? "running" : ""} ${past ? "past" : ""}" style="--min:${mins}">
         ${thin
@@ -3535,7 +3576,7 @@ function planSnapshot(plan, na) {
     blocks: plan.blocks.map(b => ({ s: b.s, e: b.e, t: blockTitle(b), k: b.type, sub: b.sub || null, why: b.reason })),
     unplaced: plan.unplaced.map(u => ({ t: u.item.title, why: u.reason })),
     timeless: (plan.timeless || []).map(i => i.title),
-    next: na ? { t: blockTitle(na.block), s: na.block.s, e: na.block.e, k: na.block.type } : null,
+    next: na ? { t: blockTitle(na.block), s: na.block.s, e: na.block.e, k: na.block.type, why: saidWhy(na.block) } : null,
     winS: plan.winS, winE: plan.winE, onlyNext: !!(plan.pref && plan.pref.nextOnly)
   };
 }
@@ -3574,7 +3615,8 @@ function turnHTML(t) {
   const sn = t.plan;
   const nextLine = sn && sn.next
     ? `<div class="next"><span class="eyebrow">${sn.isToday === false ? "その日の最初" : "次にすること"}</span><div class="nt">${esc(sn.next.t)}</div>
-       <div class="nr"><span class="mono">${hhmm(sn.next.s)}–${hhmm(sn.next.e)}</span>（目安 ${durJa(sn.next.e - sn.next.s)}）</div></div>` : "";
+       <div class="nr"><span class="mono">${hhmm(sn.next.s)}–${hhmm(sn.next.e)}</span>（目安 ${durJa(sn.next.e - sn.next.s)}）</div>${
+       sn.next.why ? `<div class="nw">${esc(sn.next.why)}</div>` : ""}</div>` : "";
   // 予定表は毎回出さない。大きく変わったとき、聞かれたときだけ広げる。
   const show = t.showTable !== false && !(sn && sn.onlyNext);
   const plan = !sn || !sn.blocks.length ? ""
@@ -3611,6 +3653,87 @@ function lifeosHTML(r, tz) {
     <span class="stamp">${stamp} · <span class="chip src-ai">留守のあいだに</span></span></div>`;
 }
 
+/* ── B：前に本人が言ったことを、置いた理由として出す（2026-09-26・本人の指示）──
+   `planFor` の理由のうち、**本人の言葉を指しているもの**（「〜と言っていました」）だけを返す。
+   「期限まであと4日」のような、こちらが数えた理由は出さない——それは覚えていたことではない。
+   **理由を新しく作らない。** `planFor` がもう作っている文を、選んで見せるだけ（決まり7e）。 */
+function saidWhy(b) {
+  const r = String((b && b.reason) || "");
+  return /と言って/.test(r) ? r.replace(/。+$/, "") : "";
+}
+/* その日に終わらせたもの（くり返しの予定は、その日のぶん）。材料は振り返りと同じ（決まり7e）。 */
+function doneOn(key) {
+  const one = reviewFor(key).done.filter(i => i.kind === "task" || i.kind === "event");
+  const reps = liveItems().filter(i => i.repeat && (i.doneDays || []).includes(key));
+  return one.concat(reps);
+}
+/* その日に、まだ残っているもの。**「全部済んだ」と言ってよいかの唯一の判定**（決まり7e）——
+   完了したときの一言も、会話の下のカードも、ここを見る。
+   予定表のこれからの枠に加えて、時刻の無い「この日にやること」（期限が今日以前・今日やると言った）も数える。
+   **それを数えないと、まだ用事が残っているのに「全部です」と言ってしまう。** */
+function leftToday(plan) {
+  const ids = new Set();
+  for (const b of plan.blocks) {
+    if (!b.item || b.type === "brk" || b.type === "buf" || b.sub === "allday" || b.sub === "travel" || b.sub === "prep") continue;
+    if ((b.item.kind === "task" || b.item.kind === "event") && b.e > plan.nowMin) ids.add(b.item.id);
+  }
+  for (const i of liveItems()) {
+    if (i.kind !== "task" || i.status !== "open" || i.repeat) continue;
+    if ((i.dayKey && i.dayKey <= plan.key && i.duePrecision !== "week" && i.duePrecision !== "none") || i.targetDay === plan.key) ids.add(i.id);
+  }
+  return ids.size;
+}
+/* ── C：開いた瞬間の「次はこれだけ」（2026-09-26・本人の指示）──
+   会話のいちばん下に1枚だけ。**保存しない**——開くたびに、いまの予定表から作る（決まり1）。
+   **出すのは「今日」の会話を見ているときだけ。** 前の日の会話の下に今日の話を出すと混ざる。
+   **直前の返事と同じことを2回出さない**（決まり6f）：15分以内の返事の「次にすること」と
+   同じ枠なら、そこは省く。
+   A（一日の終わり）もここが受け持つ：これからの枠が無く、今日終えたものがあれば
+   「今日できたこと」を1枚にまとめる。**新しいタブも欄も作らない**（タブは4つ）。 */
+function nowCardHTML() {
+  if (!state.settings || state.notes.length === 0) return "";      // 見本の画面では出さない
+  const tz = state.settings.timezone, key = dayKey(new Date(), tz);
+  if ((view.chatDay || view.day || key) !== key) return "";
+  let plan; try { plan = planFor(key); } catch { return ""; }
+  const na = nextAction(plan), done = doneOn(key), left = leftToday(plan);
+  const btn = `<div class="row"><button class="btn sm" data-act="openday">今日の予定を見る</button></div>`;
+  if (na) {
+    const b = na.block, running = b.s <= na.nowMin && na.nowMin < b.e;
+    const last = turnsFor(key).slice(-1)[0];
+    const dup = !!(last && last.role === "assistant" && last.plan && last.plan.next && last.plan.isToday !== false
+      && last.plan.next.t === blockTitle(b) && last.plan.next.s === b.s && validISO(last.at)
+      && Date.now() - new Date(last.at).getTime() < 15 * 60000);
+    if (dup && !done.length) return "";
+    const soon = !running && b.s - na.nowMin > 0 && b.s - na.nowMin <= 120 ? `・あと${durJa(b.s - na.nowMin)}` : "";
+    const why = saidWhy(b);
+    const head = dup ? "" : `<span class="eyebrow">${running ? "いま" : "次は"}</span>
+        <div class="nct">${esc(blockTitle(b))}</div>
+        <div class="ncr"><span class="mono">${hhmm(b.s)}–${hhmm(b.e)}</span>${running ? `・${hhmm(b.e)}まで` : soon}</div>
+        ${why ? `<div class="ncw">${esc(why)}</div>` : ""}`;
+    const got = done.length ? `<div class="ncdone">✓ 今日できたこと ${done.length}件</div>` : "";
+    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${head}${got}${btn}</div></div>`;
+  }
+  if (done.length && !left) {
+    const list = done.slice(0, 6).map(i => `<li>${esc(i.title)}</li>`).join("")
+      + (done.length > 6 ? `<li>ほか${done.length - 6}件</li>` : "");
+    return `<div class="nowcard fin" id="nowCard"><span class="ncdot"></span><div class="ncbody">
+      <span class="eyebrow">今日できたこと</span><ul>${list}</ul>
+      <div class="ncr">今日の予定は、これで全部です。お疲れさまでした。</div></div></div>`;
+  }
+  if (left) {
+    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">
+      <span class="eyebrow">今日やること</span>
+      <div class="ncr">時刻を決めていないものが ${left}件あります。</div>
+      ${done.length ? `<div class="ncdone">✓ 今日できたこと ${done.length}件</div>` : ""}${btn}</div></div>`;
+  }
+  return "";
+}
+function refreshNowCard() {
+  if (view.tab !== "p-chat" || sending || document.getElementById("thinking")) return;
+  const host = $("#chatOut"), old = $("#nowCard"), h = nowCardHTML();
+  if (old) old.outerHTML = h; else if (h && host) host.insertAdjacentHTML("beforeend", h);
+}
+
 function renderChat(scroll) {
   if (!state.settings) return;
   /* **会話は「話した日」を見せる**（v7.3・組み立てを測って見つけた）。
@@ -3629,14 +3752,14 @@ function renderChat(scroll) {
       <div class="row">
         <button class="btn" id="btnSample">例を入れてみる</button>
         <button class="btn" id="btnFileOpen">テキストファイルを取り込む</button>
-      </div></div>`;
+      </div></div>` + nowCardHTML();
   } else {
     /* 時刻で混ぜる。**末尾にまとめない**——朝4時にやったことを夜の会話の下に出すと、
        いま起きたことのように見える。`at` が同じものは元の並びのまま（sort は安定）。 */
     const merged = list.map(t => ({ at: t.at, h: turnHTML(t) }))
       .concat(lrows.map(r => ({ at: r.at, h: lifeosHTML(r, tz) })))
       .sort((a, b) => String(a.at || "").localeCompare(String(b.at || "")));
-    host.innerHTML = merged.map(x => x.h).join("");
+    host.innerHTML = merged.map(x => x.h).join("") + nowCardHTML();
   }
   // 会話の末尾へ送るのは、いま会話タブを見ているときだけ。
   // （タブを切り替えたあとに発火すると、別のタブが下端まで飛ばされる）
@@ -3978,6 +4101,31 @@ async function restoreItems(snaps, what) {
 }
 /* 押せたことを指に返す（2026-09-24）。**無い環境でも落とさない**——
    `navigator.vibrate` はブラウザにも殻にも無いことがある（決まり7と同じ理屈）。 */
+/* ── A：終わったときに気持ちいい（2026-09-26・本人の指示）──
+   ①消える前に「済んだ」が見える（`celebrate`）②その日の最後の1つなら、そう言う（`finishedLine`）。
+   **動きは0.4秒だけ。** 動きを減らす設定の端末では待たない（すぐ描き直す）。
+   **状態を変えてから光らせる**——保存に失敗したものを祝わない（決まり6d）。 */
+function celebrate(el, id) {
+  let reduce = false;
+  try { reduce = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch {}
+  let row = el && el.closest ? el.closest(".swipe, .item, .tlrow") : null;
+  if (!row && id) row = [...document.querySelectorAll("[data-swipe]")].find(x => x.dataset.swipe === id) || null;
+  if (!row || reduce) return Promise.resolve();
+  row.classList.add("celebrate");
+  return new Promise(r => setTimeout(r, 420));
+}
+/* 今日の予定表に入っていた（または今日が期限・今日やると言った）ものか。完了にする**前**に見る。 */
+function isTodays(it, k) {
+  if (it.dayKey === k || it.targetDay === k) return true;
+  try { return planFor(k).blocks.some(b => b.item && b.item.id === it.id); } catch { return false; }
+}
+/* その日の最後の1つを終えたときだけ、一言足す。判定は `leftToday` ひとつ（決まり7e）。 */
+function finishedLine(k) {
+  try {
+    if (k !== dayKey(new Date(), state.settings.timezone)) return "";
+    return leftToday(planFor(k)) === 0 ? "。今日の予定は、これで全部です" : "";
+  } catch { return ""; }
+}
 function buzz(ms) {
   try { if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate(ms || 12); }
   catch {}
@@ -4146,6 +4294,12 @@ async function act(a, id, el) {
      「まだありません。」だけで終わらせない。行き先は**上の貼り付け欄ひとつ**なので、
      新しい画面も欄も作らない（決まり「タブは4つ」「欄を増やさない」と同じ理屈）。
      `findItem` の門より上に置くこと——下だと「項目が見つかりません」で黙って終わる。 */
+  /* C：会話の下のカードから、今日の予定表へ。**`findItem` の門より上**に置く（id を持たない）。 */
+  if (a === "openday") {
+    view.day = dayKey(new Date(), tz);
+    showTab("p-day");
+    return;
+  }
   if (a === "gotopaste") {
     showTab("p-me");
     const el = $("#docText");
@@ -4311,8 +4465,10 @@ async function act(a, id, el) {
     if (!(it[f] || []).includes(d)) it[f] = (it[f] || []).concat(d).slice(-400);
     note(it, `${d} の分を${a === "done" ? "終わりにした" : "やらないことにした"}`);
     await putItem(it);
-    buzz(); closeSheet();
-    toast(`${d.slice(5).replace("-", "/")} の分だけ${a === "done" ? "終わりにしました" : "外しました"}：${it.title}`,
+    const fin = a === "done" ? finishedLine(d) : "";
+    if (a === "done") await celebrate(el, id);
+    buzz(fin ? [12, 60, 24] : undefined); closeSheet();
+    toast(`${d.slice(5).replace("-", "/")} の分だけ${a === "done" ? "終わりにしました" : "外しました"}：${it.title}${fin}`,
       { label: "元に戻す", run: () => restoreItems([snapBefore], "その日の分を元に戻した") });
     renderAll(); return;
   }
@@ -4322,7 +4478,15 @@ async function act(a, id, el) {
      触る前の姿をここで写しておく。`putItem` が成功してから知らせる（決まり6d）。 */
   const before = snapItem(it);
   const undoOf = what => ({ label: "元に戻す", run: () => restoreItems([before], what) });
-  if (a === "done") { it.status = "done"; it.completedAt = new Date().toISOString(); note(it, "完了にした"); await putItem(it); buzz(); toast(`完了にしました：${it.title}`, undoOf("完了を元に戻した")); }
+  if (a === "done") {
+    const k = dayKey(new Date(), tz);
+    const forToday = isTodays(it, k);
+    it.status = "done"; it.completedAt = new Date().toISOString(); note(it, "完了にした"); await putItem(it);
+    const fin = forToday ? finishedLine(k) : "";
+    await celebrate(el, id);
+    buzz(fin ? [12, 60, 24] : undefined);
+    toast(`完了にしました：${it.title}${fin}`, undoOf("完了を元に戻した"));
+  }
   else if (a === "undone") { it.status = "open"; delete it.completedAt; note(it, "未完了に戻した"); await putItem(it); toast("未完了に戻しました"); }
   else if (a === "confirm") { it.confirmed = true; note(it, "読み取り結果を確認した"); await putItem(it); toast("確認済みにしました"); }
   else if (a === "drop") {
@@ -5575,7 +5739,9 @@ function quickPrompt(note, cx) {
 - **「朝」「昼」「夜」などの時間帯に触れてよいのは、【この発話の時間帯】に書いてあるときだけ。**
   そのときは、書いてある言葉に必ず合わせる。書いていなければ時間帯に触れない。
   「10時」のような言い方から、自分で朝か夜かを決めないこと（あとで出る予定表と食い違う）。
-- 「記録した」「完了にした」「予定を変えた」と言わない。まだ保存していない。
+- 「記録した」「完了にした」「予定を変えた」「覚えておく」と言わない。まだ保存していない（覚えたことはアプリが言う）。
+- 【この人について分かっていること】の中に、いまの話と**はっきり関係する**ものがあれば、
+  「前に〜と言っていましたね」のように1回だけ触れてよい。関係が薄ければ触れない。言い換えず、短く。
 - 疲れ・眠気・落ち込みには、まず受け止める。原因を尋ねない。説教しない。
 - 質問で終わらせない。
 - 迷っているだけのときは、決めさせようとしない。
@@ -5627,6 +5793,21 @@ function aiFailNote(e) {
            : "AIに接続できなかったので、ルールだけで読み取りました。";
 }
 
+/* ── B：覚えたことを、本人の言葉のまま短く返す（2026-09-26・本人の指示）──
+   「分かってくれている」と感じるのは、**何を覚えたかが見えたとき**。
+   「覚えておくね」だけでは、何を覚えたのか分からない。
+   **言い換えない**——見出しは本人の言葉から作ったもの（決まり7c）。
+   **実際に保存できたものだけ**を言う（決まり6d「記録したは、保存が成功したときだけ」）。
+   速いAIには「覚えておく」と言わせない（`quickPrompt`）。言う担当をコードに1つにする（決まり7b）。 */
+function learnedLine(note, touched) {
+  const got = state.items.filter(i => touched.includes(i.id) && i.noteId === note.id
+    && (i.kind === "profile" || i.kind === "goal") && i.status === "open");
+  if (!got.length) return "";
+  const g = got[0], t = g.title.length > 30 ? g.title.slice(0, 30) + "…" : g.title;
+  return (g.kind === "goal" ? `「${t}」、続けたいこととして覚えておくね。` : `「${t}」、覚えておくね。`)
+    + (got.length > 1 ? `ほかに${got.length - 1}つも。` : "");
+}
+
 /* 発話ひとつを処理する。どこで失敗しても、原文と既存の記録は必ず残る。 */
 async function sendTurn(text) {
   const tz = state.settings.timezone, at = new Date().toISOString();
@@ -5644,6 +5825,7 @@ async function sendTurn(text) {
 
   // 2. 考え中の表示
   const host = $("#chatOut");
+  { const nc = $("#nowCard"); if (nc) nc.remove(); }     // 考え中は下のカードをどける（返事のあとで作り直す）
   host.insertAdjacentHTML("beforeend", `<div class="turn ai thinking" id="thinking"><div class="bub">…</div></div>`);
   window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" });
 
@@ -5746,7 +5928,8 @@ async function sendTurn(text) {
   const answer = answerQuestion(clean, plan, key);
   const askedSchedule = RE_ASK.test(halfWidth(clean)) && /(予定|後回し|何(を)?(する|やる|しない)|時間)/.test(halfWidth(clean));
   const feelingOnly = RE_FEELINGONLY.test(clean.trim()) || (!changes.length && !answer && RE_MAYBE.test(halfWidth(clean)));
-  const ctx = { changes, asks, kinds, plan, na, isToday: key === today, answer, feelingOnly, raw: clean, scheduleChanged, askedSchedule };
+  const learned = learnedLine(note, touched || []);
+  const ctx = { changes, asks, kinds, plan, na, isToday: key === today, answer, feelingOnly, raw: clean, scheduleChanged, askedSchedule, learned };
 
   /* **「◯日の予定に入れたよ」は、本当にその日に置かれたときだけ**（2026-09-21・実機で報告）。
      「明日までに資料を作る。できれば午前中に進めたい。」で、**明日には何も置いていない**のに
@@ -5775,6 +5958,7 @@ async function sendTurn(text) {
   if (quickText) {
     const bits = [quickText];
     if (answer) bits.push(answer);
+    if (learned) bits.push(learned);
     if (dayNote) bits.push(dayNote);
     if (asks.length) bits.push(...asks);
     reply = bits.concat(tail).join("\n");
@@ -5868,7 +6052,7 @@ function templateReply(ctx) {
     if (kinds.includes("prefer")) soft.push("これからはそのつもりで組むね。");
     if (kinds.includes("memo")) soft.push("あとで見返せるように取っておいたよ。");
     if (kinds.includes("idea")) soft.push("やると決めなくていいものとして、置いておくね。");
-    if (kinds.includes("profile")) soft.push("あなたのこととして覚えておくね。");
+    if (kinds.includes("profile")) soft.push(ctx.learned || "あなたのこととして覚えておくね。");
     bits.push(soft.join(" ") || "うん、受け取ったよ。");
   } else if (!answer && changes.length) {
     const head = changes.slice(0, 2).join("／");
@@ -6552,6 +6736,7 @@ function startClock() {
       return;
     }
     soonWarn();
+    refreshNowCard();              // 「あと◯分」を、開いたままでも進める（C）
     const rk = runningKey();
     if (rk !== tickRunning) { tickRunning = rk; if (view.tab === "p-day") renderDay(); }
   }, 60000);

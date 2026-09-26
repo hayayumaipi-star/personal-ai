@@ -1023,6 +1023,36 @@
       SAMPLEFN = keepFn;
     });
 
+    /* 2026-09-26「全て取り入れて」：会話の下のカード（C）と、最後の1つの完了（A）。
+       **本物の画面で押す。** 他の項目があると「全部」にならないので、この2操作のあいだだけ
+       今日の用事を1つにする（終わったら元に戻す）。 */
+    {
+      const keep = state.items;
+      const today = dayKey(new Date(), state.settings.timezone), nowISO = new Date().toISOString();
+      const t = { id: uid(), noteId: (state.notes[0] || {}).id || "n", kind: "task", title: "請求書を送る（点検）",
+        origin: "rule", confirmed: false, status: "open", history: [], evidence: { text: "請求書", start: 0, end: 3 },
+        dayKey: today, duePrecision: "day", due: nowISO, estimateMin: 15, createdAt: nowISO, dedupeKey: "walk-bill" };
+      await step("会話の下のカードから、今日の予定表へ", async () => {
+        state.items = [t]; view.chatDay = today;
+        await click('nav.tabs [data-tab="p-chat"]');
+        if (!await waitFor(() => has("#nowCard [data-act=openday]"))) throw new Error("会話の下にカードが出ない");
+        if (!/1件/.test($$("#nowCard").textContent)) throw new Error("残りの件数を言わない：" + $$("#nowCard").textContent);
+        await click("#nowCard [data-act=openday]");
+        if (view.tab !== "p-day" || view.day !== today) throw new Error("今日の予定表へ移らない");
+      });
+      await step("今日の最後の1つを完了すると「これで全部です」と言い、会話に今日できたことが並ぶ", async () => {
+        const b = [...document.querySelectorAll('#p-day [data-act="done"]')].find(x => x.dataset.id === t.id);
+        if (!b) throw new Error("完了ボタンが無い");
+        await click(b);
+        if (!await waitFor(() => findItem(t.id) && findItem(t.id).status === "done")) throw new Error("完了にならない");
+        if (!/これで全部です/.test(($$("#toast") || {}).textContent || "")) throw new Error("最後の1つと言わない");
+        await click('nav.tabs [data-tab="p-chat"]');
+        if (!await waitFor(() => has("#nowCard.fin"))) throw new Error("今日できたことのカードが出ない");
+        if (!/請求書を送る（点検）/.test($$("#nowCard").textContent)) throw new Error("終えたものが並ばない");
+      });
+      state.items = keep; renderAll();
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "WALK";
     pre.textContent = "===== 操作の総点検 =====\n" + R.join("\n") +

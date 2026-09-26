@@ -19,7 +19,8 @@
       "package": "star.hayayumaipi.hitohi",
       "permissions": [
         "POST_NOTIFICATIONS",
-        "SCHEDULE_EXACT_ALARM"
+        "SCHEDULE_EXACT_ALARM",
+        "VIBRATE"
       ]
     },
     "web": {
