@@ -328,7 +328,12 @@
       if (!cards.length) throw new Error("空の欄が見つからない（測れていない）");
       const naked = cards.filter(c => !c.querySelector('[data-act="gotopaste"]'));
       if (naked.length) throw new Error("始める道の無い空の欄が" + naked.length + "件");
+      /* 渡す欄は**たたんである**（2026-09-26・タブの一番上に大きな箱を広げない）。
+         押したら**開いてから**焦点が当たること——閉じたままだと焦点を当てられない。 */
+      const fold = $$("#pasteFold");
+      if (!fold || fold.open) throw new Error("渡す欄が最初からたたまれていない");
       await click(cards[cards.length - 1].querySelector('[data-act="gotopaste"]'));
+      if (!$$("#pasteFold").open) throw new Error("押しても渡す欄が開かない");
       if (document.activeElement !== $$("#docText")) throw new Error("貼り付け欄に移っていない");
     });
     await step("自分について貼り付けて「読み取って足す」", async () => {
@@ -409,9 +414,12 @@
       type("#say", "明後日の10時から面談。");
       await click("#btnSend");
       if (!await waitFor(() => state.items.length > n, 8000)) throw new Error("読み取られない");
-      const last = $$("#chatOut .turn.ai:last-of-type .stamp");
-      if (last && /ルールで読み取り$/.test(last.textContent.trim()))
-        throw new Error("AIが呼ばれていない");
+      /* 読み取り方の印は画面から外した（2026-09-26）。**会話に保存した `ai` を見る**
+         ——出さないだけで、数えるのはやめていない。 */
+      const turns = Object.values(state.turns).flat().filter(t => t.role === "assistant")
+        .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+      const last = turns[turns.length - 1];
+      if (!last || !last.ai) throw new Error("AIが呼ばれていない");
       await click('nav.tabs [data-tab="p-set"]');
     });
     await step("吹き出しに同じことを2回書かない（受け止め・事実・提案で担当が分かれる）", async () => {
@@ -517,10 +525,15 @@
         return r;
       };
       lastError = null; syncKind = "ok"; setSync("ok");
+      const toastEl = $$("#toast"); if (toastEl) { toastEl.hidden = true; toastEl.textContent = ""; }
       try {
         await putSettings(Object.assign({}, state.settings));
       } finally { db.doc = origDoc; }
-      if ($$("#sync").textContent !== "この端末のみ") throw new Error("右上が変わらない");
+      /* 右上のバッジは外した（2026-09-26・本人の指示）。**変わった瞬間に知らせる道はトースト**で、
+         バッジが無くなったいま、これがその場で気づける唯一の道。だから出たことまで見る。 */
+      if (syncKind !== "local") throw new Error("状態が変わらない");
+      const t = $$("#toast");
+      if (!t || t.hidden || !/読むだけ/.test(t.textContent)) throw new Error("変わった瞬間に知らせない");
       if (!lastError) throw new Error("理由が残らない");
       if (!/読むだけ/.test(lastError)) throw new Error("理由が「読むだけ」と分かる文になっていない");
       await click('nav.tabs [data-tab="p-set"]');
@@ -746,20 +759,25 @@
       type("#say", "");
       await wait(60);
     });
-    await step("下までたどっても、日付バーが見出しに潜り込まない", async () => {
+    await step("下までたどっても、日付バーが画面の上に残る", async () => {
+      /* 見出しの帯は外した（2026-09-26・本人の指示）。日付バーは**画面の上端**に貼り付く。
+         帯が戻ってきたら、それも落とす（戻すなら本人に聞いてから）。 */
+      if (document.querySelector("header.top")) throw new Error("見出しの帯が戻っている");
       await click('nav.tabs [data-tab="p-day"]');
       await wait(120);
-      const top = document.querySelector("header.top"), bar = document.querySelector(".datebar");
-      if (!top || !bar) throw new Error("見出しか日付バーが無い");
+      const bar = document.querySelector(".datebar");
+      if (!bar) throw new Error("日付バーが無い");
+      // スクロールできる長さが無いと、貼り付いているかを確かめられない
+      const pad = document.createElement("div"); pad.style.height = "2400px";
+      $$("#dayOut").appendChild(pad);
       window.scrollTo({ top: 900 });
       await wait(120);
-      const h = top.getBoundingClientRect(), d = bar.getBoundingClientRect();
-      // 貼り付いたままであること（スクロールしても画面の中に残る）
-      if (d.top < 0 || d.bottom > window.innerHeight)
-        throw new Error(`日付バーが画面から出た（${Math.round(d.top)}〜${Math.round(d.bottom)}）`);
-      // 見出しの下にあること（重なると日付が読めない）
-      if (d.top < h.bottom - 1)
-        throw new Error(`見出しに${Math.round(h.bottom - d.top)}px 潜り込んでいる`);
+      const d = bar.getBoundingClientRect();
+      if (window.scrollY < 100) { pad.remove(); throw new Error("スクロールできていない（確かめられない）"); }
+      // 貼り付いたままであること（スクロールしても画面の上に残る）
+      if (d.top < -1 || d.top > 4 || d.bottom > window.innerHeight)
+        throw new Error(`日付バーが上端に残らない（${Math.round(d.top)}〜${Math.round(d.bottom)}）`);
+      pad.remove();
       window.scrollTo({ top: 0 });
       await wait(60);
     });
@@ -844,13 +862,9 @@
       const w = $$("#windowWarn");
       if (!w || w.hidden) throw new Error("狭いことを知らせない");
       if (!/05:00〜11:00/.test(w.textContent)) throw new Error("いまの値を出さない: " + w.textContent);
-      /* データ欄は「文」から「項目｜値」の行に変えた（2026-09-25）。
-         **目印を、いまも画面に出るものへ付け替える**（決まり15b）——
-         名前と値が同じ行にあることを見る。 */
-      const row = Array.from($$("#dataState").querySelectorAll(".kv"))
-        .find(r => /作業に使える時間帯/.test(r.textContent));
-      if (!row || !/05:00〜11:00/.test(row.textContent))
-        throw new Error("データ欄にも出ていない: " + $$("#dataState").textContent);
+      /* 件数の行（データ欄）は外した（2026-09-26・本人の指示）。狭いときの数字は
+         上の `#windowWarn` だけが名指しする——**同じ数字を2か所に出さない**。 */
+      if (has("#dataState")) throw new Error("件数の行が戻っている");
       await click("#btnWholeDay");
       if (state.settings.workStart !== "00:00" || state.settings.workEnd !== "23:59")
         throw new Error("押しても戻らない: " + state.settings.workStart + "〜" + state.settings.workEnd);

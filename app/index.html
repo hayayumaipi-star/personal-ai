@@ -63,17 +63,11 @@ button{cursor:pointer;background:none;border:none;padding:0;
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
-.wrap{max-width:640px;margin:0 auto;padding:0 14px 108px}
-header.top{position:sticky;top:0;z-index:40;background:var(--paper);border-bottom:1px solid var(--line);
-  padding:10px 0 9px;margin-bottom:14px}
-.brandrow{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
-.brand{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);letter-spacing:.02em}
-.brand .dot{color:var(--accent)}
-.brandsub{font-size:var(--fs-1);color:var(--ink-3);letter-spacing:.06em}
-.sync{margin-left:auto;font-family:var(--f-mono);font-size:var(--fs-1);letter-spacing:.04em;
-  color:var(--ink-3);border:1px solid var(--line);border-radius:999px;padding:1px 8px;white-space:nowrap}
-.sync.ok{color:var(--accent);border-color:var(--accent)}
-.sync.local{color:var(--warn-ink);border-color:var(--warn)}
+.wrap{max-width:640px;margin:0 auto;padding:calc(8px + env(safe-area-inset-top,0px)) 14px 108px}
+/* **アプリの名前と接続状態を、毎画面の一番上に出さない**（2026-09-26・本人の指示
+   「完成版として公開できるよう…アプリの一番上のAI秘書や、この端末のみという表示はいらない」）。
+   名前は端末のアプリ一覧に出ている。接続状態は、変わったときだけトーストで知らせる（`dbTrouble`）。
+   見出しの帯を消したぶん、画面の一番上から内容が始まる。 */
 
 .eyebrow{font-family:var(--f-disp);font-size:var(--fs-1);font-weight:700;letter-spacing:.16em;
   color:var(--ink-3);text-transform:uppercase}
@@ -151,6 +145,9 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
 .meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:var(--fs-2);color:var(--ink-2)}
 .meta .mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:var(--fs-2)}
 .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:1px}
+/* 押すものが「…」だけの行（目標・メモ・要望）は、角へ置いて1行ぶん詰める（2026-09-26） */
+.item.lonemore{position:relative;padding-right:60px}
+.acts.corner{position:absolute;top:6px;right:6px;margin:0}
 
 /* evidence */
 .evid{font-size:var(--fs-3);color:var(--ink-2);background:var(--surface-2);border-radius:7px;
@@ -238,11 +235,11 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
 .quote{border-left:3px solid var(--line-strong);padding:4px 0 4px 11px;font-size:var(--fs-3);color:var(--ink)}
 .quote .who{display:block;font-size:var(--fs-1);color:var(--ink-3);font-family:var(--f-mono);margin-top:3px}
 
-/* 下までたどっても「どの日の予定か」を見失わないよう、見出しのすぐ下に貼り付ける。
-   見出しの高さは端末と文字の大きさで変わるので、`fitTopbar()` が実寸を `--topbar` に入れる
-   （数字を決め打ちにすると、文字を大きくした人の画面で日付が見出しに重なる）。 */
+/* 下までたどっても「どの日の予定か」を見失わないよう、画面の上端に貼り付ける。
+   前は見出しの帯の下に貼っていたので `fitTopbar()` が帯の実寸を測っていたが、
+   帯を外したので（2026-09-26）測るものが無くなった。上端の切り欠きだけ避ける。 */
 .datebar{display:flex;align-items:center;gap:8px;
-  position:sticky;top:var(--topbar,44px);z-index:30;background:var(--paper);padding:6px 0 7px}
+  position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--paper);padding:6px 0 7px}
 .datebar .d{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);flex:1}
 .datebar .d .dow{font-size:var(--fs-2);color:var(--ink-2);font-weight:500;margin-left:5px}
 /* 日付を飛ぶ入口（v4.3）。日付の表示は左のラベルが受け持っているので、
@@ -258,7 +255,10 @@ nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--surf
   display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
 nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px;border-radius:8px;
   font-family:var(--f-disp);font-size:var(--fs-1);font-weight:500;color:var(--ink-3);min-height:46px;justify-content:center}
-nav.tabs button .ic{font-size:var(--fs-5);line-height:1.1}
+nav.tabs button .ic{display:block;line-height:0}
+nav.tabs button .ic svg{width:1.5rem;height:1.5rem;fill:none;stroke:currentColor;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round}
+nav.tabs button[aria-current="page"] .ic svg{stroke-width:2.2}
 nav.tabs button[aria-current="page"]{color:var(--accent-ink);font-weight:700}
 nav.tabs button:active{opacity:.5}
 @media (min-width:720px){
@@ -342,15 +342,6 @@ body.sheetopen{overflow:hidden}
    （1画面に同じものを2回出さない）。実測で足りていなかったのは、
    「わたしのこと」の2か所だけだった。 */
 .empty .btn{margin-top:11px}
-/* **状態は、文ではなく行で見せる**（2026-09-25・本人の指示「もっとスマートに」）。
-   前は『会話 0件 ／ 原文 0件 ／ 項目 4件 ／ …』と58字の1文だった。
-   字数はほとんど変わらないが、**探している1つがすぐ見つかる**ようになる
-   （iOS の設定の「情報」と同じ形）。左に名前・右に値。 */
-.kv{display:flex;justify-content:space-between;gap:12px;align-items:baseline;
-  padding:7px 0;border-bottom:1px solid var(--line);font-size:var(--fs-3)}
-.kv:last-child{border-bottom:0}
-.kv>span{color:var(--ink-2)}
-.kv>b{font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
 /* ---- 狭い画面（スマホ）向けの詰め ---- */
@@ -382,8 +373,6 @@ body.sheetopen{overflow:hidden}
   .legend{gap:9px}
   .eyebrow{letter-spacing:.12em}
   section>h2{font-size:var(--fs-5)}
-  nav.tabs button .ic{font-size:var(--fs-in)}
-  .brandsub{display:none}          /* 名前と接続状態だけで足りる */
   .kinds{grid-template-columns:1fr 1fr;gap:7px}
   .bub{max-width:90%}
   /* 16px を下回ると、入力欄に触れた瞬間に画面が拡大される端末がある */
@@ -473,13 +462,19 @@ body.talking .wrap{padding-bottom:calc(var(--saybar, 100px) + 58px + env(safe-ar
 .blk.brk{background:var(--surface-2);border:1px solid var(--line);border-left:4px solid var(--line-strong)}
 .blk.buf{background:transparent;border:1px dashed var(--line);border-left:4px dashed var(--line-strong)}
 .blk.brk .bttl,.blk.buf .bttl{color:var(--ink-2);font-weight:500}
-details.allplan{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:6px 11px}
-details.allplan>summary{cursor:pointer;font-family:var(--f-disp);font-size:var(--fs-3);font-weight:500;list-style:none;
-  display:flex;align-items:center;min-height:32px}
+/* 折りたたみは**カードと同じ顔**にする（2026-09-26）。前は細い枠線・角丸8px・高さ32pxで、
+   カード（枠線なし・12px）と並ぶと別の部品に見えた。高さ32pxは**押しどころの44pxを割っていた**。
+   開閉の印は iOS と同じく右端の山形（▸▾ の文字は Android で字形がばらつく）。 */
+details.allplan{border:1px solid transparent;border-radius:var(--r);background:var(--surface);padding:0 14px}
+details.allplan[open]{padding-bottom:12px}
+details.allplan>summary{cursor:pointer;font-family:var(--f-disp);font-size:var(--fs-4);font-weight:500;list-style:none;
+  display:flex;align-items:center;gap:8px;min-height:44px}
 details.allplan>summary:active{opacity:.55}
 details.allplan>summary::-webkit-details-marker{display:none}
-details.allplan>summary::before{content:"▸ ";color:var(--ink-3)}
-details.allplan[open]>summary::before{content:"▾ "}
+details.allplan>summary::after{content:"";flex:none;margin-left:auto;width:7px;height:7px;
+  border-right:2px solid var(--ink-3);border-bottom:2px solid var(--ink-3);transform:rotate(-45deg);
+  transition:transform .15s}
+details.allplan[open]>summary::after{transform:rotate(45deg)}
 details.unconf{border-color:var(--warn);background:var(--warn-soft)}
 details.unconf>summary{color:var(--warn-ink)}
 .revrow{display:flex;gap:8px;align-items:center;justify-content:space-between;font-size:var(--fs-3);
@@ -489,6 +484,11 @@ details.unconf>summary{color:var(--warn-ink)}
 
 /* わたしのこと */
 .catgroup{display:flex;flex-direction:column;gap:8px}
+.qlist{padding:0 14px}
+.qrow{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.qrow:last-child{border-bottom:0}
+.qrow>div{flex:1;min-width:0;font-size:var(--fs-4);line-height:1.5}
+.qrow>.btn{flex:none}
 .cathead{display:flex;align-items:baseline;gap:8px;margin-top:4px}
 .cathead h3{font-size:var(--fs-3);font-weight:700;font-family:var(--f-disp)}
 .cathead .n{font-family:var(--f-mono);font-size:var(--fs-1);color:var(--ink-3)}
@@ -503,14 +503,6 @@ details.unconf>summary{color:var(--warn-ink)}
 .bar>i{display:block;height:100%;background:var(--accent);transition:width .25s}
 .tiny{font-size:var(--fs-1);color:var(--ink-3);font-family:var(--f-mono)}
 </style>
-
-<header class="top"><div class="wrap" style="padding-bottom:0">
-  <div class="brandrow">
-    <span class="brand">AI秘書<span class="dot">.</span></span>
-    <span class="brandsub">MEMO → 根拠 → 今日の案</span>
-    <span class="sync" id="sync">確認中</span>
-  </div>
-</div></header>
 
 <div class="wrap">
 
@@ -592,16 +584,15 @@ details.unconf>summary{color:var(--warn-ink)}
          「全部消す」が「書き出す」の隣にあったので、指が滑ると終わりだった。
          **道は1つも塞いでいない**（消す道を減らさない・決まり）。 -->
     <div class="card stack">
-      <h3 class="cardttl">記録</h3>
-      <div><label class="fld" for="findQ">さがす</label>
+      <h3 class="cardttl">記録をさがす</h3>
+      <div><label class="sr" for="findQ">記録をさがす</label>
         <input type="search" id="findQ" placeholder="言葉を入れる（例：歯医者）"></div>
       <div id="findOut"></div>
-      <div id="dataState"></div>
       <!-- 記録がどこにあるかは、**開き方で変わる**（2026-09-20・APKを本物にした日）。
-           ここに固定の文を書くと、Android アプリでは**まるごと嘘**になる
-           （あちらに `db` は渡らないので、共有の場所そのものが無い）。
-           だから `renderWhere()` が、いまつながっている先を見て書く。 -->
-      <div class="note info" id="whereNote"></div>
+           `renderWhere()` が、いまつながっている先を見て書く。
+           **共有の場所につながっているときだけ出す**（2026-09-26）——
+           端末の中だけ（Android アプリ）なら、それはアプリとしてふつうのことで、知らせる事実が無い。 -->
+      <div class="note info" id="whereNote" hidden></div>
       <div class="note warn" id="dataWarn" hidden></div>
       <!-- 作業に使える時間帯が狭いまま保存されている人の逃げ道（v6.3・実機で報告）。
            設定欄は v3.9 で外したので、古い値のままだと**画面から直す道が無かった**。
@@ -612,12 +603,12 @@ details.unconf>summary{color:var(--warn-ink)}
     <div class="card stack">
       <h3 class="cardttl">持ち出す・持ち込む</h3>
       <div class="row">
-        <button class="btn" id="btnExport">書き出す（JSON）</button>
-        <button class="btn" id="btnImport">読み込む（JSON）</button>
+        <button class="btn" id="btnExport">記録を書き出す</button>
+        <button class="btn" id="btnImport">記録を読み込む</button>
       </div>
       <div class="row">
-        <button class="btn" id="btnIcsIn">カレンダーを読み込む（.ics）</button>
-        <button class="btn" id="btnIcsOut">カレンダーに出す（.ics）</button>
+        <button class="btn" id="btnIcsIn">カレンダーから読み込む</button>
+        <button class="btn" id="btnIcsOut">カレンダーへ書き出す</button>
       </div>
       <input type="file" id="impFile" accept=".json,application/json,text/plain" class="sr">
       <input type="file" id="icsFile" accept=".ics,text/calendar,text/plain" class="sr">
@@ -664,10 +655,12 @@ details.unconf>summary{color:var(--warn-ink)}
 </div>
 
 <nav class="tabs" role="tablist">
-  <button data-tab="p-chat"><span class="ic">◗</span>チャット</button>
-  <button data-tab="p-day"><span class="ic">◷</span>スケジュール</button>
-  <button data-tab="p-me"><span class="ic">◍</span>わたしのこと</button>
-  <button data-tab="p-set"><span class="ic">⚙</span>設定</button>
+  <!-- アイコンは線の絵（2026-09-26）。前は ◗◷◍⚙ の文字で、端末のフォントで形が変わり、
+       「◗」は吹き出しに見えなかった。外から読み込まず、ここに直接描く（依存を増やさない）。 -->
+  <button data-tab="p-chat"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 4.5h14a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2h-7.5L7 20.5V17H5a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2z"/></svg></span>チャット</button>
+  <button data-tab="p-day"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></span>スケジュール</button>
+  <button data-tab="p-me"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="8.2" r="3.8"/><path d="M4.5 20.5c.9-3.9 3.9-6.2 7.5-6.2s6.6 2.3 7.5 6.2"/></svg></span>わたしのこと</button>
+  <button data-tab="p-set"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h9.5M18.5 7H20M4 17h3.5M12.5 17H20"/><circle cx="16" cy="7" r="2.5"/><circle cx="10" cy="17" r="2.5"/></svg></span>設定</button>
 </nav>
 
 <div id="sheetHost"></div>
@@ -2204,26 +2197,23 @@ function dbTrouble(e) {
       ? "この開き方では保存先に書き込めません（読むだけ）。この端末の中には残しています。"
     : "保存先に書き込めませんでした。この端末の中には残しています。";
   const wasOk = syncKind === "ok";
-  setSync("local", msg);
+  setSync("local");
   lastError = msg + " / " + describeError(e);
   if (wasOk) { try { toast(msg); renderSettings(); } catch {} }
 }
+/* 保存先につながっているか（`ok` / `local`）。**画面には常時出さない**（2026-09-26・本人の指示）。
+   前は右上のバッジ（「保存先に接続済み」「この端末のみ」）に出していたが、
+   Android アプリには保存先そのものが無いので、**毎画面ずっと「この端末のみ」と出ているだけ**だった。
+   変わった瞬間は `dbTrouble` がトーストで知らせ、理由は設定タブの「最後に起きた不具合」に残る
+   （v5.0「バッジの色を変えるのは知らせたことにならない」——知らせる道は元からそちら）。 */
 let syncKind = null;
-function setSync(kind, msg) {
-  const el = $("#sync");
-  if (kind) syncKind = kind;
-  const off = typeof navigator !== "undefined" && navigator.onLine === false;
-  const k = off ? "local" : (kind || syncKind);
-  el.className = "sync " + (k === "ok" ? "ok" : k === "local" ? "local" : "");
-  el.textContent = off ? "オフライン" : k === "ok" ? "保存先に接続済み" : k === "local" ? "この端末のみ" : "確認中";
-  if (off) el.title = "ネットにつながっていません。話しかけた内容はこの端末に残り、つながると保存先にも書き込まれます。";
-  else if (msg) el.title = msg;
-}
-/* 圏外に入ったことを画面に出す（v4.3）。
-   今まではネットが切れても「保存先に接続済み」のままで、書き込みが落ちて初めて分かった。 */
+function setSync(kind) { if (kind) syncKind = kind; }
+/* 圏外に入ったことを知らせる（v4.3）。**保存先があるときだけ**——
+   保存先が無い（Android アプリ）なら、記録はもともと端末の中だけなので、
+   電波が揺れるたびに「つながりました」「オフラインです」と出すのは知らせではなく雑音になる。 */
 if (typeof window !== "undefined") {
-  window.addEventListener("online", () => { setSync(null); toast("ネットにつながりました"); });
-  window.addEventListener("offline", () => { setSync(null); toast("オフラインになりました。記録はこの端末に残します"); });
+  window.addEventListener("online", () => { if (DB) toast("ネットにつながりました"); });
+  window.addEventListener("offline", () => { if (DB) toast("オフラインになりました。記録はこの端末に残します"); });
 }
 
 /* 設定欄を外したので、前の既定（09:00–18:00）のまま保存されている人を一日じゅうに移す。
@@ -3123,19 +3113,25 @@ function altLabel(it, tz) {
   const s = fmtDT(it.whenAlt.start, tz);                 // 例「9/13 10:00」
   return it.whenAlt.dayKey === it.dayKey ? s.slice(-5) : s;
 }
+/* タイムラインの点（`.bdot`・決まり2）を打つかどうか。**点と凡例が同じ判定を見る**（決まり7e）——
+   別々に書くと、点は出ているのに凡例に説明が無い（またはその逆）が起きる。 */
+function aiGuess(it) { return !!it && it.origin === "ai" && !it.corrected && !it.confirmed; }
 function itemHTML(it, opts = {}) {
   const tz = state.settings.timezone;
   const cls = ["item"];
   if (!it.confirmed && !it.corrected && it.status !== "done") cls.push("unconfirmed");
   if (it.status === "done") cls.push("isdone");
-  const bits = [`<span class="chip">${KIND_JA[it.kind]}</span>`, srcChip(it)];
+  /* **種類の印は、種類が混ざる一覧でだけ出す**（2026-09-26）。「タスク」の欄に並ぶ行に
+     「タスク」の印を付けても、見出しと同じことを2回言っているだけ。`opts.noKind` で外す。
+     **由来の印（`srcChip`）は外さない**——AIの推測と本人が決めたことの区別（決まり2）。 */
+  const bits = [opts.noKind ? "" : `<span class="chip">${KIND_JA[it.kind]}</span>`, srcChip(it)];
   if (it.status === "done") bits.push(`<span class="chip st-done">完了</span>`);
   if (it.status === "dropped") bits.push(`<span class="chip st-drop">取り消し</span>`);
   if (it.kind === "event") bits.push(`<span class="chip fixed">固定</span>`);
   if (it.repeat) bits.push(`<span class="chip">${esc(repeatJa(it.repeat))}</span>`);
   if (it.duePrecision === "week") bits.push(`<span class="chip vague">期限があいまい</span>`);
 
-  if (it.kind === "profile" && it.category) bits.push(`<span class="chip">${esc(it.category)}</span>`);
+  if (it.kind === "profile" && it.category && !opts.noCat) bits.push(`<span class="chip">${esc(it.category)}</span>`);
   if (it.docId) bits.push(`<span class="chip">資料から</span>`);
   const noWhen = it.kind === "memo" || it.kind === "preference";
   const when = it.kind === "profile" ? `<span class="mono">${fmtDT(it.statedAt || it.createdAt, tz)} に言っていたこと</span>`
@@ -3165,12 +3161,20 @@ function itemHTML(it, opts = {}) {
      書いていたが、取り消しは「…」の中へ移した。**代わりにトーストへ
      「元に戻す」を付けた**ので、押し間違いから戻る道は**むしろ近くなっている**。
      完了は今までどおり行に置く（いちばん押すもの）。 */
-  const acts = opts.noActions ? "" : `<div class="acts">
-    ${it.status !== "done" && (it.kind === "task" || it.kind === "event") ? `<button class="btn sm pri" data-act="done" data-id="${it.id}" data-day="${esc(it.occurDay || view.day || "")}">${it.kind === "event" ? "終わった" : "完了"}</button>` : ""}
-    ${it.status === "done" ? `<button class="btn sm" data-act="undone" data-id="${it.id}">戻す</button>` : ""}
-    ${it.kind === "task" && it.status !== "done" ? `<button class="btn sm" data-act="defer" data-id="${it.id}">明日へ</button>` : ""}
-    ${it.kind === "profile" && !it.confirmed && !it.corrected && it.status === "open" ? `<button class="btn sm" data-act="confirm" data-id="${it.id}">これで合ってる</button>` : ""}
-    ${it.whenAlt && it.status === "open" ? `<button class="btn sm" data-act="usealt" data-id="${it.id}">${esc(altLabel(it, tz))}にする</button>` : ""}
+  const main = [
+    it.status !== "done" && (it.kind === "task" || it.kind === "event") ? `<button class="btn sm pri" data-act="done" data-id="${it.id}" data-day="${esc(it.occurDay || view.day || "")}">${it.kind === "event" ? "終わった" : "完了"}</button>` : "",
+    it.status === "done" ? `<button class="btn sm" data-act="undone" data-id="${it.id}">戻す</button>` : "",
+    it.kind === "task" && it.status !== "done" ? `<button class="btn sm" data-act="defer" data-id="${it.id}">明日へ</button>` : "",
+    it.kind === "profile" && !it.confirmed && !it.corrected && it.status === "open" ? `<button class="btn sm" data-act="confirm" data-id="${it.id}">これで合ってる</button>` : "",
+    it.whenAlt && it.status === "open" ? `<button class="btn sm" data-act="usealt" data-id="${it.id}">${esc(altLabel(it, tz))}にする</button>` : ""
+  ].filter(Boolean);
+  /* **「…」しか無い行は、ボタンを右上の角へ置く**（2026-09-26）。目標・メモ・要望は
+     行で押すものが「…」1つだけなので、そのために1行ぶんの高さを取っていた。
+     押しどころの大きさ（44px）は変えない。場所を角へ移しただけ。 */
+  const lone = !opts.noActions && !main.length;
+  if (lone) cls.push("lonemore");
+  const acts = opts.noActions ? "" : `<div class="acts${lone ? " corner" : ""}">
+    ${main.join("\n    ")}
     <button class="btn sm" data-act="more" data-id="${it.id}" aria-label="そのほかの操作">…</button>
   </div>`;
 
@@ -3206,7 +3210,7 @@ function blockTitle(b) {
   return lab ? `${lab}（${b.item.title}）` : b.item.title;
 }
 function timelineHTML(plan, na, demo) {
-  if (!plan.blocks.length) return `<div class="card empty">まだ何もありません。</div>`;
+  if (!plan.blocks.length) return `<div class="card empty">まだ予定はありません。<br>チャットで話しかけると、ここに入ります。</div>`;
   let h = `<div class="tl">`, prevEnd = null, nowDrawn = false;
   const now = plan.nowMin;
   /* いまが枠の中に入っているなら、赤い線は引かない（v3.5）。
@@ -3236,8 +3240,7 @@ function timelineHTML(plan, na, demo) {
     // 固定か作業枠かは左の帯で分かるので、ラベルは重ねない。
     // 由来は、AIの推測のときだけ小さな点で示す（本人が決めたものと混ざらないように）。
     const dot = (b.type === "brk" || b.type === "buf" || demo) ? ""
-      : (b.item.origin === "ai" && !b.item.corrected && !b.item.confirmed)
-        ? '<i class="bdot" title="AIが読み取ったもの"></i>' : "";
+      : aiGuess(b.item) ? '<i class="bdot" title="AIが読み取ったもの"></i>' : "";
     const acts = demo || b.type === "brk" || b.type === "buf" ? "" : `<div class="acts">
       ${b.item.kind === "task" ? `<button class="btn sm" data-act="done" data-id="${b.item.id}" data-day="${esc(plan.key || "")}">完了</button>
       ${b.item.repeat ? "" : `<button class="btn sm" data-act="est" data-id="${b.item.id}">所要時間を直す</button>
@@ -3278,7 +3281,11 @@ function timelineHTML(plan, na, demo) {
 function renderDay() {
   const tz = state.settings.timezone, key = view.day;
   notifyPlan(key);          // 殻があれば通知を取り直す。無ければ何もしない
-  $("#dLabel").innerHTML = fmtDay(key, tz) + (key === dayKey(new Date(), tz) ? ' <span class="dow">今日</span>' : "");
+  const isToday = key === dayKey(new Date(), tz);
+  $("#dLabel").innerHTML = fmtDay(key, tz) + (isToday ? ' <span class="dow">今日</span>' : "");
+  /* 今日を見ているときに「今日」ボタンを出すと、日付の横の「今日」と2つ並ぶ（2026-09-26）。
+     戻る先が無いときは出さない。別の日へ動いたら出る。 */
+  if ($("#dToday")) $("#dToday").hidden = isToday;
   if ($("#dPick")) $("#dPick").value = key;      // ◀▶を30回押さずに飛べるように（v4.3）
   const host = $("#dayOut");
 
@@ -3301,9 +3308,10 @@ function renderDay() {
   if (!demo && !na && plan.blocks.length && plan.nowMin >= 0) {
     const left = plan.blocks.filter(b => b.item.kind === "task" && b.item.status !== "done").length;
     h += `<div class="note info"><strong>今日の枠はすべて過ぎています。</strong>${left ? `まだ終わっていない作業が${left}件あります。「明日へ」で送るか、完了にしてください。` : "お疲れさまでした。"}</div>`;
-  } else if (!demo && !plan.blocks.length && !(plan.timeless || []).length) {
-    h += `<div class="note info">この日に置ける予定・作業がありません。「チャット」タブで話しかけるか、下の「＋ 自分で足す」を使ってください。</div>`;
   }
+  /* 空の日に「置ける予定がありません」をここ（タイムラインの上）にも出していた。
+     **下のタイムラインの空の欄と同じことを2回言っていた**ので外した（2026-09-26）。
+     道案内は空の欄に1行だけ残す（`timelineHTML`）。 */
 
   /* 予定どうしが重なっている。**タイムラインより下に出す**（6f）。
      上に出すと、毎回スクロールしないと予定が見えなくなる。 */
@@ -3328,14 +3336,26 @@ function renderDay() {
         ${plan.winCapped ? '<span>夜は空けています</span>' : ""}
       </div>${tlHTML}</details>`;
   } else {
-    h += `<div class="sect"><h2>今日の案</h2>
-      <div class="legend" style="margin-top:5px">
-        <span><i class="lf"></i>動かさない予定</span>
-        <span><i class="lx"></i>動かせる作業</span>
-        <span><i class="ld"></i>AIが読み取ったもの</span>
+    /* **凡例と使い方の案内は、枠があるときだけ**（2026-09-26）。枠が1つも無い日に
+       「動かさない予定／動かせる作業」「枠を押すと…」と出しても、指す先が無い。
+       凡例の中身は、**その日に実際に出ている種類だけ**にする——
+       AIが読み取った枠が無い日に「AIが読み取ったもの」の点を説明しても、画面のどこにも点は無い。
+       印そのもの（`.bdot`・決まり2）は外していない。説明を、あるときだけにしただけ。 */
+    const hasB = plan.blocks.length > 0;
+    const kinds = { fixed: false, flex: false, ai: false };
+    for (const b of plan.blocks) {
+      if (b.type === "brk" || b.type === "buf" || !b.item) continue;   // 休憩・予備は凡例に無い
+      if (b.type === "fixed") kinds.fixed = true; else kinds.flex = true;
+      if (aiGuess(b.item)) kinds.ai = true;
+    }
+    const legend = hasB ? `<div class="legend" style="margin-top:5px">
+        ${kinds.fixed ? '<span><i class="lf"></i>動かさない予定</span>' : ""}
+        ${kinds.flex ? '<span><i class="lx"></i>動かせる作業</span>' : ""}
+        ${kinds.ai ? '<span><i class="ld"></i>AIが読み取ったもの</span>' : ""}
         ${plan.winCapped ? '<span>夜は空けています</span>' : ""}
-      </div>
-      ${tipDone("openblk") ? "" : `<p class="hint" style="margin-top:4px">枠を押すと、理由と操作が出ます。</p>`}</div>` + tlHTML;
+      </div>` : (plan.winCapped ? `<div class="legend" style="margin-top:5px"><span>夜は空けています</span></div>` : "");
+    h += `<div class="sect"><h2>今日の案</h2>${legend}
+      ${!hasB || tipDone("openblk") ? "" : `<p class="hint" style="margin-top:4px">枠を押すと、理由と操作が出ます。</p>`}</div>` + tlHTML;
   }
   h += conflictHTML + timelessHTML;
 
@@ -3376,9 +3396,15 @@ function renderDay() {
      どちらなのかは `planFor` が決める（`elsewhere`）——**同じ判定を2か所に書かない**（決まり7e）。 */
   const elseDay = new Map((plan.elsewhere || []).map(i => [i.id, i.targetDay]));
   /* **なぞる操作は、書いておかないと見つからない**（案A の唯一の弱点）。
-     ボタンは残してあるので、読み飛ばしても困らない。1行だけにする（決まり15b）。 */
-  h += `<div class="sect"><h2>この日にやること</h2>${tipDone("swipe") ? "" :
-    `<p class="hint" style="margin-top:3px">右へなぞると完了、左へなぞると明日へ。</p>`}</div>`;
+     ボタンは残してあるので、読み飛ばしても困らない。1行だけにする（決まり15b）。
+     **なぞれる行がある欄の上に、1回だけ出す**（2026-09-26）。前は「この日にやること」の下に
+     固定で出していたので、その欄が空（「ありません。」）のとき、**指す先の無い案内**になっていた。
+     なぞれるかどうかは `swipeActs` が決める（決まり7e・下地を描く側と同じ判定）。 */
+  const swipable = list => list.some(i => { const a = swipeActs(i); return !!(a.right || a.left); });
+  const swipeTipHTML = `<p class="hint" style="margin-top:3px">右へなぞると完了、左へなぞると明日へ。</p>`;
+  let swipeTip = !demo && !tipDone("swipe");
+  const tipHere = list => (swipeTip && swipable(list)) ? (swipeTip = false, swipeTipHTML) : "";
+  h += `<div class="sect"><h2>この日にやること</h2>${tipHere(owed)}</div>`;
   if (!owed.length) {
     h += `<div class="card empty">ありません。</div>`;
   } else {
@@ -3393,7 +3419,7 @@ function renderDay() {
       「午前中に」「14時から」のように言うと、上の予定表に入ります。` : ""}</div><div class="stack">`;
     for (const i of owed) {
       const r = reasonFor(i.id), ed = elseDay.get(i.id);
-      h += demo ? "" : itemHTML(i, { swipe: true, note: r ? "置けない理由：" + r
+      h += demo ? "" : itemHTML(i, { swipe: true, noKind: true, note: r ? "置けない理由：" + r
         : ed ? `${fmtDayPlain(ed, tz)}に進めると言っていたので、その日の予定表に入れています。` : "" });
     }
     h += `</div>`;
@@ -3417,11 +3443,11 @@ function renderDay() {
 
     h += `<div class="sect"><h2>タスク</h2>
       <p class="hint" style="margin-top:4px">日付を決めていない、やること。${
-        placed ? `このうち${placed}件は今日の案に入れています。` : ""}</p></div>`;
+        placed ? `このうち${placed}件は今日の案に入れています。` : ""}</p>${tipHere(rest.slice(0, 30))}</div>`;
     h += rest.length
       ? `<div class="stack">${rest.slice(0, 30).map(i => {
             const r = reasonOf(i.id);
-            return itemHTML(i, { swipe: true, note: r ? "置けない理由：" + r : "" });
+            return itemHTML(i, { swipe: true, noKind: true, note: r ? "置けない理由：" + r : "" });
           }).join("")}${
           rest.length > 30 ? `<div class="card empty">ほか${rest.length - 30}件</div>` : ""}</div>`
       : `<div class="card empty">${placed ? "すべて今日の案に入れています。" : "ありません。"}</div>`;
@@ -3537,8 +3563,11 @@ function turnHTML(t) {
   const err = t.error ? `<div class="note warn">${esc(t.error)}</div>` : "";
   return `<div class="turn ai"><div class="bub">${esc(t.text)}</div>
     <div class="extra">${err}${nextLine}${changes}${plan}</div>
-    <span class="stamp">${stamp} · ${t.ai ? "AIが読み取り"
-      : t.aiQuiet ? "ルールで読み取り（AIは返事だけ）" : "ルールで読み取り"}</span></div>`;
+    <span class="stamp">${stamp}</span></div>`;
+  /* **読み取り方（AI／ルール）を、返事ごとに書かない**（2026-09-26・本人の指示「余計な部分をそぎ落として」）。
+     作る側には手がかりだったが、使う人が読んで打つ手は無い。AIを使えなかったときは、
+     その理由が吹き出しの中に出る（`aiFailNote`・決まり13c）ので、知らせる道は残っている。
+     `t.ai` / `t.aiQuiet` は今までどおり会話に保存する（あとから読める・出さないだけ）。 */
 }
 /* ── 留守のあいだに、LifeOS側がやったこと ────────────────────────
    `lifeos_results` は**読んでいたのに、画面のどこにも出していなかった**（v8.1 で発見）。
@@ -3608,9 +3637,15 @@ function renderMe() {
   const unconf = profs.filter(p => !p.confirmed && !p.corrected);
   let h = "";
 
-  /* ---- 渡す欄 ---- */
-  h += `<div class="card stack">
-    <h3 class="cardttl">自分について渡す</h3>
+  /* **渡す欄は、タブの一番上に広げて置かない**（2026-09-26・本人の指示「余計な部分をそぎ落として」）。
+     前はタブを開くと、まず入力欄2つとボタン2つの大きな箱が出ていた。毎回見るのは
+     「何が集まっているか」のほうで、渡すのはたまにしかしない。
+     だから「自分で渡したもの」の欄の中に、たたんで置く（押せば開く・`gotopaste` も開く）。
+     **進み具合（`#docProg`）はたたみの外に置く**——保存したあと `renderMe` が描き直すので、
+     中に置くと、AIが読んでいる間ずっと閉じた箱の中に隠れる。 */
+  const pasteForm = `<details class="allplan" id="pasteFold">
+    <summary>＋ 資料を渡す</summary>
+    <div class="stack" style="margin-top:10px">
     <div><label class="fld" for="docTitle">これは何ですか（任意）</label>
       <input type="text" id="docTitle" placeholder="例：研究の背景メモ"></div>
     <div><label class="fld" for="docText">本文</label>
@@ -3620,12 +3655,13 @@ function renderMe() {
       <button class="btn" id="btnDocFile">ファイルを選ぶ</button>
       <span class="hint" id="docNote"></span>
       <button class="btn pri" id="btnDocAdd" style="margin-left:auto">読み取って足す</button>
-    </div>
-    <div id="docProg"></div>
-  </div>`;
+    </div></div>
+  </details>
+  <div id="docProg"></div>`;
+  const cnt = n => n ? `（${n}件）` : "";   // 0件は見出しに書かない（空の欄がそう言っている）
 
   /* ---- ① 会話から集まったこと ---- */
-  h += `<div class="sect"><h2>会話から集まったこと（${profs.length}件）</h2>
+  h += `<div class="sect"><h2>会話から集まったこと${cnt(profs.length)}</h2>
     ${SAMPLEFN ? "" : `<p class="hint">AIを使っていないので、はっきりした言い方だけを拾っています。</p>`}</div>`;
 
   if (unconf.length) {
@@ -3641,7 +3677,7 @@ function renderMe() {
       const list = profs.filter(p => (p.category || "その他") === cat);
       if (!list.length) continue;
       h += `<div class="cathead"><h3>${cat}</h3><span class="n">${list.length}</span></div>
-        <div class="catgroup">${list.map(p => itemHTML(p)).join("")}</div>`;
+        <div class="catgroup">${list.map(p => itemHTML(p, { noKind: true, noCat: true })).join("")}</div>`;
     }
   }
 
@@ -3650,22 +3686,24 @@ function renderMe() {
      押しても保存はしない——チャットへ移って、本人が言葉で答える（会話が入口）。 */
   const gaps = telosGaps();
   if (gaps.length) {
-    h += `<div class="sect"><h2>まだ聞いていないこと（${gaps.length}件）</h2>
+    /* **1問1枚にしない**（2026-09-26）。6問あると箱が6つ並んで、タブの半分がここになっていた。
+       iOS の設定と同じ「1枚の中に行で並べる」形にする。問いは1つも減らしていない。 */
+    h += `<div class="sect"><h2>まだ聞いていないこと${cnt(gaps.length)}</h2>
       <p class="hint">答えなくても構いません。</p></div>
-    <div class="stack">${gaps.map(a => `<div class="card row">
-      <div style="flex:1 1 180px">${esc(a.q)}</div>
-      <button class="btn sm" data-act="telosask" data-id="${a.key}" style="margin-left:auto">これを話す</button>
+    <div class="card qlist">${gaps.map(a => `<div class="qrow">
+      <div>${esc(a.q)}</div>
+      <button class="btn sm" data-act="telosask" data-id="${a.key}">話す</button>
     </div>`).join("")}</div>`;
   }
 
   /* ---- ② 自分で渡したもの ---- */
-  h += `<div class="sect"><h2>自分で渡したもの（${state.docs.length}件）</h2>
-    <p class="hint">ここから読み取ったものには「資料」の印が付きます。</p></div>`;
+  /* 資料が無いときに「まだ渡した資料はありません。［資料を渡す］」の空の欄を出していたが、
+     **すぐ下に「＋ 資料を渡す」がある**ので、同じ入口が2つ並んでいた（決まり15h「近くに同じ操作が
+     あるなら足さない」）。印の説明も、印の付いた資料があるときだけ。 */
+  h += `<div class="sect"><h2>自分で渡したもの${cnt(state.docs.length)}</h2>${
+    state.docs.length ? `<p class="hint">ここから読み取ったものには「資料」の印が付きます。</p>` : ""}</div>`;
 
-  if (!state.docs.length) {
-    h += `<div class="card empty">まだ渡した資料はありません。
-      <div><button class="btn" data-act="gotopaste">資料を渡す</button></div></div>`;
-  } else {
+  if (state.docs.length) {
     const docs = state.docs.slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     h += `<div class="stack">${docs.map(d => {
       const made = state.items.filter(i => i.docId === d.id && i.status !== "dropped").length;
@@ -3686,6 +3724,7 @@ function renderMe() {
         </div></div>`;
     }).join("")}</div>`;
   }
+  h += `<div style="margin-top:10px">${pasteForm}</div>`;
 
   /* ---- ③ 予定表に入らないもの（スケジュールから引っ越し） ---- */
   const goals = liveItems().filter(i => i.kind === "goal" && i.status === "open");
@@ -3696,35 +3735,37 @@ function renderMe() {
 
   if (goals.length || ideas.length || memos.length || prefItems.length) {
     h += `<div class="sect"><h2>予定表に入らないもの</h2>
-      <p class="hint">日付が決まっていないものです。</p></div>`;
+      <p class="hint">やると決めたことではないので、予定表には出していません。</p></div>`;
 
     if (goals.length) {
       h += `<div class="cathead"><h3>続けたいこと</h3><span class="n">${goals.length}</span></div>
-        <div class="catgroup">${goals.map(i => itemHTML(i)).join("")}</div>`;
+        <div class="catgroup">${goals.map(i => itemHTML(i, { noKind: true })).join("")}</div>`;
     }
     if (ideas.length) {
       h += `<div class="cathead"><h3>気になっていること</h3><span class="n">${ideas.length}</span></div>
         <p class="hint">やると決めたわけではないこと。やると決めたら「訂正」で種類を「タスク」に変えてください。</p>
-        <div class="catgroup">${ideas.slice(0, 20).map(i => itemHTML(i)).join("")}
+        <div class="catgroup">${ideas.slice(0, 20).map(i => itemHTML(i, { noKind: true })).join("")}
         ${ideas.length > 20 ? `<div class="card empty">ほか${ideas.length - 20}件</div>` : ""}</div>`;
     }
     if (memos.length) {
       h += `<div class="cathead"><h3>あとで見返すこと</h3><span class="n">${memos.length}</span></div>
-        <div class="catgroup">${memos.slice(0, 20).map(i => itemHTML(i)).join("")}
+        <div class="catgroup">${memos.slice(0, 20).map(i => itemHTML(i, { noKind: true })).join("")}
         ${memos.length > 20 ? `<div class="card empty">ほか${memos.length - 20}件</div>` : ""}</div>`;
     }
     if (prefItems.length) {
       const always = prefItems.filter(p => !p.scopeDay), oneDay = prefItems.filter(p => p.scopeDay);
       h += `<div class="cathead"><h3>こうしてほしい、と言ったこと</h3><span class="n">${prefItems.length}</span></div>
-        <p class="hint">予定づくりがこれを読んでいます。やめたいときは「取り消す」を押してください。</p>`;
-      if (always.length) h += `<div class="catgroup">${always.map(p => itemHTML(p)).join("")}</div>`;
+        <p class="hint">予定づくりがこれを読んでいます。やめたいときは「…」から取り消せます。</p>`;
+      if (always.length) h += `<div class="catgroup">${always.map(p => itemHTML(p, { noKind: true })).join("")}</div>`;
       if (oneDay.length) h += `<p class="hint" style="margin-top:8px">その日だけの希望（過ぎた日のものは効いていません）</p>
-        <div class="catgroup">${oneDay.map(p => itemHTML(p)).join("")}</div>`;
+        <div class="catgroup">${oneDay.map(p => itemHTML(p, { noKind: true })).join("")}</div>`;
     }
   }
 
-  // 何が外へ送られるかは、短くしても消さない（新しい外部送信の決まり）
-  h += `<div class="sect"><p class="hint">AIに送るのは<strong>この一覧の短い文だけ</strong>。
+  /* 何が外へ送られるかは、短くしても消さない（新しい外部送信の決まり）。
+     **ただしAIを使っていないときは、送るもの自体が無い**（2026-09-26）ので出さない。
+     使えないのに「AIに送るのは…」と書くと、送っているように読める。 */
+  if (SAMPLEFN) h += `<div class="sect"><p class="hint">AIに送るのは<strong>この一覧の短い文だけ</strong>。
     資料の全文は、読み取りのときにしか送りません。</p></div>`;
 
   host.innerHTML = h;
@@ -3737,20 +3778,11 @@ function renderSettings() {
   $("#breakLen") && ($("#breakLen").value = s.breakMin == null ? 10 : s.breakMin);
   $("#theme") && ($("#theme").value = s.theme || "auto");
   renderWhere();
-  const turnCount = Object.values(state.turns).reduce((n, l) => n + l.length, 0);
-  /* **作業に使える時間帯を、読めるところに1行だけ出す**（v6.2b・実機で報告）。
-     設定欄は v3.9 で外した（本人の指示）ので、ここは**入力欄ではなく事実の表示**。
-     出す理由：この帯の外だと予定が置けず、`planFor` の理由文がこの数字を名指しする。
-     数字が画面のどこにも出ていないと、理由を読んでも確かめようがない。 */
-  const kv = [
-    ["会話", turnCount.toLocaleString() + "件"],
-    ["原文", state.notes.length.toLocaleString() + "件"],
-    ["項目", state.items.length.toLocaleString() + "件"],
-    ["作業に使える時間帯", `${s.workStart}〜${s.workEnd}`],
-    ["保存先", state.backend === "db" ? "claude.ai ＋ この端末" : "この端末のみ"]
-  ];
-  $("#dataState").innerHTML = kv.map(([k, v]) =>
-    `<div class="kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("");
+  /* **件数と置き場所の行は外した**（2026-09-26・本人の指示「この端末のみという表示はいらない」）。
+     会話・原文・項目の件数は作る側の目安で、使う人が読んで打つ手が無い。
+     **作業に使える時間帯**は、決まり6n が「理由文が名指しする数字を画面に出す」と決めているが、
+     それが効くのは**帯が狭いときだけ**で、そのときは下の `#windowWarn` が数字ごと出している。
+     一日じゅうなら、帯の外という理由はそもそも出ない。だから1行ぶんの常設は要らない。 */
   /* **狭いまま保存されている帯からの逃げ道**（v6.3・実機で報告）。
      設定欄は外してあるので、古い値が残っていると**画面から直す道が無い**。
      実機で 05:00〜11:00 のまま残り、11時より後に一切置けなくなっていた。
@@ -3760,8 +3792,7 @@ function renderSettings() {
     const narrow = s.workStart !== DEFAULTS.workStart || s.workEnd !== DEFAULTS.workEnd;
     wWarn.hidden = !narrow;
     if (narrow) wWarn.innerHTML = `<strong>作業に使える時間帯が ${esc(s.workStart)}〜${esc(s.workEnd)} になっています。</strong>
-      この外には作業を置けないので、外の時間を指定すると「作業に使える時間帯の外です」と出ます。
-      （設定欄は無くしたので、昔のままの値が残っていることがあります）<br>
+      この外には作業を置けません。<br>
       <button class="btn sm" id="btnWholeDay" style="margin-top:8px">一日じゅう使えるようにする（${DEFAULTS.workStart}〜${DEFAULTS.workEnd}）</button>`;
     // innerHTML を書き直すたびにボタンは新しくなるので、ここで毎回つなぐ
     if (narrow) $("#btnWholeDay").addEventListener("click", async () => {
@@ -3783,7 +3814,7 @@ function renderSettings() {
         : "<strong>claude.ai にも繋がっていないので、いま話したことは残りません。</strong>ページを開き直すか、書き出して退避してください。");
     else if (n >= READ_WARN) near.innerHTML = `<strong>記録が ${n.toLocaleString()} 件になりました。</strong>
       1回に読み込めるのは<strong>${READ_LIMIT.toLocaleString()}件まで</strong>です。超えたぶんは保存されていますが、画面には出なくなります。
-      <strong>「書き出す（JSON）」で控えを取ってから</strong>、古い記録の整理を考えてください。`;
+      <strong>「記録を書き出す」で控えを取ってから</strong>、古い記録の整理を考えてください。`;
   }
   const ec = $("#errCard");
   if (ec) {
@@ -3811,12 +3842,15 @@ function renderWhere() {
         本人がもう決めていて、毎回読ませる必要が無い。
      端末側も同じで、「誰にも渡っていません」は①の言い換え、
      「控えは下の『書き出す（JSON）』で取れます」は**そのボタンがすぐ下に見えている**。
-     96字 → **52字**／61字 → **23字**。 */
+     96字 → **52字**／61字 → **23字**。
+     **端末の中だけのときは、出さない**（2026-09-26・本人の指示「この端末のみという表示はいらない」）。
+     端末に記録を置くのはアプリとしてふつうのことで、**知らせるべき事実が無い**。
+     共有の場所のほうは**条件つきの判断**なので、ここは消さない（事実＋条件の1文）。 */
+  el.hidden = !DB;
   el.innerHTML = DB
     ? "<strong>claude.ai の共有の場所にあります。</strong>"
       + "リンクを開いた人に見えるので、見られて困ることは入れないでください。"
-    : "<strong>この端末の中だけにあります。</strong>"
-      + "アプリを消すと無くなります。";
+    : "";
 }
 
 const view = { tab: "p-chat", day: null, ask: null };
@@ -3842,7 +3876,6 @@ function showTab(id) {
     if (b.dataset.tab === id) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   }
   document.body.classList.toggle("talking", id === "p-chat");
-  fitTopbar();   // 見出しの高さは文字の大きさで変わる。日付バーが貼り付く位置のもと
   // タブを開いたら必ず描き直す（前の操作の結果が古いまま残らないように）
   if (id === "p-day") renderDay();
   else if (id === "p-me") renderMe();
@@ -4098,6 +4131,8 @@ async function act(a, id, el) {
     showTab("p-me");
     const el = $("#docText");
     if (!el) { toast("貼り付ける欄が見つかりませんでした"); return; }
+    // 渡す欄はたたんである（2026-09-26）。**開いてから**でないと、焦点を当てられない
+    const fold = el.closest("details"); if (fold) fold.open = true;
     el.scrollIntoView({ block: "center" });   // 動かさない（動きを減らす設定を尊重する）
     el.focus();
     return;
@@ -5849,11 +5884,6 @@ let sending = false;
    **末尾を見ていた人は、伸びたぶんを追いかける**——そうしないと、
    打つたびに自分の最後の発言が少しずつ下へ潜っていく。
    スクロールするのは会話タブを見ているときだけ（別のタブを下端へ飛ばさない）。 */
-/* 見出し（sticky）の実寸を `--topbar` に渡す。日付バーはこの下に貼り付く。 */
-function fitTopbar() {
-  const top = document.querySelector("header.top");
-  if (top) document.documentElement.style.setProperty("--topbar", top.offsetHeight + "px");
-}
 function fitSaybar() {
   const bar = document.querySelector(".saybar");
   if (!bar) return;
@@ -5992,7 +6022,7 @@ if (typeof document !== "undefined") {
 }
 
 /* 画面のどこで落ちても、黙って消えないようにする */
-window.addEventListener("resize", () => { fitTopbar(); fitSaybar(); });
+window.addEventListener("resize", () => { fitSaybar(); });
 window.addEventListener("error", ev => { lastError = describeError(ev.error || ev.message); renderSettings(); });
 window.addEventListener("unhandledrejection", ev => { lastError = describeError(ev.reason); renderSettings(); });
 
@@ -6418,7 +6448,7 @@ $("#btnTidy").addEventListener("click", async () => {
   const yes = await askConfirm({
     title: `${$("#tidyAge").selectedOptions[0].textContent}の記録を消しますか？`,
     body: `終わった項目 ${items.length}件 ／ 原文 ${notes.length}件 ／ 会話 ${turnDays.length}日分 を消します。<br>
-      <strong>やりかけのものは残します。</strong>取り消せません。先に「書き出す（JSON）」をおすすめします。`,
+      <strong>やりかけのものは残します。</strong>取り消せません。先に「記録を書き出す」をおすすめします。`,
     yes: "古い記録を消す", danger: true
   });
   if (!yes) return;

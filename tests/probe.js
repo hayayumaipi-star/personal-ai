@@ -1056,8 +1056,10 @@
         ok("AF. 時間切れは AbortSignal を返す", !!(g && g.signal && typeof g.done === "function"));
         g.done();
         ok("AF. タイムゾーンを変えたら日付を引き直す", typeof retimeItems === "function");
+        /* 右上のバッジは外した（2026-09-26）。見張るのは**知らせる道**のほう——
+           圏外に入った／戻ったときの受け口（保存先があるときにトーストを出す）。 */
         ok("AF. 圏外を見張っている",
-           Array.from(document.scripts).some(s => /navigator\.onLine/.test(s.textContent) && /function\s+setSync/.test(s.textContent)));
+           Array.from(document.scripts).some(s => /addEventListener\("offline"/.test(s.textContent) && /function\s+setSync/.test(s.textContent)));
       }
 
       /* ===== AG群：シートの閉じ方（v4.3） ===== */
@@ -2671,9 +2673,15 @@
 
       /* **「AIが答えなかった」と「AIは答えたが操作が空だった」を同じ顔で出さない**
          （v7.9・実機で報告）。本人は「ルールで読み取り」を見て
-         **「AIが使えなくなった」**と読んだ。印に理由を足す。 */
-      ok("BC. AIが返事だけのときは、印に理由を付ける",
-         /ルールで読み取り（AIは返事だけ）/.test(String(turnHTML)), "印が分かれていない");
+         **「AIが使えなくなった」**と読んだ。v7.9 では印に理由を足したが、
+         **2026-09-26 に印そのものを外した**（本人の指示「余計な部分をそぎ落として」）。
+         印が無ければ、取り違える元も無い。見張るのは「印が戻っていないこと」。 */
+      {
+        const html = turnHTML({ role: "assistant", text: "はい", at: "2026-09-14T03:00:00Z",
+                                ai: false, aiQuiet: true, plan: null });
+        ok("BC. 返事に読み取り方の印を出さない",
+           !/読み取り/.test(html.replace(/<[^>]+>/g, "")), html.replace(/<[^>]+>/g, "").trim().slice(-30));
+      }
       ok("BC. 組み立ての案内は依頼文の先頭に置く",
          pm.indexOf("【この発話は「1日の組み立て」の依頼です】") < 200,
          String(pm.indexOf("【この発話は「1日の組み立て」の依頼です】")));
@@ -2735,8 +2743,15 @@
         state.items = [];
         showTab("p-me"); renderMe();
         const meTxt = $("#meOut").textContent.replace(/\s+/g, " ");
+        /* ボタンの文言は「話す」に縮めた（2026-09-26・1枚の中に行で並べる形）。
+           **文言ではなく、押せるボタンがあることを見る**（決まり15b「目印は、いまも画面に出るものへ」）。 */
         ok("BD. 「まだ聞いていないこと」の欄は残す",
-           /まだ聞いていないこと/.test(meTxt) && /これを話す/.test(meTxt), meTxt.slice(0, 80));
+           /まだ聞いていないこと/.test(meTxt) && !!$('#meOut [data-act="telosask"]'), meTxt.slice(0, 80));
+        ok("BD. 質問は1枚の中に行で並ぶ（1問1枚にしない）",
+           document.querySelectorAll('#meOut .qlist .qrow').length === telosGaps().length
+             && document.querySelectorAll('#meOut .qlist').length === 1,
+           document.querySelectorAll('#meOut .qrow').length + "行 / "
+             + document.querySelectorAll('#meOut .qlist').length + "枚");
 
         /* 画面で聞いている質問は、聞いているあいだだけ渡す。 */
         state.items = [];
@@ -3172,15 +3187,17 @@
       const local = $("#whereNote").textContent;
       ok("BH. つながっていなければ、設定タブに「共有」の話が出ない",
          !/共有の場所/.test($("#p-set").textContent), "共有の話が残っている");
-      ok("BH. つながっていなければ「この端末の中だけ」と言う",
-         /この端末の中だけ/.test(local), local.slice(0, 40));
+      /* **端末の中だけのときは、何も出さない**（2026-09-26・本人の指示
+         「この端末のみという表示はいらない」）。端末に記録を置くのはアプリとしてふつうのことで、
+         知らせる事実が無い。**文を空にするだけでなく、欄ごと隠れていること**——
+         `.note` は枠と地の色を持つので、中身が空でも灰色の箱が残る。 */
+      ok("BH. つながっていなければ、置き場所の欄ごと出さない",
+         $("#whereNote").hidden === true, "hidden=" + $("#whereNote").hidden);
+      ok("BH. 「この端末のみ」「この端末の中だけ」と書かない",
+         !/この端末(のみ|の中だけ)/.test(local), local.slice(0, 40));
       ok("BH. 共有していると言わない", !/リンクを開いた人/.test(local), local.slice(0, 40));
       /* **控えの取り方は、文ではなくボタンで示す**（2026-09-25）。
-         「控えは下の『書き出す（JSON）』で取れます」は消したが、
-         **そのボタンは同じタブのすぐ下に見えている**。だから見張る先を、
-         文からボタンへ付け替える（決まり15b「目印は、いまも画面に出るものへ」）。
-         消えることだけは**文でしか言えない**ので、そちらは文のまま見る。 */
-      ok("BH. 消えることを言う", /無くなります/.test(local), local.slice(0, 60));
+         そのボタンは同じタブのすぐ下に見えている（決まり15b「目印は、いまも画面に出るものへ」）。 */
       {
         /* **見えているかを測るなら、先にそのタブを開くこと。**
            開かずに測ると高さが 0 になり、**ボタンがあっても「無い」と出る**
@@ -3205,6 +3222,7 @@
          「本当の予定は Android アプリのほうへ」は**助言**なので消した。
          どちらを本物にするかは決まっていて、毎回読ませる必要が無い。
          **消したものを見張り続けない**（決まり15b）ので、その1件はここから外した。 */
+      ok("BH. つながっていれば、置き場所の欄を出す", $("#whereNote").hidden === false, "隠れている");
       ok("BH. つながっていれば、見えることを言う", /リンクを開いた人/.test(shared), shared.slice(0, 40));
       ok("BH. 見られて困るものを入れない、という条件も残っている",
          /見られて困ること/.test(shared), shared.slice(0, 60));
@@ -3978,7 +3996,10 @@
        ③ 見出しと重なっている部分だけ削る（**見出しに無い中身は残す**）
        ④ 状態は文ではなく行にする。残すものは短くする（**事実は落とさない**）。 */
     {
-      const keepItems = state.items, keepTab = view.tab;
+      const keepItems = state.items, keepTab = view.tab, keepNotes = state.notes;
+      /* **見本の画面（原文0件）で測らないこと**（2026-09-26）。見本では行が1つも無いので、
+         なぞる案内は**指す先が無い**——そこで出ていたのが直したかった不具合そのもの。 */
+      state.notes = [{ id: "brn", text: "見本ではない", capturedAt: new Date().toISOString() }];
 
       /* ① `hidden` を付けたら、本当に消えること。
          **クラス側の `display` に負ける**のが落とし穴で、実際
@@ -4028,6 +4049,60 @@
          /return false/.test(String(tipDone)) && /catch/.test(String(tipDone)),
          "読めないときの逃げ道が無い");
       ok("BR. 覚えを書けなくても落ちない", /catch/.test(String(markTip)), "try が無い");
+
+      /* ===== BS群：指す先の無い説明を出さない（2026-09-26・本人の指示「余計な部分をそぎ落として」）=====
+         凡例・「枠を押すと」・なぞる案内は、**その日の画面に指す先があるときだけ**出す。
+         空の日は、空の欄が1つ「まだ予定はありません」と言えば足りる。 */
+      {
+        const keepI = state.items;
+        forget();
+        state.items = [];
+        let t = dayText();
+        ok("BS. 枠が無い日に、凡例を出さない", !$("#p-day .legend") || /夜は空けています/.test($("#p-day .legend").textContent), $("#p-day .legend") && $("#p-day .legend").textContent);
+        ok("BS. 枠が無い日に、「枠を押すと」を出さない", !/枠を押すと/.test(t), "出ている");
+        ok("BS. なぞれる行が無い日に、なぞる案内を出さない", !/なぞると完了/.test(t), "出ている");
+        ok("BS. 空の日の知らせは1つだけ（上に重ねない）",
+           !/この日に置ける予定・作業がありません/.test(t) && /まだ予定はありません/.test(t), t.slice(0, 80));
+        // 動かさない予定だけの日：凡例は「動かさない予定」だけ
+        state.items = [keepI.find(i => i.id === "br1")];
+        t = dayText();
+        const lg = ($("#p-day .legend") || {}).textContent || "";
+        ok("BS. 凡例は、その日に出ている種類だけ", /動かさない予定/.test(lg) && !/動かせる作業/.test(lg) && !/AIが読み取った/.test(lg), lg);
+        ok("BS. 枠があれば「枠を押すと」は出る", /枠を押すと/.test(t), "出ない");
+        // AIが読み取った枠がある日は、点の説明も出る（点そのものも出ている）
+        state.items = [Object.assign({}, keepI.find(i => i.id === "br1"), { origin: "ai", confirmed: false, corrected: false })];
+        dayText();
+        ok("BS. AIが読み取った枠があれば、点と、その説明が両方出る",
+           !!$("#p-day .bdot") && /AIが読み取った/.test(($("#p-day .legend") || {}).textContent || ""), "片方しか無い");
+        // タスクの欄の行に「タスク」の印を付けない。由来の印は残す（決まり2）
+        state.items = keepI;
+        dayText();
+        const row = $('#p-day [data-swipe="br2"] .item') || $('#p-day .item');
+        const chips = row ? Array.from(row.querySelectorAll(".chip")).map(c => c.textContent) : [];
+        ok("BS. 「タスク」の欄の行に、見出しと同じ種類の印を付けない", row && !chips.includes("タスク"), chips.join("/"));
+        ok("BS. 由来の印は外さない（決まり2）", chips.some(c => /読み取ったまま|本人が訂正|確認済み/.test(c)), chips.join("/"));
+        state.items = keepI;
+      }
+      {
+        /* タブのアイコンは線の絵（2026-09-26）。文字の記号（◗◷◍⚙）は端末のフォントで形が変わり、
+           「◗」は吹き出しに見えなかった。**4つとも絵で、文字の記号が戻っていないこと。** */
+        const tabs = Array.from(document.querySelectorAll("nav.tabs button"));
+        ok("BS. タブの4つとも、アイコンが絵（svg）になっている",
+           tabs.length === 4 && tabs.every(b => b.querySelector(".ic svg")), tabs.length + "個");
+        ok("BS. 文字の記号のアイコンが戻っていない",
+           !tabs.some(b => /[◗◷◍⚙]/.test(b.textContent)), "戻っている");
+        ok("BS. アイコンは読み上げない（名前は文字で読む）",
+           tabs.every(b => (b.querySelector(".ic svg") || {}).getAttribute
+             && b.querySelector(".ic svg").getAttribute("aria-hidden") === "true"), "読み上げられる");
+        /* 「AIに送るのは…」は、AIを使っているときだけ（使っていないなら送るもの自体が無い）。 */
+        const keepS2 = SAMPLEFN;
+        SAMPLEFN = null; renderMe();
+        ok("BS. AIを使っていないとき、「AIに送るのは」を出さない", !/AIに送るのは/.test($("#meOut").textContent), "出ている");
+        SAMPLEFN = keepS2 || (() => {}); renderMe();
+        ok("BS. AIを使っているとき、何を送るかは消さない（外部送信の決まり）",
+           /AIに送るのは/.test($("#meOut").textContent), "消えている");
+        SAMPLEFN = keepS2; renderMe();
+      }
       /* 覚えるのは**実際に使えたときだけ**。できない項目をなぞっても覚えない。 */
       ok("BR. なぞれたときだけ覚える（できない項目では覚えない）",
          String(runSwipe).indexOf('if (!op) return false;') < String(runSwipe).indexOf('markTip'),
@@ -4051,23 +4126,52 @@
         "日付が無いので、スケジュールには置いていません。"
       ].filter(t => me.includes(t));
       ok("BR. 見出しと同じことを、下でもう一度言っていない", dup.length === 0, dup.join(" / "));
-      ok("BR. 見出しに無い中身は残っている（「資料」の印の話）",
-         /「資料」の印/.test(me), "消しすぎた");
+      /* 「資料」の印の説明は、**印の付いた資料があるときだけ**出す（2026-09-26）。
+         資料が0件なら指す先が無い。1件あれば出る——消しすぎていないことも見る。 */
+      {
+        const keepDocs = state.docs;
+        state.docs = [];
+        renderMe();
+        ok("BR. 資料が無いときは、「資料」の印の説明を出さない",
+           !/「資料」の印/.test($("#p-me").textContent), "出ている");
+        state.docs = [{ id: "brd", title: "見本", text: "朝は弱い", hash: "x", chars: 4,
+                        source: "paste", createdAt: new Date().toISOString() }];
+        renderMe();
+        ok("BR. 見出しに無い中身は残っている（資料があれば「資料」の印の話が出る）",
+           /「資料」の印/.test($("#p-me").textContent), "消しすぎた");
+        state.docs = keepDocs;
+        renderMe();
+      }
       /* 行のボタンは 2026-09-24 に「…」へ移した。**案内の文が古いまま残らないこと。** */
       ok("BR. 未確認の知らせが、いまのボタンの場所を指している",
          !/「訂正」か「取り消す」で直してください/.test(me), "古い案内が残っている");
 
-      /* ④ 状態は「項目｜値」の行で出す（文の中から数字を探させない）。 */
+      /* ④ **件数と置き場所の行は外した**（2026-09-26・本人の指示「この端末のみという表示はいらない」）。
+         会話・原文・項目の件数は作る側の目安で、使う人が読んで打つ手が無い。
+         **作業に使える時間帯は、狭いときだけ名指しする**（決まり6n）——そのときは
+         `#windowWarn` が数字ごと出す。一日じゅうなら何も出さない。 */
       showTab("p-set");
-      const rows = Array.from($("#dataState").querySelectorAll(".kv"));
-      ok("BR. 設定の状態が、項目と値の行になっている", rows.length >= 4, "行が " + rows.length + "件");
-      const win = rows.find(r => /作業に使える時間帯/.test(r.textContent));
-      ok("BR. 作業に使える時間帯が、その行に出ている",
-         !!win && /\d\d:\d\d〜\d\d:\d\d/.test(win.textContent), win && win.textContent);
-      ok("BR. 名前と値が別々に読める",
-         rows.every(r => r.querySelector("span") && r.querySelector("b")), "組になっていない行がある");
+      const setText = $("#p-set").textContent;
+      ok("BR. 設定に、内部の件数を出さない",
+         !$("#dataState") && !/原文\s*\d+件|項目\s*\d+件/.test(setText), "件数が残っている");
+      ok("BR. 設定に「この端末のみ」を出さない（Android アプリの形）",
+         DB || !/この端末のみ/.test(setText), "残っている");
+      {
+        const keepS = state.settings;
+        state.settings = Object.assign({}, keepS, { workStart: "00:00", workEnd: "23:59" });
+        renderSettings();
+        // innerText は隠れた欄を読まない（textContent は読む）。タブは上で開いてある。
+        ok("BR. 一日じゅうなら、時間帯の話を出さない",
+           $("#windowWarn").hidden && !/作業に使える時間帯/.test($("#p-set").innerText), "出ている");
+        state.settings = Object.assign({}, keepS, { workStart: "05:00", workEnd: "11:00" });
+        renderSettings();
+        ok("BR. 狭いときは、数字ごと名指しする（決まり6n）",
+           !$("#windowWarn").hidden && /05:00〜11:00/.test($("#windowWarn").textContent),
+           $("#windowWarn").textContent.slice(0, 60));
+        state.settings = keepS; renderSettings();
+      }
 
-      state.items = keepItems; view.day = keepDay; showTab(keepTab);
+      state.items = keepItems; state.notes = keepNotes; view.day = keepDay; showTab(keepTab);
     }
 
     const fails = R.filter(x => x.startsWith("FAIL"));
