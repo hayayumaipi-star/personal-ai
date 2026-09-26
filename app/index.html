@@ -5,14 +5,18 @@
 :root{
   color-scheme:light;
   --scrim:rgba(0,0,0,.38);
-  --paper:#F2F2F7; --surface:#FFFFFF; --surface-2:#E5E5EA;
-  --ink:#1C1C1E; --ink-2:#5F5F63; --ink-3:#8E8E93;
-  --line:#D9D9DE; --line-strong:#C6C6C8;
-  --accent:#0D6E6B; --accent-soft:#E2F2F0; --accent-ink:#0A4E4C;
-  --warn:#FF9500; --warn-soft:#FFF1DF; --warn-ink:#8F5200;
+  /* **地と差し色は、アプリのアイコン（一日のタイムライン）から取る**（2026-09-26・本人の指示
+     「アプリアイコンのデザインと親和性が高いものに」）。地＝アイコンの淡い青緑、
+     注意＝アイコンの黄、「いま」・警告＝アイコンの赤。差し色（青緑）は前から同じ。 */
+  --paper:#F1F6F5; --surface:#FFFFFF; --surface-2:#E3ECEA;
+  --ink:#172120; --ink-2:#55605E; --ink-3:#85908E;
+  --line:#D3DEDB; --line-strong:#BCC9C6;
+  --accent:#0D6E6B; --accent-soft:#DDEFEC; --accent-ink:#0A4E4C;
+  --warn:#F2A541; --warn-soft:#FDF1DD; --warn-ink:#855000;
   --done:#34C759; --done-soft:#E3F7E8; --done-ink:#1B7030;
-  --alert:#FF3B30; --alert-soft:#FFEBE9; --alert-ink:#B3261E;
-  --shadow:0 1px 2px rgba(0,0,0,.04), 0 6px 20px rgba(0,0,0,.06);
+  --alert:#E8705E; --alert-soft:#FCEAE6; --alert-ink:#AA3226;
+  --mark-tile:#DCEDEA; --mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='9.3' y='6' width='2.4' height='20' rx='1.2' fill='%23BFD8D4'/%3E%3Ccircle cx='10.5' cy='9.5' r='3.3' fill='%230E6F6B'/%3E%3Ccircle cx='10.5' cy='16' r='3.3' fill='%23F2A541'/%3E%3Ccircle cx='10.5' cy='22.5' r='3.3' fill='%23E8705E'/%3E%3Crect x='16' y='7.3' width='11' height='4.4' rx='2.2' fill='%230E6F6B'/%3E%3Crect x='16' y='13.8' width='7.5' height='4.4' rx='2.2' fill='%23F2A541'/%3E%3Crect x='16' y='20.3' width='9.5' height='4.4' rx='2.2' fill='%23E8705E'/%3E%3C/svg%3E");
+  --shadow:0 1px 2px rgba(16,40,38,.05), 0 6px 20px rgba(16,40,38,.07);
   --r:12px;
   /* **文字の大きさは rem で持つ**（2026-09-24・案⑥「端末の文字サイズに追従させる」）。
      px で書くと、端末やブラウザで既定の文字を大きくしている人に**何も効かない**。
@@ -23,6 +27,7 @@
      （決まり15e の床）。段を増やさないこと。 */
   --fs-1:.6875rem; --fs-2:.75rem; --fs-3:.8125rem; --fs-4:.9375rem;
   --fs-5:1.0625rem; --fs-6:1.25rem; --fs-in:1rem;
+  --fs-7:1.625rem;   /* 画面の名前だけ（各タブの一番上・2026-09-26）。ほかに使わない */
   --f-disp:-apple-system,BlinkMacSystemFont,"SF Pro Display","Hiragino Sans","Zen Kaku Gothic New","Noto Sans JP","Yu Gothic",sans-serif;
   --f-body:-apple-system,BlinkMacSystemFont,"SF Pro Text","Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;
   --f-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Roboto Mono","Noto Sans Mono",monospace;
@@ -30,25 +35,27 @@
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   color-scheme:dark;
   --scrim:rgba(0,0,0,.6);
-  --paper:#000000; --surface:#1C1C1E; --surface-2:#2C2C2E;
-  --ink:#FFFFFF; --ink-2:#A1A1A6; --ink-3:#8E8E93;
-  --line:#38383A; --line-strong:#48484A;
+  --paper:#0B1110; --surface:#172120; --surface-2:#253130;
+  --ink:#F2F6F5; --ink-2:#A6B2AF; --ink-3:#8A9794;
+  --line:#2C3836; --line-strong:#3B4845;
   --accent:#4FC3BC; --accent-soft:#14332F; --accent-ink:#8BDBD5;
-  --warn:#FF9F0A; --warn-soft:#3A2A0C; --warn-ink:#FFB84D;
+  --warn:#F5B25C; --warn-soft:#3A2C12; --warn-ink:#FFC97E;
   --done:#30D158; --done-soft:#123A1C; --done-ink:#5BE07E;
-  --alert:#FF453A; --alert-soft:#3A1614; --alert-ink:#FF8A80;
+  --alert:#F07A6E; --alert-soft:#3D1C18; --alert-ink:#FF9D90;
+  --mark-tile:#1E302E;
   --shadow:0 1px 2px rgba(0,0,0,.5), 0 6px 20px rgba(0,0,0,.4);
 }}
 :root[data-theme="dark"]{
   color-scheme:dark;
   --scrim:rgba(0,0,0,.6);
-  --paper:#000000; --surface:#1C1C1E; --surface-2:#2C2C2E;
-  --ink:#FFFFFF; --ink-2:#A1A1A6; --ink-3:#8E8E93;
-  --line:#38383A; --line-strong:#48484A;
+  --paper:#0B1110; --surface:#172120; --surface-2:#253130;
+  --ink:#F2F6F5; --ink-2:#A6B2AF; --ink-3:#8A9794;
+  --line:#2C3836; --line-strong:#3B4845;
   --accent:#4FC3BC; --accent-soft:#14332F; --accent-ink:#8BDBD5;
-  --warn:#FF9F0A; --warn-soft:#3A2A0C; --warn-ink:#FFB84D;
+  --warn:#F5B25C; --warn-soft:#3A2C12; --warn-ink:#FFC97E;
   --done:#30D158; --done-soft:#123A1C; --done-ink:#5BE07E;
-  --alert:#FF453A; --alert-soft:#3A1614; --alert-ink:#FF8A80;
+  --alert:#F07A6E; --alert-soft:#3D1C18; --alert-ink:#FF9D90;
+  --mark-tile:#1E302E;
   --shadow:0 1px 2px rgba(0,0,0,.5), 0 6px 20px rgba(0,0,0,.4);
 }
 
@@ -69,11 +76,24 @@ button{cursor:pointer;background:none;border:none;padding:0;
    名前は端末のアプリ一覧に出ている。接続状態は、変わったときだけトーストで知らせる（`dbTrouble`）。
    見出しの帯を消したぶん、画面の一番上から内容が始まる。 */
 
+/* **どの画面も、同じ頭で始める**（2026-09-26・本人の指示「AI秘書やこの端末のみを消した影響でレイアウトに違和感」）。
+   帯を外したあと、チャットは小さな日付だけ、わたしのこと・設定は大きさの違う見出しで始まっていて、
+   画面ごとに始まり方がばらばらだった。いまは4つとも「アイコンと同じ印＋画面の名前（＋一行）」。
+   アプリの名前は出さない（決まり15l）。印は外から読み込まない（依存を増やさない・決まり15e）。 */
+.phead{display:flex;align-items:center;gap:12px;padding:12px 0 6px}
+.phead .mark{width:2.5rem;height:2.5rem;flex:none;border-radius:11px;background:var(--mark-tile) var(--mark) center/88% no-repeat}
+.phead .ptl{flex:1;min-width:0}
+.phead h1{font-size:var(--fs-7);line-height:1.2}
+.phead .psub{font-size:var(--fs-3);color:var(--ink-2);margin-top:1px}
+.phead .btn.sm{margin-left:auto}
+
 .eyebrow{font-family:var(--f-disp);font-size:var(--fs-1);font-weight:700;letter-spacing:.16em;
   color:var(--ink-3);text-transform:uppercase}
 .sect{margin:22px 0 0}
 .sect>.eyebrow{display:block;margin-bottom:7px}
-.sect>h2{font-size:var(--fs-6);margin-bottom:5px}
+/* 欄の見出しは、画面の名前より一段小さく。頭の丸はアイコンの時間軸の丸（決まり15m の予定表の丸と同じ形）。 */
+.sect>h2{font-size:var(--fs-5);margin-bottom:5px;display:flex;align-items:center;gap:8px}
+.sect>h2::before{content:"";width:.55rem;height:.55rem;border-radius:50%;background:var(--accent);flex:none}
 .hint{font-size:var(--fs-3);color:var(--ink-2);line-height:1.65}
 
 .card{background:var(--surface);border:1px solid transparent;border-radius:var(--r);padding:14px}
@@ -279,9 +299,12 @@ details.dz summary{color:var(--alert-ink)}
 /* 下までたどっても「どの日の予定か」を見失わないよう、画面の上端に貼り付ける。
    前は見出しの帯の下に貼っていたので `fitTopbar()` が帯の実寸を測っていたが、
    帯を外したので（2026-09-26）測るものが無くなった。上端の切り欠きだけ避ける。 */
-.datebar{display:flex;align-items:center;gap:8px;
-  position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--paper);padding:6px 0 7px}
-.datebar .d{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);flex:1}
+.datebar{display:flex;align-items:center;gap:4px;
+  position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--surface);
+  border-radius:16px;padding:4px;box-shadow:var(--shadow)}
+.datebar .d{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);flex:1;text-align:center}
+.datebar .btn.sm{background:transparent}
+.datebar svg{width:1.25rem;height:1.25rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;display:block}
 .datebar .d .dow{font-size:var(--fs-2);color:var(--ink-2);font-weight:500;margin-left:5px}
 /* 日付を飛ぶ入口（v4.3）。日付の表示は左のラベルが受け持っているので、
    入力欄そのものは見せない。小さなボタンの上に、透明なまま重ねて置く。 */
@@ -378,6 +401,9 @@ body.sheetopen{overflow:hidden}
 .legend .lx{border-top:4px dashed var(--line-strong)}
 .legend .ld{width:7px;height:7px;border-radius:50%;background:var(--warn);border:0}
 .empty{text-align:center;color:var(--ink-3);font-size:var(--fs-3);padding:18px 10px;line-height:1.8}
+/* 予定が1つも無い日は、アイコンの形をうすく出す（何が入る場所なのかが見て分かる） */
+.empty.emptyday::before{content:"";display:block;width:3.4rem;height:3.4rem;margin:2px auto 10px;
+  background:var(--mark) center/contain no-repeat;opacity:.45}
 /* **空の欄からも始められること**（2026-09-24・案③）。「ありません。」で終わると、
    次に何をすればいいかが画面に無い。ただし**近くに同じ操作があるなら足さない**
    （1画面に同じものを2回出さない）。実測で足りていなかったのは、
@@ -426,13 +452,16 @@ body.sheetopen{overflow:hidden}
 }
 
 /* ---- 会話 ---- */
-.chathead{display:flex;align-items:center;gap:9px;padding:6px 0 2px}
 .chat{display:flex;flex-direction:column;gap:14px;padding:6px 0 4px}
 .turn{display:flex;flex-direction:column;gap:6px;max-width:100%}
 .turn.me{align-items:flex-end}
 .bub{border-radius:13px;padding:9px 12px;max-width:86%;white-space:pre-wrap;line-height:1.75;font-size:var(--fs-4)}
 .turn.me .bub{background:var(--accent);color:var(--paper);border-bottom-right-radius:5px}
 .turn.ai .bub{background:var(--surface);border:1px solid var(--line);border-bottom-left-radius:4px}
+/* 返事の頭に、アイコンと同じ印（2026-09-26）。誰が話しているかを、帯の名前ではなく吹き出しで示す。 */
+.turn.ai{position:relative;padding-left:2.4rem}
+.turn.ai::before{content:"";position:absolute;left:0;top:0;width:1.9rem;height:1.9rem;border-radius:9px;
+  background:var(--mark-tile) var(--mark) center/86% no-repeat}
 .turn .stamp{font-family:var(--f-mono);font-size:var(--fs-1);color:var(--ink-3);padding:0 4px}
 .turn.thinking .bub{color:var(--ink-3);letter-spacing:.3em;animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.45}50%{opacity:.9}}
@@ -551,38 +580,44 @@ details.unconf>summary{color:var(--warn-ink)}
 
 <!-- ============ 話す ============ -->
 <section class="panel" id="p-chat">
-  <div class="chathead">
-    <span class="hint" id="chatDay"></span>
-    <button class="btn sm" id="btnChatMenu" style="margin-left:auto">…</button>
+  <div class="phead">
+    <span class="mark" aria-hidden="true"></span>
+    <div class="ptl"><h1>チャット</h1><p class="psub" id="chatDay"></p></div>
+    <button class="btn sm" id="btnChatMenu" aria-label="会話のメニュー">…</button>
   </div>
   <div id="chatOut" class="chat"></div>
 </section>
 
 <!-- ============ 今日 ============ -->
 <section class="panel" id="p-day">
-  <div class="datebar sect" style="margin-top:6px">
-    <button class="btn sm" id="dPrev" aria-label="前の日">◀</button>
+  <div class="phead">
+    <span class="mark" aria-hidden="true"></span>
+    <div class="ptl"><h1>スケジュール</h1></div>
+  </div>
+  <div class="datebar" style="margin-top:4px">
+    <button class="btn sm" id="dPrev" aria-label="前の日"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>
     <span class="d" id="dLabel"></span>
-    <span class="pickwrap"><button class="btn sm" tabindex="-1" aria-hidden="true">日付</button><input type="date" id="dPick" aria-label="日付を選ぶ"></span>
     <button class="btn sm" id="dToday">今日</button>
-    <button class="btn sm" id="dNext" aria-label="次の日">▶</button>
+    <span class="pickwrap"><button class="btn sm" tabindex="-1" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></button><input type="date" id="dPick" aria-label="日付を選ぶ"></span>
+    <button class="btn sm" id="dNext" aria-label="次の日"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>
   </div>
   <div id="dayOut" class="stack" style="margin-top:12px"></div>
 </section>
 
 <!-- ============ わたしのこと ============ -->
 <section class="panel" id="p-me">
-  <div class="sect" style="margin-top:6px">
-    <h2>わたしのこと</h2>
-    <p class="hint">予定表の外で、覚えておくこと。</p>
+  <div class="phead">
+    <span class="mark" aria-hidden="true"></span>
+    <div class="ptl"><h1>わたしのこと</h1><p class="psub">予定表の外で、覚えておくこと。</p></div>
   </div>
   <div id="meOut" class="stack" style="margin-top:12px"></div>
 </section>
 
 <!-- ============ 設定 ============ -->
 <section class="panel" id="p-set">
-  <div class="sect" style="margin-top:6px">
-    <h2>設定</h2>
+  <div class="phead">
+    <span class="mark" aria-hidden="true"></span>
+    <div class="ptl"><h1>設定</h1></div>
   </div>
   <div class="stack" style="margin-top:11px">
     <div class="card stack">
@@ -3480,7 +3515,7 @@ function blockTitle(b) {
   return lab ? `${lab}（${b.item.title}）` : b.item.title;
 }
 function timelineHTML(plan, na, demo) {
-  if (!plan.blocks.length) return `<div class="card empty">まだ予定はありません。<br>チャットで話しかけると、ここに入ります。</div>`;
+  if (!plan.blocks.length) return `<div class="card empty emptyday">まだ予定はありません。<br>チャットで話しかけると、ここに入ります。</div>`;
   let h = `<div class="tl">`, prevEnd = null, nowDrawn = false;
   const now = plan.nowMin;
   /* いまが枠の中に入っているなら、赤い線は引かない（v3.5）。

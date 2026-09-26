@@ -4827,6 +4827,33 @@
       state.items = keepItems; state.notes = keepNotes; state.turns = keepTurns; state.docs = keepDocs;
     }
 
+    /* ===== CB群：どの画面も同じ頭で始まる・アイコンと同じ形と色（2026-09-26・本人の指示）=====
+       「AI秘書やこの端末のみを消した影響でレイアウトに違和感」「アプリアイコンのデザインと親和性が高いものに」。 */
+    {
+      const heads = ["p-chat", "p-day", "p-me", "p-set"].map(id => document.querySelector("#" + id + " > .phead"));
+      ok("CB. 4つの画面とも、頭（印＋画面の名前）で始まる", heads.every(h => h && h === h.parentElement.firstElementChild && h.querySelector(".mark") && h.querySelector("h1")),
+         heads.map(h => h ? h.textContent.trim().slice(0, 8) : "無し").join("/"));
+      ok("CB. 画面の名前はタブの名前と同じ", heads.map(h => h && h.querySelector("h1").textContent).join("/") === "チャット/スケジュール/わたしのこと/設定",
+         heads.map(h => h && h.querySelector("h1").textContent).join("/"));
+      ok("CB. アプリの名前を画面の上に戻していない（決まり15l）", !heads.some(h => h && /AI秘書/.test(h.textContent)) && !document.querySelector("header.top"));
+      const mk = getComputedStyle(document.querySelector(".phead .mark")).backgroundImage;
+      ok("CB. 印はアイコンと同じ3色（青緑・黄・赤）で、外から読み込まない", /data:image\/svg\+xml/.test(mk) && /0E6F6B/i.test(mk) && /F2A541/i.test(mk) && /E8705E/i.test(mk), mk.slice(0, 60));
+      const cs = getComputedStyle(document.documentElement);
+      const hex = v => cs.getPropertyValue(v).trim().toUpperCase();
+      ok("CB. 地・注意・警告の色はアイコンから取っている（明るいとき）", document.documentElement.getAttribute("data-theme") === "dark"
+         || (hex("--paper") === "#F1F6F5" && hex("--warn") === "#F2A541" && hex("--alert") === "#E8705E"), [hex("--paper"), hex("--warn"), hex("--alert")].join(" "));
+      const keepC = state.turns, keepI2 = state.items, keepN2 = state.notes;
+      const keepCD = view.chatDay, tk = dayKey(new Date(), TZ);
+      state.turns = { [tk]: [{ id: "cb1", role: "user", text: "こんにちは", at: new Date().toISOString() },
+                             { id: "cb2", role: "assistant", text: "うん、聞いたよ。", at: new Date().toISOString() }] };
+      view.chatDay = tk; showTab("p-chat"); renderChat();
+      const ai = document.querySelector("#chatOut .turn.ai");
+      ok("CB. 返事の頭にアイコンと同じ印が付く", !!ai && /data:image\/svg\+xml/.test(getComputedStyle(ai, "::before").backgroundImage), ai ? "印が無い" : "返事が無い");
+      showTab("p-day");
+      ok("CB. 日付バーの ◀ ▶ は絵（文字の記号に戻していない）", !!document.querySelector("#dPrev svg") && !!document.querySelector("#dNext svg") && !/[◀▶]/.test(document.querySelector(".datebar").textContent));
+      state.turns = keepC; state.items = keepI2; state.notes = keepN2; view.chatDay = keepCD; showTab("p-chat");
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;
