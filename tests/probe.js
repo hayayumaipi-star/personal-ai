@@ -4369,6 +4369,40 @@
       view.chatDay = keepChatDay; view.day = keepDay; hideToast(); showTab(keepTab);
     }
 
+    /* ===== BV群：読点のあとの付け足しで、用事が消えない（2026-09-26・本人の指示「読点の不具合も直して」）=====
+       「資料を作る、1時間。」が**何も記録されず**「予定はそのままにしてある」と返っていた。
+       用事かどうかは文の終わりの動詞で見ているので、「、1時間」で終わると用事と判定されなかった。
+       **句点で区切れば拾えていた**——読点1つで結果が変わっていた。 */
+    {
+      const keepItems = state.items, keepNotes = state.notes, keepTurns = state.turns, keepDocs = state.docs;
+      const read = async t => { reset(); await say(t, T(9, 0)); return state.items.map(i => i); };
+      let got;
+      got = await read("資料を作る、1時間。");
+      ok("BV. 「資料を作る、1時間。」が用事になる", got.length === 1 && got[0].kind === "task" && got[0].title === "資料を作る" && got[0].estimateMin === 60,
+         JSON.stringify(got.map(i => [i.kind, i.title, i.estimateMin])));
+      got = await read("牛乳を買う、あとで。");
+      ok("BV. 「、あとで」を見出しに残さない", got.length === 1 && got[0].title === "牛乳を買う", JSON.stringify(got.map(i => i.title)));
+      got = await read("資料を作る1時間。");
+      ok("BV. 読点が無くても、動詞のすぐあとの所要時間で消えない", got.length === 1 && got[0].kind === "task" && got[0].estimateMin === 60,
+         JSON.stringify(got.map(i => [i.kind, i.title, i.estimateMin])));
+      got = await read("明日までにレポートを書く、2時間。");
+      ok("BV. 期限と所要時間の両方が残る", got.length === 1 && got[0].dayKey === NEXT && got[0].estimateMin === 120,
+         JSON.stringify(got.map(i => [i.title, i.dayKey, i.estimateMin])));
+      got = await read("資料を作る、2時間くらいかかりそう。");
+      ok("BV. 「、2時間くらいかかりそう」でも用事になる", got.length === 1 && got[0].kind === "task" && got[0].estimateMin === 120,
+         JSON.stringify(got.map(i => [i.kind, i.title, i.estimateMin])));
+      got = await read("散歩しようかな、30分。");
+      ok("BV. 外すと問いかけになる形は、前のまま（気になっていること）", got.length === 1 && got[0].kind === "idea",
+         JSON.stringify(got.map(i => [i.kind, i.title])));
+      got = await read("毎日歩く、30分。");
+      ok("BV. 続けたいことでは「30分」を見出しから落とさない（決まり3d）", got.length === 1 && got[0].kind === "goal" && /30分/.test(got[0].title),
+         JSON.stringify(got.map(i => [i.kind, i.title])));
+      got = await read("打ち合わせ、10時から。");
+      ok("BV. 予定は予定のまま", got.length === 1 && got[0].kind === "event" && got[0].title === "打ち合わせ",
+         JSON.stringify(got.map(i => [i.kind, i.title])));
+      state.items = keepItems; state.notes = keepNotes; state.turns = keepTurns; state.docs = keepDocs;
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;

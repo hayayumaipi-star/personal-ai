@@ -1282,6 +1282,9 @@ function cleanTitle(s, when, opts) {
     t = t.replace(/[\s、。,\.]+$/, "");
   }
   t = t.replace(/\s+/g, " ").trim();
+  // 読点のあとの「あとで」「そのうち」も見出しに残さない（判定から外すものと同じ一覧・決まり7e）。
+  // 続けたいことでは「、30分」が中身なので外さない（決まり3d）。
+  if (!keepHabit) t = stripTail(t);
   t = normalizeEnding(t);
   if (t.length > 60) t = t.slice(0, 58) + "…";
   return t || s.replace(/[。！？!?]+$/, "").slice(0, 40);
@@ -1365,8 +1368,28 @@ function taskStrength(s) {
   return n;
 }
 
+/* **読点のあとの付け足しは、種類の判定から外す**（2026-09-26・本人の指示「読点の不具合も直して」）。
+   用事かどうかは「作る」「買う」のような**文の終わりの動詞**で見ている（`taskStrength` など）。
+   ところが「資料を作る、1時間。」「牛乳を買う、あとで。」は文の終わりが「1時間」「あとで」になり、
+   **用事と判定されず、何も記録されずに**「予定はそのままにしてある」と返っていた（決まり5「捨てるなら、言う」に反する）。
+   句点で区切れば拾えていたので、**読点1つで結果が変わっていた**。
+   外すのは**所要時間・日付・時刻・時間帯・「あとで」だけ**の付け足し。中身のある語は外さない。
+   **判定だけに使う。** 原文・根拠・所要時間・日時の読み取りは、元の文のまま（`parseDuration` / `parseWhen` は行全体を読む）。 */
+const RE_TAIL_ADD = /[、,，]\s*(?:(?:\d+\s*時間\s*半?(?:\d+\s*分)?|\d+\s*分|半日)(?:くらい|ぐらい|ほど|程度)?(?:かかる|かかりそう|かな|で)?|あとで|後で|そのうち|今日中に?|明日中に?|今週中に?|来週中に?|今日|明日|明後日|あさって|今夜|今晩|午前中に?|午後に?|夕方に?|夜に?|朝に?|\d+\s*時(?:\d+\s*分|半)?(?:から|まで|に|頃|ごろ)?)[。．.!！\s]*$/;
+/* 読点が無くても、**動詞のすぐあとに所要時間だけ**が付いている形（「資料を作る1時間。」）は同じ。
+   動詞の言い切り（う段）の直後に限る——「3時間目」「10分前」のような語の中の数字には当たらない。 */
+const RE_TAIL_DUR = /([うくすつぬむぶぐる])\s*(?:\d+\s*時間\s*半?(?:\d+\s*分)?|\d+\s*分)(?:くらい|ぐらい|ほど|程度)?(?:かかる|かかりそう)?[。．.!！\s]*$/;
+function stripTail(s) {
+  let t = s, prev;
+  do { prev = t; t = t.replace(RE_TAIL_ADD, "").replace(RE_TAIL_DUR, "$1"); } while (t !== prev && t);
+  return t || s;
+}
 function classify(rawS, lineWhen) {
-  const s = halfWidth(rawS);
+  /* 付け足しを外すと**問いかけの形**になる（「散歩しようかな、30分。」→「散歩しようかな」）ときは外さない。
+     外すと質問として捨てられ、前は「気になっていること」として残っていたものが消える（外して測って見つけた）。 */
+  const full = halfWidth(rawS), cut = stripTail(full);
+  const asks = x => RE_QUESTION_END.test(x) || RE_ASK.test(x);
+  const s = asks(cut) && !asks(full) ? full : cut;
   const isCond = RE_COND.test(s) || (RE_PAIN.test(s) && !RE_SELFTASK.test(s) && !RE_GOTO.test(s));
   const isGoal = RE_GOAL.test(s);
   const isEvent = RE_EVENT.test(s) || RE_GOTO.test(s);
