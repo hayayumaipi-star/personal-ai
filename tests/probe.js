@@ -1902,11 +1902,11 @@
       box.innerHTML = `<span class="nowtag">いま</span><span class="chip src-user">確認済み</span>
         <span class="chip src-ai">AIが読み取ったまま</span><button class="btn pri">主ボタン</button>
         <span class="chip vague">期限があいまい</span><span class="chip st-done">完了</span>
-        <span class="chip fixed">固定</span><span class="chip st-drop">取り消し</span>
+        <span class="chip st-drop">取り消し</span>
         <span class="chip src-rule">読み取ったまま</span>`;
       document.body.appendChild(box);
       const targets = [".nowtag", ".chip.src-user", ".chip.src-ai", ".btn.pri", ".chip.vague",
-                       ".chip.st-done", ".chip.fixed", ".chip.st-drop", ".chip.src-rule"];
+                       ".chip.st-done", ".chip.st-drop", ".chip.src-rule"];
       const before = document.documentElement.getAttribute("data-theme");
       for (const theme of ["light", "dark"]) {
         document.documentElement.setAttribute("data-theme", theme);
@@ -4041,12 +4041,10 @@
       const dayText = () => { renderDay(); return $("#p-day").textContent; };
       forget();
       ok("BR. まだ使っていない人には、なぞる案内が出る", /なぞると完了/.test(dayText()), "出ない");
-      ok("BR. まだ使っていない人には、枠の案内が出る", /枠を押すと/.test(dayText()), "出ない");
+      /* 「枠を押すと、理由と操作が出ます」は、使う前から出さない（2026-09-26・本人の指示・決まり15s）。 */
+      ok("BR. 枠の案内は、まだ使っていない人にも出さない", !/枠を押すと/.test(dayText()), "出ている");
       markTip("swipe");
       ok("BR. 一度なぞれたら、なぞる案内は消える", !/なぞると完了/.test(dayText()), "残っている");
-      ok("BR. 消えるのはそれだけ（枠の案内は残る）", /枠を押すと/.test(dayText()), "一緒に消えた");
-      markTip("openblk");
-      ok("BR. 一度開けたら、枠の案内も消える", !/枠を押すと/.test(dayText()), "残っている");
       forget();
       ok("BR. 覚えを消したら、また出る（片道を作らない）", /なぞると完了/.test(dayText()), "戻らない");
       /* **覚えは「この端末の中の、消えても困らないもの」**（決まり）。
@@ -4065,21 +4063,17 @@
         state.items = [];
         let t = dayText();
         ok("BS. 枠が無い日に、凡例を出さない", !$("#p-day .legend") || /夜は空けています/.test($("#p-day .legend").textContent), $("#p-day .legend") && $("#p-day .legend").textContent);
-        ok("BS. 枠が無い日に、「枠を押すと」を出さない", !/枠を押すと/.test(t), "出ている");
+
         ok("BS. なぞれる行が無い日に、なぞる案内を出さない", !/なぞると完了/.test(t), "出ている");
         ok("BS. 空の日の知らせは1つだけ（上に重ねない）",
            !/この日に置ける予定・作業がありません/.test(t) && /まだ予定はありません/.test(t), t.slice(0, 80));
-        // 動かさない予定だけの日：凡例は「動かさない予定」だけ
-        state.items = [keepI.find(i => i.id === "br1")];
-        t = dayText();
-        const lg = ($("#p-day .legend") || {}).textContent || "";
-        ok("BS. 凡例は、その日に出ている種類だけ", /動かさない予定/.test(lg) && !/動かせる作業/.test(lg) && !/AIが読み取った/.test(lg), lg);
-        ok("BS. 枠があれば「枠を押すと」は出る", /枠を押すと/.test(t), "出ない");
-        // AIが読み取った枠がある日は、点の説明も出る（点そのものも出ている）
+        /* 凡例は置かない（2026-09-26・決まり15s）。AIが読み取った枠の点は残し、
+           何の点かは**枠を開いたところ**（由来の印）で読める。 */
         state.items = [Object.assign({}, keepI.find(i => i.id === "br1"), { origin: "ai", confirmed: false, corrected: false })];
         dayText();
-        ok("BS. AIが読み取った枠があれば、点と、その説明が両方出る",
-           !!$("#p-day .bdot") && /AIが読み取った/.test(($("#p-day .legend") || {}).textContent || ""), "片方しか無い");
+        const aiRow = $("#p-day .bdot") && $("#p-day .bdot").closest(".tlrow");
+        ok("BS. AIが読み取った枠には点が残り、開いた中にその説明がある",
+           !!aiRow && /AIが読み取ったまま/.test((aiRow.querySelector(".bdetail") || {}).textContent || ""), aiRow ? "説明が無い" : "点が無い");
         // タスクの欄の行に「タスク」の印を付けない。由来の印は残す（決まり2）
         state.items = keepI;
         dayText();
@@ -4367,8 +4361,8 @@
       // --- D：予定表の行に、アイコンと同じ「時間軸の上の丸」 ---
       {
         const h = timelineHTML(demoPlan(), null, true);
-        ok("BU. 動かさない予定の行は、塗った丸", /class="tlrow b d-fix/.test(h));
-        ok("BU. 動かせる作業の行は、輪の丸", /class="tlrow b d-flex/.test(h));
+        // 予定も作業も同じ丸（2026-09-26・決まり15s）
+        ok("BU. 予定と作業の行は、同じ塗った丸", (h.match(/class="tlrow b d-main/g) || []).length >= 2 && !/d-fix|d-flex/.test(h));
         ok("BU. 空き時間の行には丸を付けない", !/tlrow gaprow b/.test(h) && !/class="tlrow b[^"]*gaprow/.test(h));
       }
       state.items = keepItems; state.notes = keepNotes; state.turns = keepTurns; state.docs = keepDocs;
@@ -4884,6 +4878,40 @@
         .find(r => r.selectorText === ".turn.me .bub");
       ok("CC. 吹き出し・トーストは明暗の役目の色を使う（直に差し色を塗らない）", !!bubRule && /--me-bub/.test(bubRule.style.background || bubRule.cssText)
          && /--toast-bg/.test(String([...document.styleSheets].flatMap(ss => { try { return [...ss.cssRules]; } catch { return []; } }).find(r => r.selectorText === "#toast")?.cssText)));
+    }
+
+    /* ===== CD群：予定と作業を、画面で区分しない（2026-09-26・本人の指示
+       「動かさない予定／動かせる作業…そもそも区分して表記しなくていい。なのでこの文章もいらない」・決まり15s）=====
+       区分は予定づくりの内側（planFor）にだけ残す。見るのは「画面に出ていないこと」と「同じ見た目であること」。 */
+    {
+      const keepN = state.notes, keepTab = view.tab;
+      try { localStorage.removeItem("hitohi.tips"); } catch {}
+      state.notes = [];                                   // 見本の日：予定と作業の両方が並ぶ
+      showTab("p-day");
+      const t = $("#p-day").textContent;
+      ok("CD. 「動かさない予定」「動かせる作業」の区分を書かない", !/動かさない予定|動かせる作業|作業枠/.test(t), (t.match(/動かさない予定|動かせる作業|作業枠/) || [""])[0]);
+      ok("CD. 「枠を押すと、理由と操作が出ます」を書かない", !/枠を押すと/.test(t));
+      ok("CD. 予定と作業の枠が両方ある日で測っている（測れていないのに通さない）",
+         !!$("#p-day .blk.fixed") && !!$("#p-day .blk.flex"));
+      const cs = sel => { const el = $("#p-day " + sel); return el ? getComputedStyle(el) : null; };
+      const f = cs(".blk.fixed"), x = cs(".blk.flex");
+      ok("CD. 予定と作業の枠は同じ見た目（地・左の帯の線・色）", !!f && !!x
+         && f.backgroundColor === x.backgroundColor && f.borderLeftStyle === x.borderLeftStyle
+         && f.borderLeftColor === x.borderLeftColor && f.borderTopColor === x.borderTopColor,
+         f && x ? [f.backgroundColor, x.backgroundColor, f.borderLeftStyle, x.borderLeftStyle].join(" / ") : "枠が無い");
+      const rows = [...document.querySelectorAll("#p-day .tlrow.b:not(.d-thin)")];
+      const dots = new Set(rows.map(r => getComputedStyle(r, "::before").backgroundColor));
+      ok("CD. 時間軸の丸も、予定と作業で同じ", rows.length >= 2 && dots.size === 1, [...dots].join(" / "));
+      state.notes = keepN;
+      ok("CD. 予定の行に「固定」の印を付けない",
+         !/固定/.test(itemHTML({ id: "cd1", kind: "event", title: "会議", status: "open", origin: "rule",
+           start: new Date().toISOString(), end: new Date(Date.now() + 3600000).toISOString(), history: [], evidence: {} })));
+      const mp = miniplanHTML(planSnapshot(demoPlan(), null));
+      ok("CD. 会話に添える予定表でも、予定だけを太字にしない", !/class="fx"/.test(mp) && /研究計画書/.test(mp));
+      openManual();
+      const mk = ($("#mK") || {}).textContent || "";
+      ok("CD. 手で足すときの選択肢にも区分の説明を書かない", /予定/.test(mk) && !/固定|動かさない|動かせる|作業枠/.test(mk), mk);
+      closeSheet(); showTab(keepTab);
     }
 
     const fails = R.filter(x => x.startsWith("FAIL"));

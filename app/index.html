@@ -157,7 +157,6 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
 /* 取り消しの印は控えめでよいが、読めなくては意味がない（--ink-3 だと 2.98 しか出ない） */
 .chip.st-drop{background:var(--surface-2);color:var(--ink-2)}
 .chip.vague{background:var(--warn-soft);border-color:var(--warn);color:var(--warn-ink)}
-.chip.fixed{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink)}
 
 /* **なぞって完了・明日へ**（2026-09-24・本人の指示・案A）。
    行に5個並んでいたボタンを、指の操作へ逃がす。**ボタンは消さない**——
@@ -208,8 +207,10 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
   padding-top:11px;text-align:right;white-space:nowrap}
 .blk{border-radius:12px;padding:10px 12px;margin-bottom:5px;display:flex;flex-direction:column;gap:6px;
   min-height:max(calc(var(--min,30) * var(--tlscale)), 42px)}
-.blk.fixed{background:var(--accent-soft);border:1px solid var(--accent-line);border-left:4px solid var(--accent)}
-.blk.flex{background:var(--surface);border:1px solid var(--line);border-left:4px dashed var(--line-strong)}
+/* **予定と作業を、見た目で分けない**（2026-09-26・本人の指示「動かさない予定／動かせる作業と
+   区分して表記しなくていい」）。前は固定＝色つき・実線、作業＝白・破線で描き分け、凡例で説明していた。
+   区分は予定づくりの内側（`planFor`）だけに残し、画面ではどちらも同じ枠にする（決まり15s）。 */
+.blk.fixed,.blk.flex{background:var(--accent-soft);border:1px solid var(--accent-line);border-left:4px solid var(--accent)}
 .blk.now{box-shadow:0 0 0 2px var(--accent)}
 /* 休憩・予備は枠にしない。細い帯にして、短さがそのまま見えるようにする */
 .blk.thin{border-radius:10px;padding:0 11px;justify-content:center;gap:0;
@@ -247,19 +248,18 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
 .nowtag{flex:none;align-self:center;font-family:var(--f-disp);font-size:var(--fs-1);font-weight:700;
   letter-spacing:.06em;color:var(--paper);background:var(--accent);border-radius:999px;padding:2px 8px;line-height:1.4}
 /* いまの枠は、囲みを**足さずに**枠そのものの色を変える。
-   外側に輪を重ねると、固定予定（青い枠）の上に赤い枠が乗って二重に見える（本人からの報告）。
-   実線／破線はそのまま残るので、固定か動かせるかの区別は消えない。 */
+   外側に輪を重ねると、予定の枠の上に赤い枠が乗って二重に見える（本人からの報告）。 */
 .blk.running{border-color:var(--alert);box-shadow:none}
 .blk.running.past{opacity:1}
 /* いまの位置（空いている時間にいるときだけ引く） */
 /* **D：アイコンと同じ「時間軸の上の丸」**（2026-09-26・本人の指示「全て取り入れて」）。
    アイコン（一日のタイムライン）は、縦の線の上に丸があり、その横に長さの違う枠が並ぶ。
-   予定表も同じ顔にする。**色は今までの決まりのまま**（決まり6f「色を使うのは動かさない予定だけ」）：
-   固定＝accent の塗り／動かせる作業＝灰色の輪／休憩・予備・移動＝小さな灰色の点／いま＝赤。 */
+   予定表も同じ顔にする：予定と作業＝accent の塗り（**分けない**・決まり15s）／
+   休憩・予備・移動＝小さな灰色の点／いま＝赤。 */
 .tlrow{position:relative}
 .tlrow.b::before{content:"";position:absolute;left:54px;top:14px;width:9px;height:9px;border-radius:50%;
   box-sizing:border-box;background:var(--surface);border:2px solid var(--line-strong);z-index:1;pointer-events:none}
-.tlrow.b.d-fix::before{background:var(--accent);border-color:var(--accent)}
+.tlrow.b.d-main::before{background:var(--accent);border-color:var(--accent)}
 .tlrow.b.d-thin::before{width:5px;height:5px;left:56px;top:calc(50% - 5px);border:none;background:var(--line-strong)}
 .tlrow.b.d-run::before{background:var(--alert);border-color:var(--alert)}
 .tlrow.b.d-past::before{opacity:.45}
@@ -416,10 +416,6 @@ body.sheetopen{overflow:hidden}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
 
 .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:var(--fs-1);color:var(--ink-2);align-items:center}
-.legend i{display:inline-block;width:16px;height:0;border-top-width:4px;margin-right:4px;vertical-align:middle}
-.legend .lf{border-top:4px solid var(--accent)}
-.legend .lx{border-top:4px dashed var(--line-strong)}
-.legend .ld{width:7px;height:7px;border-radius:50%;background:var(--warn);border:0}
 .empty{text-align:center;color:var(--ink-3);font-size:var(--fs-3);padding:18px 10px;line-height:1.8}
 /* 予定が1つも無い日は、アイコンの形をうすく出す（何が入る場所なのかが見て分かる） */
 .empty.emptyday::before{content:"";display:block;width:3.4rem;height:3.4rem;margin:2px auto 10px;
@@ -506,7 +502,6 @@ body.sheetopen{overflow:hidden}
 .miniplan td{padding:5px 10px;border-bottom:1px solid var(--line);vertical-align:top}
 .miniplan tr:last-child td{border-bottom:none}
 .miniplan td.t{font-family:var(--f-mono);font-variant-numeric:tabular-nums;color:var(--ink-2);white-space:nowrap;width:1%}
-.miniplan tr.fx td.n{font-weight:700}
 .miniplan tr.br td,.miniplan tr.bf td{color:var(--ink-3)}
 .miniplan .why{display:block;font-size:var(--fs-1);color:var(--ink-3);margin-top:1px}
 
@@ -3444,7 +3439,6 @@ function itemHTML(it, opts = {}) {
   const bits = [opts.noKind ? "" : `<span class="chip">${KIND_JA[it.kind]}</span>`, srcChip(it)];
   if (it.status === "done") bits.push(`<span class="chip st-done">完了</span>`);
   if (it.status === "dropped") bits.push(`<span class="chip st-drop">取り消し</span>`);
-  if (it.kind === "event") bits.push(`<span class="chip fixed">固定</span>`);
   if (it.repeat) bits.push(`<span class="chip">${esc(repeatJa(it.repeat))}</span>`);
   if (it.duePrecision === "week") bits.push(`<span class="chip vague">期限があいまい</span>`);
 
@@ -3562,7 +3556,7 @@ function timelineHTML(plan, na, demo) {
     const past = now >= 0 && b.e <= now && b.sub !== "allday";   // 終日の帯は薄くしない
     const side = b.sub && b.sub !== "event" ? b.sub : null;
     const cls = b.type === "fixed" ? (side || "fixed") : b.type;
-    // 固定か作業枠かは左の帯で分かるので、ラベルは重ねない。
+    // 予定か作業かは、画面では分けない（決まり15s）。
     // 由来は、AIの推測のときだけ小さな点で示す（本人が決めたものと混ざらないように）。
     const dot = (b.type === "brk" || b.type === "buf" || demo) ? ""
       : aiGuess(b.item) ? '<i class="bdot" title="AIが読み取ったもの"></i>' : "";
@@ -3582,8 +3576,8 @@ function timelineHTML(plan, na, demo) {
     const thin = b.type === "brk" || b.type === "buf" || b.sub === "travel" || b.sub === "prep" || b.sub === "allday";
     // 赤い線を消したぶん、「いま」の印はこの枠が引き受ける
     const tag = running ? `<span class="nowtag">いま</span>` : "";
-    // アイコンと同じ「時間軸の上の丸」（D）。色の意味は枠の左の帯と同じ（決まり6f）
-    const dotCls = ["b", thin ? "d-thin" : b.type === "fixed" ? "d-fix" : "d-flex",
+    // アイコンと同じ「時間軸の上の丸」（D）。予定も作業も同じ丸（決まり15s）
+    const dotCls = ["b", thin ? "d-thin" : "d-main",
       running ? "d-run" : "", past ? "d-past" : ""].filter(Boolean).join(" ");
     h += `<div class="tlrow ${dotCls} ${isNow ? "open" : ""}">
       <div class="tltime">${b.sub === "allday" ? "終日" : hhmm(b.s)}</div>
@@ -3597,7 +3591,7 @@ function timelineHTML(plan, na, demo) {
           <span class="bdur">${durJa(b.e - b.s)}${b.sub === "event" && b.item.endUnknown ? "（仮）" : ""}</span>
         </button>
         <div class="bdetail">
-          <div class="brange">${hhmm(b.s)}–${hhmm(b.e)}</div>${acts}
+          <div class="brange">${hhmm(b.s)}–${hhmm(b.e)}</div>${dot ? `<div class="meta">${srcChip(b.item)}</div>` : ""}${acts}
         </div>`}
       </div></div>`;
     // 終日の帯は時間軸を進めない（進めると先頭に「空き9時間」が出る）
@@ -3659,31 +3653,16 @@ function renderDay() {
 
   if (onlyNext) {
     h += `<details class="allplan" style="margin-top:12px"><summary>今日の予定をぜんぶ見る（${plan.blocks.length}件）</summary>
-      <div class="legend" style="margin:8px 0 2px">
-        <span><i class="lf"></i>固定</span><span><i class="lx"></i>動かせる作業枠</span>
-        ${plan.winCapped ? '<span>夜は空けています</span>' : ""}
-      </div>${tlHTML}</details>`;
+      ${plan.winCapped ? '<div class="legend" style="margin:8px 0 2px"><span>夜は空けています</span></div>' : ""}${tlHTML}</details>`;
   } else {
-    /* **凡例と使い方の案内は、枠があるときだけ**（2026-09-26）。枠が1つも無い日に
-       「動かさない予定／動かせる作業」「枠を押すと…」と出しても、指す先が無い。
-       凡例の中身は、**その日に実際に出ている種類だけ**にする——
-       AIが読み取った枠が無い日に「AIが読み取ったもの」の点を説明しても、画面のどこにも点は無い。
-       印そのもの（`.bdot`・決まり2）は外していない。説明を、あるときだけにしただけ。 */
-    const hasB = plan.blocks.length > 0;
-    const kinds = { fixed: false, flex: false, ai: false };
-    for (const b of plan.blocks) {
-      if (b.type === "brk" || b.type === "buf" || !b.item) continue;   // 休憩・予備は凡例に無い
-      if (b.type === "fixed") kinds.fixed = true; else kinds.flex = true;
-      if (aiGuess(b.item)) kinds.ai = true;
-    }
-    const legend = hasB ? `<div class="legend" style="margin-top:5px">
-        ${kinds.fixed ? '<span><i class="lf"></i>動かさない予定</span>' : ""}
-        ${kinds.flex ? '<span><i class="lx"></i>動かせる作業</span>' : ""}
-        ${kinds.ai ? '<span><i class="ld"></i>AIが読み取ったもの</span>' : ""}
-        ${plan.winCapped ? '<span>夜は空けています</span>' : ""}
-      </div>` : (plan.winCapped ? `<div class="legend" style="margin-top:5px"><span>夜は空けています</span></div>` : "");
-    h += `<div class="sect"><h2>今日の案</h2>${legend}
-      ${!hasB || tipDone("openblk") ? "" : `<p class="hint" style="margin-top:4px">枠を押すと、理由と操作が出ます。</p>`}</div>` + tlHTML;
+    /* **凡例と「枠を押すと、理由と操作が出ます」は置かない**（2026-09-26・本人の指示
+       「そもそも区分して表記しなくていい。なのでこの文章もいらない」・決まり15s）。
+       予定と作業は同じ枠で描くので、説明する区分そのものが無い。
+       残すのは「夜は空けています」だけ——区分ではなく、その日に効いている希望の事実。
+       AIが読み取った枠の点（`.bdot`・決まり2）は外していない。何の点かは、枠を開くと
+       由来の印（`srcChip`）で読める（凡例に書く代わりに、指す先のすぐ横に置いた）。 */
+    const legend = plan.winCapped ? `<div class="legend" style="margin-top:5px"><span>夜は空けています</span></div>` : "";
+    h += `<div class="sect"><h2>今日の案</h2>${legend}</div>` + tlHTML;
   }
   h += conflictHTML + timelessHTML;
 
@@ -3852,7 +3831,7 @@ function miniplanHTML(sn) {
   const tl = (sn.timeless || []).length
     ? `<tr><td class="t">時刻未定</td><td class="n">${sn.timeless.map(esc).join("、")}<span class="why">この日にあることは分かっていますが、時刻は言われていません。</span></td></tr>` : "";
   const rows = sn.blocks.map(b => {
-    const cls = b.k === "fixed" ? "fx" : b.k === "brk" ? "br" : b.k === "buf" ? "bf" : "";
+    const cls = b.k === "brk" ? "br" : b.k === "buf" ? "bf" : "";   // 予定と作業は分けない（決まり15s）
     // 枠ごとの理由は書かない（予定表は時間と内容だけで読めること）。
     // 理由は「根拠」を開けば読める。置けなかったものの理由は、下の行に残す。
     return `<tr class="${cls}"><td class="t">${hhmm(b.s)}–${hhmm(b.e)}</td><td class="n">${esc(b.t)}</td></tr>`;
@@ -4837,8 +4816,8 @@ function openManual() {
   openSheet(`<h3>予定・タスクを手で足す</h3>
     <div><label class="fld" for="mT">内容</label><input type="text" id="mT" placeholder="例：歯医者"></div>
     <div><label class="fld" for="mK">種類</label><select id="mK">
-      <option value="event">予定（固定・動かさない）</option>
-      <option value="task">タスク（作業枠として動かせる）</option>
+      <option value="event">予定</option>
+      <option value="task">タスク</option>
     </select></div>
     <div class="grid2">
       <div><label class="fld" for="mD">日付</label><input type="date" id="mD" value="${view.day}"></div>
@@ -4995,10 +4974,6 @@ async function act(a, id, el) {
   if (a === "blk") {                       // 枠をたたむ・開く
     const row = el && el.closest(".tlrow");
     if (row) { const open = row.classList.toggle("open"); el.setAttribute("aria-expanded", open ? "true" : "false"); }
-    /* 一度開けたら、案内はもう要らない（2026-09-25）。
-       **ここで描き直さないこと**——開いたばかりの枠が、その場で閉じる。
-       次にこのタブを開いたときに消える。 */
-    markTip("openblk");
     return;
   }
   /* まだ聞いていないことを、会話で聞く。**ここでは何も保存しない**——
