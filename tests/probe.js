@@ -4586,6 +4586,67 @@
       state.settings = keepSet; SAMPLEFN = keepAI; view.chatDay = keepChat; hideToast(); showTab(keepTab);
     }
 
+    /* ===== BY群：訂正する（2026-09-26・本人の指示「訂正するのところのUIとUXを」）=====
+       測って出てきた不具合2つ：わたしのことを直すと黙ってタスクになる／予定を保存すると長さが1時間に戻る。 */
+    {
+      const keepItems = state.items, keepNotes = state.notes, keepTab = view.tab;
+      const tz = state.settings.timezone, nowISO = new Date().toISOString();
+      const vis = sel => { const el = document.querySelector(`#sheetHost [data-for="${sel}"]`); return !!el && !el.hidden; };
+      const save = async it => { await act("save", it.id, null); };
+
+      reset();
+      const pf = { id: uid(), kind: "profile", category: "性格・傾向", title: "朝型", status: "open", origin: "rule", confirmed: false, history: [], createdAt: nowISO, evidence: { text: "昔から朝型" } };
+      state.items = [pf];
+      openEdit(pf);
+      ok("BY. わたしのことを開くと、種類は「わたしのこと」のまま", $("#eK").value === "profile");
+      ok("BY. わたしのことには分類だけ出す（日付・時間の欄は出さない）", vis("cat") && !vis("when") && !vis("est") && !vis("len"));
+      ok("BY. 元の言葉を見せる", /元の言葉：「昔から朝型」/.test($("#sheetHost").textContent));
+      $("#eT").value = "朝は強い"; $("#eC").value = "体のこと";
+      await save(pf);
+      ok("BY. 名前と分類を直しても、種類は変わらない", pf.kind === "profile" && pf.title === "朝は強い" && pf.category === "体のこと" && pf.corrected);
+
+      // 予定：長さを保つ
+      const st = zoned(2026, 9, 12, 20, 0, tz);
+      const ev = { id: uid(), kind: "event", title: "電話", status: "open", origin: "rule", history: [], createdAt: nowISO,
+        start: st.toISOString(), end: new Date(st.getTime() + 120 * 60000).toISOString(), dayKey: "2026-09-12", duePrecision: "exact", fixed: true };
+      state.items = [ev];
+      openEdit(ev);
+      ok("BY. 予定には長さの欄（いまの長さ）を出し、かかる時間の欄は出さない", vis("len") && !vis("est") && +$("#eL").value === 120);
+      await save(ev);
+      ok("BY. 何も変えずに保存しても、予定の長さは変わらない（前は1時間に戻っていた）",
+         Math.round((new Date(ev.end) - new Date(ev.start)) / 60000) === 120, ev.end);
+      ok("BY. 何も変えずに保存したら「確かめた」だけ（本人が訂正の印は付けない）", ev.confirmed === true && !ev.corrected);
+      openEdit(ev); $("#eL").value = "45"; await save(ev);
+      ok("BY. 長さを直せる", Math.round((new Date(ev.end) - new Date(ev.start)) / 60000) === 45 && ev.corrected);
+
+      // 用事：確かさは入れたものから決まる
+      const tk = { id: uid(), kind: "task", title: "資料", status: "open", origin: "rule", history: [], createdAt: nowISO, duePrecision: "none" };
+      state.items = [tk];
+      openEdit(tk);
+      ok("BY. 用事には日付・はっきりしない・かかる時間を出す", vis("when") && vis("vague") && vis("est") && !vis("len") && !vis("cat"));
+      $("#eD").value = "2026-09-20"; await save(tk);
+      ok("BY. 日付だけ入れたら「その日まで」", tk.duePrecision === "day" && tk.dayKey === "2026-09-20");
+      openEdit(tk); $("#eH").value = "14:00"; await save(tk);
+      ok("BY. 時刻も入れたら「日時まで」", tk.duePrecision === "exact" && fmtDT(tk.due, tz).slice(-5) === "14:00");
+      openEdit(tk); $("#eH").value = ""; $("#eV").checked = true; await save(tk);
+      ok("BY. 「はっきりしない」に印を付けたら、あいまいな期限", tk.duePrecision === "week");
+      openEdit(tk); $("#eD").value = ""; await save(tk);
+      ok("BY. 日付を消したら「期限なし」", tk.duePrecision === "none" && !tk.due && !tk.dayKey);
+
+      // 種類を変える／消す操作はたたむ
+      openEdit(tk); $("#eK").value = "goal"; $("#eK").dispatchEvent(new Event("change"));
+      ok("BY. 種類を変えると、欄がその種類のものに変わる", vis("when") && !vis("est") && !vis("vague"));
+      $("#eK").value = "condition"; $("#eK").dispatchEvent(new Event("change")); await save(tk);
+      ok("BY. 体調に変えたら、本人の言葉と日時を持つ", tk.kind === "condition" && tk.selfReport === "資料" && !!tk.reportedAt);
+      openEdit(tk);
+      const dz = document.querySelector("#sheetHost details.dz");
+      ok("BY. 取り消す・消すは、たたんだ中（保存の真下に並べない）", !!dz && !dz.open && !!dz.querySelector('[data-act="drop"]') && !!dz.querySelector('[data-act="delitem"]')
+         && !document.querySelector('#sheetHost .foot [data-act="drop"]'));
+      ok("BY. 空の内容では保存しない", await (async () => { $("#eT").value = " "; await save(tk); return tk.title === "資料" && /内容を入れて/.test($("#eMsg").textContent); })());
+      closeSheet();
+      state.items = keepItems; state.notes = keepNotes; hideToast(); showTab(keepTab);
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;

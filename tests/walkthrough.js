@@ -369,6 +369,8 @@
       type("#eT", "朝は弱い");
       await click('[data-act="save"]');
       if (!state.items.some(i => i.title === "朝は弱い")) throw new Error("直っていない");
+      /* 2026-09-26：前は名前だけ直すと**黙ってタスクに変わっていた**。種類が保たれていること。 */
+      if (!state.items.some(i => i.title === "朝は弱い" && i.kind === "profile")) throw new Error("わたしのことがタスクに変わった");
     });
     await step("ファイルから資料を渡す", async () => {
       const dt = new DataTransfer();

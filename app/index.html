@@ -233,6 +233,11 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
   border-top:3px solid var(--accent);padding:13px 14px;display:flex;flex-direction:column;gap:8px}
 .next .nt{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);line-height:1.45}
 .next .nr{font-size:var(--fs-3);color:var(--ink-2);line-height:1.7}
+/* 訂正の画面（2026-09-26）：チェックの行は指で押しやすく、消す操作はたたんで保存から離す */
+.chk{display:flex;align-items:center;gap:10px;min-height:44px;font-size:var(--fs-3);color:var(--ink-2)}
+.chk input{width:20px;height:20px;accent-color:var(--accent)}
+details.dz{margin-top:14px}
+details.dz summary{color:var(--alert-ink)}
 /* B：前に本人が言ったことを、置いた理由として1行だけ（「今日中にと言っていたので前倒しです」） */
 .next .nw,.nowcard .ncw{font-size:var(--fs-2);color:var(--accent-ink);line-height:1.6}
 
@@ -4521,36 +4526,64 @@ function openEvidence(it) {
       <button class="btn pri" data-close style="margin-left:auto">閉じる</button></div>`);
 }
 
+/* ── 訂正する（2026-09-26・本人の指示「訂正するのところのUIとUXを」）──
+   測って出てきた不具合が2つあった：
+   ①**わたしのこと（profile）を開くと、種類が「タスク」になっていた**。選択肢に無い種類は先頭が選ばれるので、
+     名前だけ直して保存すると**黙ってタスクに変わっていた**（「まだ合っていますか」の「直す」からも同じ）。
+   ②**予定を保存すると、長さが1時間に戻っていた**。長さの欄が「所要時間（分・タスク）」で、予定では空のまま開くため。
+   使い勝手の穴も3つ：どの種類にも日付・所要時間の欄が出る／「期限の確かさ」を日付と別に合わせないと
+   食い違う（日付を入れても「期限なし」のまま保存できた）／「取り消す」「完全に消す」が保存の真下に並ぶ。
+   だから：**種類ごとに要る欄だけ出す・確かさは入れた日付と時刻から決める・消す操作はたたむ**。 */
+const EDIT_KINDS = ["task", "event", "goal", "idea", "memo", "condition", "profile"];
+const EDIT_FIELDS = { when: ["task", "event", "goal"], vague: ["task"], est: ["task"], len: ["event"], cat: ["profile"] };
+function editShow(kind) {
+  for (const el of document.querySelectorAll("#sheetHost [data-for]")) el.hidden = !EDIT_FIELDS[el.dataset.for].includes(kind);
+}
 function openEdit(it) {
   const tz = state.settings.timezone;
   const dv = it.kind === "event" ? it.start : it.due;
-  const dk = dv ? dayKey(new Date(dv), tz) : "";
-  const tv = dv && (it.duePrecision === "exact" || it.kind === "event") ? (() => { const p = parts(new Date(dv), tz); return `${pad2(p.h)}:${pad2(p.mi)}`; })() : "";
+  const dk = validISO(dv) ? dayKey(new Date(dv), tz) : (it.dayKey || "");
+  const tv = validISO(dv) && (it.duePrecision === "exact" || (it.kind === "event" && !it.timeUnknown))
+    ? (() => { const p = parts(new Date(dv), tz); return `${pad2(p.h)}:${pad2(p.mi)}`; })() : "";
+  const len = it.kind === "event" && validISO(it.start) && validISO(it.end)
+    ? Math.max(5, Math.round((new Date(it.end) - new Date(it.start)) / 60000)) : 60;
+  /* 種類の選択肢に、**いまの種類が必ず入っている**こと（①の再発を防ぐ）。 */
+  const kinds = EDIT_KINDS.includes(it.kind) ? EDIT_KINDS : [it.kind];
+  const said = it.evidence && it.evidence.text && it.evidence.text !== "（手入力）" ? String(it.evidence.text) : "";
   openSheet(`<h3>訂正する</h3>
-    <p class="hint">ここで直した内容が正しいものとして扱われ、以後の提案に反映されます。元の読み取り結果は履歴に残ります。</p>
-    <div><label class="fld" for="eT">内容</label><input type="text" id="eT" value="${esc(it.title)}"></div>
-    <div><label class="fld" for="eK">種類</label><select id="eK">
-      ${["task","event","goal","condition"].map(k => `<option value="${k}"${it.kind === k ? " selected" : ""}>${KIND_JA[k]}</option>`).join("")}
+    ${said ? `<p class="hint">元の言葉：「${esc(said.slice(0, 80))}」</p>` : ""}
+    <div class="stack">
+    <div><label class="fld" for="eT">内容</label><input type="text" id="eT" value="${esc(it.title)}" enterkeyhint="done"></div>
+    <div><label class="fld" for="eK">種類</label><select id="eK"${kinds.length === 1 ? " disabled" : ""}>
+      ${kinds.map(k => `<option value="${k}"${it.kind === k ? " selected" : ""}>${KIND_JA[k]}</option>`).join("")}
     </select></div>
-    <div class="grid2">
+    <div data-for="cat"><label class="fld" for="eC">分類</label><select id="eC">
+      ${PROFILE_CATS.map(c => `<option value="${esc(c)}"${(it.category || "その他") === c ? " selected" : ""}>${esc(c)}</option>`).join("")}
+    </select></div>
+    <div class="grid2" data-for="when">
       <div><label class="fld" for="eD">日付</label><input type="date" id="eD" value="${dk}"></div>
-      <div><label class="fld" for="eH">時刻（空ならなし）</label><input type="time" id="eH" value="${tv}"></div>
+      <div><label class="fld" for="eH">時刻</label><input type="time" id="eH" value="${tv}"></div>
     </div>
-    <div class="grid2">
-      <div><label class="fld" for="eE">所要時間（分・タスク）</label><input type="number" id="eE" min="5" step="5" value="${it.estimateMin != null ? it.estimateMin : ""}"></div>
-      <div><label class="fld" for="eP">期限の確かさ</label><select id="eP">
-        <option value="exact"${it.duePrecision === "exact" ? " selected" : ""}>日時まで決まっている</option>
-        <option value="day"${it.duePrecision === "day" ? " selected" : ""}>日付だけ決まっている</option>
-        <option value="week"${it.duePrecision === "week" ? " selected" : ""}>まだあいまい</option>
-        <option value="none"${!it.duePrecision || it.duePrecision === "none" ? " selected" : ""}>期限なし</option>
-      </select></div>
+    <label class="chk" data-for="vague"><input type="checkbox" id="eV"${it.duePrecision === "week" ? " checked" : ""}> 日付はまだはっきりしない</label>
+    <div data-for="est"><label class="fld" for="eE">かかる時間（分）</label><input type="number" id="eE" min="5" max="1440" step="5" inputmode="numeric" value="${it.estimateMin != null ? it.estimateMin : ""}"></div>
+    <div data-for="len"><label class="fld" for="eL">長さ（分）</label><input type="number" id="eL" min="5" max="1440" step="5" inputmode="numeric" value="${len}"></div>
+    <p class="hint" id="eMsg"></p>
     </div>
     <div class="foot">
-      <button class="btn pri" data-act="save" data-id="${it.id}">保存する</button>
       <button class="btn" data-close>やめる</button>
-      <button class="btn danger wide" data-act="drop" data-id="${it.id}">この項目を取り消す</button>
-      <button class="btn danger wide" data-act="delitem" data-id="${it.id}">記録ごと完全に消す</button>
-    </div>`);
+      <button class="btn pri" data-act="save" data-id="${it.id}" style="margin-left:auto">保存する</button>
+    </div>
+    <details class="allplan dz"><summary>取り消す・消す</summary>
+      <div class="stack" style="margin-top:10px">
+        <button class="btn danger wide" data-act="drop" data-id="${it.id}">この項目を取り消す</button>
+        <button class="btn danger wide" data-act="delitem" data-id="${it.id}">記録ごと完全に消す</button>
+      </div></details>`);
+  editShow(it.kind);
+  $("#eK").addEventListener("change", () => editShow($("#eK").value));
+  /* 内容の欄で決定を押したら保存（日本語の変換中の Enter は確定なので拾わない）。 */
+  $("#eT").addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); $('#sheetHost [data-act="save"]').click(); }
+  });
 }
 
 /* 「…」でたたんだ操作をまとめて出す（2026-09-24・案C）。
@@ -4950,26 +4983,62 @@ async function act(a, id, el) {
   else if (a === "evid") { openEvidence(it); return; }
   else if (a === "edit") { openEdit(it); return; }
   else if (a === "save") {
-    const changes = [];
-    const nt = $("#eT").value.trim(); if (nt && nt !== it.title) { changes.push(`内容「${it.title}」→「${nt}」`); it.title = nt; }
-    const nk = $("#eK").value; if (nk !== it.kind) { changes.push(`種類 ${KIND_JA[it.kind]}→${KIND_JA[nk]}`); it.kind = nk; }
-    const d = $("#eD").value, h = $("#eH").value, prec = $("#eP").value;
-    if (d) {
-      const [y, mo, dd] = d.split("-").map(Number);
-      const [hh, mm] = (h || "23:59").split(":").map(Number);
-      const iso = zoned(y, mo, dd, hh, mm, tz).toISOString();
-      if (it.kind === "event") { it.start = iso; it.end = new Date(new Date(iso).getTime() + ((+$("#eE").value || 60) * 60000)).toISOString(); it.fixed = true; }
-      else it.due = iso;
-      it.dayKey = d; changes.push(`日付を ${d}${h ? " " + h : ""} に`);
-    } else if (prec === "none") { it.due = null; it.dayKey = null; changes.push("期限をなしに"); }
-    it.duePrecision = prec;
-    const ev = $("#eE").value; const nv = ev === "" ? null : +ev;
-    if (it.kind === "task" && nv !== it.estimateMin) { changes.push(`所要時間 ${it.estimateMin == null ? "未設定" : it.estimateMin + "分"}→${nv == null ? "未設定" : nv + "分"}`); it.estimateMin = nv; }
-    if (it.kind === "event") it.timeUnknown = !h;     // 時刻を入れたら時間割に載せる
-    it.corrected = true; it.confirmed = true; it.whenAlt = null; it.dedupeKey = dedupeKey(it);
-    note(it, "訂正：" + (changes.join(" / ") || "変更なし"));
+    const changes = [], nowISO = new Date().toISOString();
+    const nt = $("#eT").value.trim();
+    if (!nt) { $("#eMsg").textContent = "内容を入れてください。"; return; }
+    if (nt !== it.title) { changes.push(`内容「${it.title}」→「${nt}」`); it.title = nt; }
+    /* 種類は、**選べるものの中からだけ**受け取る（画面を書き換えられても変な値を入れない）。 */
+    const pk = $("#eK").value, nk = (EDIT_KINDS.includes(pk) || pk === it.kind) ? pk : it.kind;
+    if (nk !== it.kind) {
+      changes.push(`種類 ${KIND_JA[it.kind]}→${KIND_JA[nk]}`);
+      if (nk === "condition") { it.selfReport = it.selfReport || it.title; it.reportedAt = it.reportedAt || nowISO; }
+      if (nk === "profile") it.statedAt = it.statedAt || it.createdAt || nowISO;
+      it.kind = nk;
+    }
+    if (nk === "profile") {
+      const c = PROFILE_CATS.includes($("#eC").value) ? $("#eC").value : "その他";
+      if (c !== (it.category || "その他")) { changes.push(`分類 ${it.category || "その他"}→${c}`); it.category = c; }
+    }
+    /* **日付と時刻は、変わったときだけ書き直す**（開いて閉じただけで 23:59 に書き換えない）。
+       確かさは入れたものから決める：時刻まで＝日時まで／日付だけ＝その日まで（はっきりしないに印＝あいまい）／空＝期限なし。 */
+    if (EDIT_FIELDS.when.includes(nk)) {
+      const tzv = state.settings.timezone;
+      const dv0 = it.kind === "event" ? it.start : it.due;
+      const d0 = validISO(dv0) ? dayKey(new Date(dv0), tzv) : (it.dayKey || "");
+      const h0 = validISO(dv0) && (it.duePrecision === "exact" || (it.kind === "event" && !it.timeUnknown)) ? (() => { const p = parts(new Date(dv0), tzv); return `${pad2(p.h)}:${pad2(p.mi)}`; })() : "";
+      const d = $("#eD").value, h = $("#eH").value;
+      const vague = nk === "task" && $("#eV").checked;
+      const prec = !d ? "none" : h ? "exact" : vague ? "week" : "day";
+      const len0 = nk === "event" && validISO(it.start) && validISO(it.end) ? Math.round((new Date(it.end) - new Date(it.start)) / 60000) : 60;
+      const lenIn = Math.round(+$("#eL").value);
+      const len = nk === "event" ? (lenIn >= 5 && lenIn <= 1440 ? lenIn : len0) : 0;
+      if (d !== d0 || h !== h0 || prec !== (it.duePrecision || "none") || (nk === "event" && len !== len0)) {
+        if (d) {
+          const [y, mo, dd] = d.split("-").map(Number), [hh, mm] = (h || "23:59").split(":").map(Number);
+          const iso = zoned(y, mo, dd, hh, mm, tzv).toISOString();
+          if (nk === "event") { it.start = iso; it.end = new Date(new Date(iso).getTime() + len * 60000).toISOString(); it.fixed = true; it.timeUnknown = !h; }
+          else it.due = iso;
+          it.dayKey = d;
+          if (d !== d0 || h !== h0) changes.push(`日付を ${d}${h ? " " + h : ""} に`);
+          if (nk === "event" && len !== len0) changes.push(`長さ ${durJa(len0)}→${durJa(len)}`);
+        } else if (nk !== "event") {
+          if (it.due || it.dayKey) changes.push("期限をなしに");
+          it.due = null; it.dayKey = null;
+        }
+        if (nk !== "event" && prec !== (it.duePrecision || "none")) changes.push(prec === "week" ? "日付はまだはっきりしない" : prec === "none" ? "期限なし" : "期限を確定");
+        if (nk !== "event") it.duePrecision = prec;
+      }
+    }
+    if (nk === "task") {
+      const ev = $("#eE").value, nv = ev === "" ? null : clamp(Math.round(+ev) || 5, 5, 1440);
+      if (nv !== (it.estimateMin == null ? null : it.estimateMin)) { changes.push(`かかる時間 ${it.estimateMin == null ? "未設定" : durJa(it.estimateMin)}→${nv == null ? "未設定" : durJa(nv)}`); it.estimateMin = nv; }
+    }
+    /* **何も変えずに保存したら「確かめた」だけ**。「本人が訂正」の印は、本当に直したときだけ付ける（決まり2）。 */
+    it.confirmed = true;
+    if (changes.length) { it.corrected = true; it.whenAlt = null; it.dedupeKey = dedupeKey(it); }
+    note(it, changes.length ? "訂正：" + changes.join(" / ") : "内容を確かめた（変更なし）");
     await putItem(it); closeSheet();
-    toast(changes.length ? "直しました：" + changes.join(" / ") : "変更はありませんでした");
+    toast(changes.length ? "直しました：" + changes.join(" / ") : "変更はありませんでした（確認済みにしました）");
   }
   renderAll();
 }
