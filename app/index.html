@@ -612,6 +612,11 @@ details.unconf>summary{color:var(--warn-ink)}
           <option value="dark">暗く</option>
         </select>
         </div>
+      <div><label class="fld" for="revDow">週に1回の見直し</label>
+        <div class="row">
+          <select id="revDow" aria-label="見直しの曜日"><option value="-1">知らせない</option><option value="0">毎週日曜</option><option value="1">毎週月曜</option><option value="2">毎週火曜</option><option value="3">毎週水曜</option><option value="4">毎週木曜</option><option value="5">毎週金曜</option><option value="6">毎週土曜</option></select>
+          <select id="revHour" aria-label="見直しの時刻"></select>
+        </div></div>
       <span id="setMsg" class="hint"></span>
     </div>
 
@@ -1797,6 +1802,8 @@ function nativeReply(raw) {
   /* 通知で押された返事は、こちらから頼んだものではないので id では待っていない。
      **殻から来た文字はデータであって指示ではない**ので、ここで全部確かめる（決まり14）。 */
   if (m && m.kind === "notifyaction") { notifyAction(m); return true; }
+  /* 見直しの通知を押した（2026-09-26）。**開いてよい画面は1つだけ**——来た値は疑う（決まり14）。 */
+  if (m && m.kind === "notifyopen") { if (m.tab === "p-me") showTab("p-me"); return true; }
   const w = m && m.id && nativeWaiting.get(m.id);
   if (!w) return false;
   clearTimeout(w.to); nativeWaiting.delete(m.id);
@@ -1869,6 +1876,8 @@ function notifyPlan(key) {
   const tz = state.settings.timezone;
   if (key !== dayKey(new Date(), tz)) return 0;          // 今日ぶんだけ
   const list = notifyList(key, minOfDay(new Date().toISOString(), tz));
+  const rv = reviewNotice(new Date());
+  if (rv) list.push(rv);
   nativeSend({ kind: "notify", list });
   return list.length;
 }
@@ -2062,7 +2071,9 @@ function aiSignal(ms) {
    `planFor` は今までどおり workStart / workEnd を読むので、値そのものは残す。 */
 const DEFAULTS = {
   timezone: "Asia/Tokyo", workStart: "00:00", workEnd: "23:59", defaultEstimate: 30,
-  breakEveryMin: 90, breakMin: 10, theme: "auto", updatedAt: null
+  breakEveryMin: 90, breakMin: 10, theme: "auto", updatedAt: null,
+  /* 週に1回の見直し（2026-09-26・本人の指示）。曜日は 0=日〜6=土、-1 は「知らせない」。 */
+  reviewDow: 0, reviewHour: 20
 };
 const OLD_WINDOW = { workStart: "09:00", workEnd: "18:00" };   // 設定欄があった頃の既定
 
@@ -2329,6 +2340,8 @@ function safeSettings(s) {
   o.breakEveryMin = num(o.breakEveryMin, 30, 240, DEFAULTS.breakEveryMin);
   o.breakMin = num(o.breakMin, 5, 30, DEFAULTS.breakMin);
   if (!["auto", "light", "dark"].includes(o.theme)) o.theme = DEFAULTS.theme;
+  o.reviewDow = num(o.reviewDow, -1, 6, DEFAULTS.reviewDow);
+  o.reviewHour = num(o.reviewHour, 0, 23, DEFAULTS.reviewHour);
   /* `isTime` は形しか見ない（"25:99" も通る）ので、ここでは中身まで確かめる。 */
   const okClock = t => {
     if (!isTime(t)) return false;              // 形は `isTime` が見る（同じ正規表現を2か所に書かない）
@@ -3194,7 +3207,7 @@ function srcChip(it) {
 }
 const KIND_JA = { task: "タスク", event: "予定", goal: "目標", condition: "体調（本人の申告）",
   memo: "あとで見返すメモ", preference: "こうしてほしい", break: "休憩", buffer: "予備時間",
-  profile: "わたしのこと", idea: "気になっていること" };
+  profile: "わたしのこと", idea: "気になっていること", insight: "AIの気づき" };
 const BLOCK_LABEL = { prep: "準備", travel: "移動", event: "", allday: "終日" };
 
 /* 午前とも午後とも読めた時刻の「もう一方」。同じ日なら時刻だけ、違う日なら日付も出す */
@@ -3736,6 +3749,10 @@ function nowCardHTML() {
   let plan; try { plan = planFor(key); } catch { return ""; }
   const na = nextAction(plan), done = doneOn(key), left = leftToday(plan);
   const btn = `<div class="row"><button class="btn sm" data-act="openday">今日の予定を見る</button></div>`;
+  /* 見直しの日（設定した曜日の、その時刻より後）は、ここにも1行出す。通知の無い Artifact でも気づける。 */
+  const rvLine = reviewNow(new Date()) ? reviewLine(reviewCounts(new Date())) : "";
+  const rv = rvLine ? `<div class="ncr">今日は見直しの日：${esc(rvLine)}</div>
+    <div class="row"><button class="btn sm" data-act="openme">見直す</button></div>` : "";
   if (na) {
     const b = na.block, running = b.s <= na.nowMin && na.nowMin < b.e;
     const last = turnsFor(key).slice(-1)[0];
@@ -3750,21 +3767,23 @@ function nowCardHTML() {
         <div class="ncr"><span class="mono">${hhmm(b.s)}–${hhmm(b.e)}</span>${running ? `・${hhmm(b.e)}まで` : soon}</div>
         ${why ? `<div class="ncw">${esc(why)}</div>` : ""}`;
     const got = done.length ? `<div class="ncdone">✓ 今日できたこと ${done.length}件</div>` : "";
-    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${head}${got}${btn}</div></div>`;
+    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${head}${got}${btn}${rv}</div></div>`;
   }
   if (done.length && !left) {
     const list = done.slice(0, 6).map(i => `<li>${esc(i.title)}</li>`).join("")
       + (done.length > 6 ? `<li>ほか${done.length - 6}件</li>` : "");
     return `<div class="nowcard fin" id="nowCard"><span class="ncdot"></span><div class="ncbody">
       <span class="eyebrow">今日できたこと</span><ul>${list}</ul>
-      <div class="ncr">今日の予定は、これで全部です。お疲れさまでした。</div></div></div>`;
+      <div class="ncr">今日の予定は、これで全部です。お疲れさまでした。</div>${rv}</div></div>`;
   }
   if (left) {
     return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">
       <span class="eyebrow">今日やること</span>
       <div class="ncr">時刻を決めていないものが ${left}件あります。</div>
-      ${done.length ? `<div class="ncdone">✓ 今日できたこと ${done.length}件</div>` : ""}${btn}</div></div>`;
+      ${done.length ? `<div class="ncdone">✓ 今日できたこと ${done.length}件</div>` : ""}${btn}${rv}</div></div>`;
   }
+  if (rv) return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">
+      <span class="eyebrow">週に1回の見直し</span>${rv}</div></div>`;
   return "";
 }
 function refreshNowCard() {
@@ -3812,6 +3831,163 @@ function renderChat(scroll) {
    ① 会話から集まったこと（profile）
    ② 自分で渡した資料（docs）と、そこから読み取ったもの
    ======================================================================= */
+/* ── 週に1回の見直し（2026-09-26・本人の指示）─────────────────────
+   「気になっていることを通知で知らせる」「古くなったかもしれないことを時々聞き返す」
+   「今週のあなたについての気づき」の3つを、**週に1回の同じ時間**にまとめる。
+   別々に知らせると通知が増えて嫌われる（JITAI「必要なときに、必要な分だけ」）。
+   曜日と時刻は設定で本人が選ぶ（既定は日曜20時・「知らせない」も選べる）。 */
+function reviewAtOn(key) {
+  const s = state.settings, tz = s.timezone;
+  if (s.reviewDow < 0) return null;
+  const [y, m, d] = key.split("-").map(Number);
+  if (parts(keyToDate(key, tz), tz).dow !== s.reviewDow) return null;
+  return zoned(y, m, d, s.reviewHour, 0, tz);
+}
+/* 次の見直しの時刻（いまより後）。7日先まで見れば必ず1回ある。 */
+function nextReviewAt(now) {
+  const tz = state.settings.timezone, t0 = now.getTime();
+  for (let k = 0; k <= 7; k++) {
+    const at = reviewAtOn(dayKey(new Date(t0 + k * 86400000), tz));
+    if (at && at.getTime() > t0) return at;
+  }
+  return null;
+}
+/* いまが見直しの日の、その時刻より後か（その日のうちだけ）。 */
+function reviewNow(now) {
+  const at = reviewAtOn(dayKey(now, state.settings.timezone));
+  return !!(at && now.getTime() >= at.getTime());
+}
+/* **古くなったかもしれないこと**：最後に言った・確かめた日から90日たったわたしのこと。
+   **消さない・薄めない**（勝手に捨てない）。「まだ合っていますか？」と聞くだけ。
+   答えたら `checkedAt` を付けて、次の90日は聞かない（「時々」＝同じことを何度も聞かない）。 */
+const STALE_DAYS = 90;
+function profileCheckedAt(p) { return p.checkedAt || p.statedAt || p.createdAt; }
+function staleProfiles(now) {
+  const lim = now.getTime() - STALE_DAYS * 86400000;
+  return state.items.filter(p => p.kind === "profile" && p.status === "open" && validISO(profileCheckedAt(p))
+      && new Date(profileCheckedAt(p)).getTime() < lim)
+    .sort((a, b) => String(profileCheckedAt(a)).localeCompare(String(profileCheckedAt(b))));
+}
+/* ── 今週の気づき（2026-09-26・本人の指示「AIの今週のあなたについての気づきは採用したい」）──
+   調査（docs/わたしのこと調査.md）では「推測を事実に見せる」として採らなかったが、本人が採ると決めた。
+   **採るなら、推測だと分かる形で**（Kay の見て直せるモデル・決まり2）：
+   ①「AIの気づき（推測）」と印を付ける ②**本人の発言をそのまま引いた根拠**を必ず付ける
+   （引用が今週の原文に無い気づきは捨てる・決まり9）③点数・割合・診断・病名を書かせない（決まり3）
+   ④「合ってる」を押したときだけ、わたしのことに入る（本人が決める）。押さなければ、AIには渡さない。 */
+const INSIGHT_MIN_NOTES = 3;
+function weekNotes(now) {
+  const since = now.getTime() - 7 * 86400000;
+  return state.notes.filter(n => validISO(n.capturedAt) && new Date(n.capturedAt).getTime() >= since && new Date(n.capturedAt).getTime() <= now.getTime())
+    .sort((a, b) => String(a.capturedAt).localeCompare(String(b.capturedAt)));
+}
+function recentInsights(now) {
+  const since = now.getTime() - 6 * 86400000;
+  return state.items.filter(i => i.kind === "insight" && validISO(i.createdAt) && new Date(i.createdAt).getTime() >= since);
+}
+function canMakeInsight(now) {
+  return !!SAMPLEFN && weekNotes(now).length >= INSIGHT_MIN_NOTES && !recentInsights(now).length;
+}
+function insightPrompt(now) {
+  const tz = state.settings.timezone;
+  let total = 0;
+  const lines = [];
+  for (const n of weekNotes(now).slice(-80)) {
+    const t = String(n.text).replace(/\s+/g, " ").slice(0, 200);
+    if (total + t.length > 6000) break;
+    total += t.length; lines.push(`- ${fmtDT(n.capturedAt, tz)}「${t}」`);
+  }
+  const done = doneOn(dayKey(now, tz)).length;
+  const goals = liveItems().filter(i => i.kind === "goal" && i.status === "open").map(i => i.title + (goalNote(i) ? "（" + goalNote(i) + "）" : ""));
+  const me = liveItems().filter(i => i.kind === "profile").slice(0, 30).map(i => `${i.category || "その他"}：${i.title}`);
+  return `次の JSON だけを返してください。前後に文章を書かないでください。
+{"insights":[{"text":"気づき（60字以内）","quotes":["本人の発言から、そのまま抜き出した短い言葉"]}]}
+
+あなたは本人専属の秘書です。この1週間に本人が話したことを読んで、
+**本人がまだ言葉にしていない「傾向」への気づき**を1〜3個だけ返してください。
+
+【守ること】
+- **推測として書く。**「〜のようです」「〜かもしれません」で終える。断定しない。
+- **根拠を必ず付ける。** quotes には、下の発言から**一字一句そのまま**抜き出した言葉を1〜3個。言い換えた引用は捨てられます。
+- **点数・割合・回数の比較・診断・病名を書かない。** 体のことに触れてよいが、決めつけない。
+- **人柄を決めつけない・責めない・がんばりを増やす助言をしない。** 気づきだけを書く。
+- 予定や時刻の話（何時に何をした）を並べ直すだけのものは書かない。
+- 当てはまる気づきが無ければ {"insights":[]} を返してよい。
+
+【この人について分かっていること】
+${me.length ? me.map(x => "- " + x).join("\n") : "（まだありません）"}
+【続けたいこと】${goals.length ? goals.join(" / ") : "（まだありません）"}
+【この1週間の発言（古い順）】
+${lines.join("\n")}`;
+}
+/* 通さないもの：点数・割合・診断・病名に近い言葉（決まり3）。**画面で1件すり抜けた**（「うつ傾向があります」）
+   ので、病名の一部（うつ・躁・依存・発達…）まで広げた。 */
+const RE_INSIGHT_NG = /(\d+\s*(%|％|点|割|分の)|診断|病|症|障害|うつ|鬱|躁|不安障|パニック|依存|ADHD|発達|自閉|HSP)/;
+/* **推測の形で終わるものだけ通す**（決まり2「推測を確定にしない」）。「〜があります」「〜です」の断定は捨てる。 */
+const RE_INSIGHT_HEDGE = /(ようです|ようだ|かもしれません|かもしれない|みたいです|のでしょう|ように見えます|そうです)[。．.]?$/;
+function checkInsights(out, now) {
+  const texts = weekNotes(now).map(n => String(n.text).replace(/\s+/g, " "));
+  const raw = out && Array.isArray(out.insights) ? out.insights : [];
+  const got = [];
+  for (const x of raw.slice(0, 5)) {
+    const text = typeof (x && x.text) === "string" ? x.text.trim().replace(/\s+/g, " ") : "";
+    if (text.length < 4 || text.length > 80 || RE_INSIGHT_NG.test(text) || !RE_INSIGHT_HEDGE.test(text)) continue;
+    const quotes = (Array.isArray(x.quotes) ? x.quotes : [])
+      .map(q => typeof q === "string" ? q.trim().replace(/\s+/g, " ").replace(/^[「『"]|[」』"]$/g, "") : "")
+      .filter(q => q.length >= 2 && q.length <= 80 && texts.some(t => t.includes(q)));
+    if (!quotes.length) continue;            // 原文に無い引用しか無い気づきは捨てる
+    if (got.some(g => g.text === text)) continue;
+    got.push({ text, quotes: [...new Set(quotes)].slice(0, 3) });
+    if (got.length >= 3) break;
+  }
+  return got;
+}
+async function makeInsights() {
+  const now = new Date();
+  if (!SAMPLEFN) { toast("AIが使えないので、気づきは作れません"); return 0; }
+  if (weekNotes(now).length < INSIGHT_MIN_NOTES) { toast(`この1週間の発言が${INSIGHT_MIN_NOTES}つ以上あると作れます`); return 0; }
+  toast("この1週間の話を、AIが読んでいます…");
+  let out;
+  try { out = await SAMPLEFN.json(insightPrompt(now), { modelTier: "default", cache: false }); }
+  catch (e) { toast(aiFailNote(e).replace("ルールだけで読み取りました。", "気づきは作れませんでした。")); return 0; }
+  const list = checkInsights(out, now);
+  if (!list.length) { toast("今週は、根拠つきで言える気づきがありませんでした"); return 0; }
+  const nowISO = now.toISOString();
+  for (const g of list) {
+    const it = { id: uid(), noteId: null, kind: "insight", title: g.text, quotes: g.quotes, origin: "ai",
+      confirmed: false, corrected: false, status: "open", createdAt: nowISO, updatedAt: nowISO,
+      evidence: { text: g.quotes[0] }, history: [{ at: nowISO, by: "ai", what: "今週の気づきとして作った" }] };
+    it.dedupeKey = dedupeKey(it);
+    await putItem(it);
+  }
+  renderMe();
+  toast(`今週の気づきを${list.length}つ作りました`);
+  return list.length;
+}
+/* 会話の下のカード・通知に使う、見直すものの数。**判定はここひとつ**（決まり7e）。 */
+function reviewCounts(now) {
+  return {
+    ideas: liveItems().filter(i => i.kind === "idea" && i.status === "open").length,
+    stale: staleProfiles(now).length,
+    insight: canMakeInsight(now)
+  };
+}
+function reviewLine(c) {
+  const bits = [];
+  if (c.ideas) bits.push(`気になっていること${c.ideas}件`);
+  if (c.stale) bits.push(`確かめたいこと${c.stale}件`);
+  if (c.insight) bits.push("今週の気づき");
+  return bits.join("・");
+}
+/* 殻に予約してもらう見直しの知らせ（アプリが閉じていても鳴る）。押すと「わたしのこと」が開く。 */
+function reviewNotice(now) {
+  if (!state.settings || state.settings.reviewDow < 0) return null;
+  const at = nextReviewAt(now);
+  if (!at) return null;
+  const line = reviewLine(reviewCounts(now));
+  return { at: at.getTime(), title: "週に1回の見直し", body: line ? line + "があります" : "この1週間をふりかえってみませんか",
+           plain: true, tab: "p-me" };
+}
+
 /* ── 続けたいこと → 予定（2026-09-26・「わたしのこと」の見直し）──
    「毎日30分は歩きたい」は一覧に並ぶだけで、**予定にも、続いているかにもつながっていなかった**。
    目標は「いつ・どこで」を決めると実行されやすい（実行意図：Gollwitzer & Sheeran 2006、94研究で d=.65）。
@@ -3914,6 +4090,35 @@ function renderMe() {
      ③会話から集まったこと（AIが読む）④気になっていること・あとで見返すこと ⑤まだ聞いていないこと ⑥渡した資料。
      **欄は1つも増やしていない。** 前の「予定表に入らないもの」の見出しは、続けたいことが予定に
      できるようになったので当てはまらなくなり、外した。 */
+  /* ---- 見直し（2026-09-26・本人の指示）：古くなったかもしれないこと・今週の気づき ----
+     **いちばん上に置く**——本人の答えを待っているもの。1回に出すのは古いものから2件まで（「時々」）。 */
+  const now = new Date();
+  const stale = staleProfiles(now).slice(0, 2);
+  if (stale.length) {
+    h += `<div class="sect"><h2>まだ合っていますか？</h2>
+      <p class="hint">しばらく前に聞いたことです。答えたものは、しばらく聞きません。</p></div>
+      <div class="stack">${stale.map(p => `<div class="card stack">
+        <div class="meta"><span class="chip">${esc(p.category || "その他")}</span>
+          <span class="mono">${fmtDT(profileCheckedAt(p), tz)} に言っていたこと</span></div>
+        <div class="ttl">${esc(p.title)}</div>
+        <div class="row"><button class="btn sm pri" data-act="stillok" data-id="${p.id}">まだ合っている</button>
+          <button class="btn sm" data-act="edit" data-id="${p.id}">直す</button>
+          <button class="btn sm" data-act="drop" data-id="${p.id}">もう違う</button></div></div>`).join("")}</div>`;
+  }
+  const insights = state.items.filter(i => i.kind === "insight" && i.status === "open")
+    .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  if (insights.length || canMakeInsight(now)) {
+    h += `<div class="sect"><h2>今週の気づき</h2>
+      <p class="hint">AIがこの1週間の話から推測したものです。合っていれば「わたしのこと」に入ります。</p></div>`;
+    if (insights.length) h += `<div class="stack">${insights.map(g => `<div class="card stack insight">
+        <div class="meta"><span class="chip src-ai">AIの気づき（推測）</span><span class="mono">${fmtDT(g.createdAt, tz)}</span></div>
+        <div class="ttl">${esc(g.title)}</div>
+        <div class="quotes">${(g.quotes || []).map(q => `<div class="quote">「${esc(q)}」</div>`).join("")}</div>
+        <div class="row"><button class="btn sm pri" data-act="insightyes" data-id="${g.id}">合ってる</button>
+          <button class="btn sm" data-act="insightno" data-id="${g.id}">違う</button></div></div>`).join("")}</div>`;
+    if (canMakeInsight(now)) h += `<div class="row" style="margin-top:8px"><button class="btn" data-act="insight">今週の気づきを作る</button></div>`;
+  }
+
   const goals = liveItems().filter(i => i.kind === "goal" && i.status === "open");
   const ideas = liveItems().filter(i => i.kind === "idea" && i.status === "open")
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -4020,8 +4225,8 @@ function renderMe() {
   /* 何が外へ送られるかは、短くしても消さない（新しい外部送信の決まり）。
      **ただしAIを使っていないときは、送るもの自体が無い**（2026-09-26）ので出さない。
      使えないのに「AIに送るのは…」と書くと、送っているように読める。 */
-  if (SAMPLEFN) h += `<div class="sect"><p class="hint">AIに送るのは<strong>この一覧の短い文だけ</strong>。
-    資料の全文は、読み取りのときにしか送りません。</p></div>`;
+  if (SAMPLEFN) h += `<div class="sect"><p class="hint">AIに送るのは<strong>この一覧の短い文と、この7日の体のことの申告</strong>。
+    資料の全文は読み取りのときだけ、この1週間の発言は「今週の気づきを作る」を押したときだけ送ります。</p></div>`;
 
   host.innerHTML = h;
 }
@@ -4032,6 +4237,11 @@ function renderSettings() {
   $("#breakEvery") && ($("#breakEvery").value = s.breakEveryMin);
   $("#breakLen") && ($("#breakLen").value = s.breakMin == null ? 10 : s.breakMin);
   $("#theme") && ($("#theme").value = s.theme || "auto");
+  if ($("#revHour") && !$("#revHour").options.length)
+    $("#revHour").innerHTML = Array.from({ length: 24 }, (_, h) => `<option value="${h}">${h}時</option>`).join("");
+  $("#revDow") && ($("#revDow").value = String(s.reviewDow));
+  $("#revHour") && ($("#revHour").value = String(s.reviewHour));
+  if ($("#revHour")) $("#revHour").disabled = s.reviewDow < 0;
   renderWhere();
   /* **件数と置き場所の行は外した**（2026-09-26・本人の指示「この端末のみという表示はいらない」）。
      会話・原文・項目の件数は作る側の目安で、使う人が読んで打つ手が無い。
@@ -4407,6 +4617,37 @@ async function act(a, id, el) {
      新しい画面も欄も作らない（決まり「タブは4つ」「欄を増やさない」と同じ理屈）。
      `findItem` の門より上に置くこと——下だと「項目が見つかりません」で黙って終わる。 */
   /* C：会話の下のカードから、今日の予定表へ。**`findItem` の門より上**に置く（id を持たない）。 */
+  if (a === "openme") { showTab("p-me"); return; }
+  if (a === "insight") { await makeInsights(); return; }
+  /* 古くなったかもしれないこと：「まだ合っている」。次の90日は聞かない。 */
+  if (a === "stillok") {
+    const p = findItem(id); if (!p) { toast("この項目が見つかりませんでした"); return; }
+    const before = snapItem(p);
+    p.checkedAt = new Date().toISOString(); p.confirmed = true; note(p, "まだ合っていると確かめた");
+    await putItem(p); renderMe();
+    toast("確かめました。しばらくは聞きません", { label: "元に戻す", run: () => restoreItems([before], "確かめたのを元に戻した") });
+    return;
+  }
+  /* 今週の気づき：「合ってる」はわたしのことへ（本人が決めた言葉として）。「違う」は取り消す。 */
+  if (a === "insightyes" || a === "insightno") {
+    const g = findItem(id); if (!g || g.kind !== "insight") { toast("この気づきが見つかりませんでした"); return; }
+    const before = snapItem(g), nowISO = new Date().toISOString();
+    if (a === "insightno") {
+      g.status = "dropped"; note(g, "違うと言われた"); await putItem(g); renderMe();
+      toast("この気づきを外しました", { label: "元に戻す", run: () => restoreItems([before], "外したのを元に戻した") });
+      return;
+    }
+    const pf = { id: uid(), noteId: null, kind: "profile", title: g.title, category: "その他", origin: "user",
+      confirmed: true, corrected: false, status: "open", statedAt: nowISO, checkedAt: nowISO, createdAt: nowISO, updatedAt: nowISO,
+      evidence: { text: (g.quotes || [])[0] || g.title }, fromInsight: g.id,
+      history: [{ at: nowISO, by: "user", what: "AIの気づきを、合っているとして取り入れた" }] };
+    pf.dedupeKey = dedupeKey(pf);
+    g.status = "done"; note(g, "合っていると言われ、わたしのことに入れた");
+    await putItem(pf); await putItem(g); renderMe();
+    toast("わたしのことに入れました", { label: "元に戻す",
+      run: () => restoreItems([before, Object.assign(snapItem(pf), { status: "dropped" })], "取り入れたのを元に戻した") });
+    return;
+  }
   if (a === "openday") {
     view.day = dayKey(new Date(), tz);
     showTab("p-day");
@@ -5646,7 +5887,16 @@ function contextForAI(note) {
      `asking` は残す。あれは**本人が「これを話す」を押したとき**に、
      その答えを `profile` として覚えてもらうための案内で、AIから聞かせる仕組みではない。 */
   const asking = (TELOS_ASKS.find(x => x.key === view.ask) || {}).q || "";
-  return { key, p, open, plan, pf, me, recent, lifeos: los, winS: pl.winS, winE: pl.winE, asking,
+  /* **体のことも渡す**（2026-09-26・本人の指示「体のこともAIに入れる」）。
+     「体のこと」のわたしのことは前から `me` に入っていたが、**その日の体調（本人の申告）は
+     1つも渡していなかった**。この7日の申告を、本人の言葉のまま・日時つきで渡す（決まり3：数値にしない）。
+     `me` は短い返事では先頭8件しか使わないので、体のことは別の欄にも立てて、切り落とされないようにする。 */
+  const since = Date.now() - 7 * 86400000;
+  const body = liveItems().filter(i => i.kind === "condition" && validISO(i.reportedAt) && new Date(i.reportedAt).getTime() >= since)
+    .sort((a, b) => String(b.reportedAt).localeCompare(String(a.reportedAt))).slice(0, 10)
+    .map(i => `${fmtDT(i.reportedAt, tz)}「${String(i.selfReport || i.title).slice(0, 80)}」`)
+    .concat(liveItems().filter(i => i.kind === "profile" && i.category === "体のこと").slice(0, 10).map(i => "（変わらないこと）" + i.title));
+  return { key, p, open, plan, pf, me, recent, lifeos: los, winS: pl.winS, winE: pl.winE, asking, body,
            omitted: Math.max(0, allOpen.length - open.length) };
 }
 
@@ -5751,6 +6001,10 @@ estimateMin は 30 のように返してください（開始時刻を決めな�
 ${cx.lifeos && cx.lifeos.length ? `【LifeOSが覚えていること】\n${cx.lifeos.map(x => "- " + x).join("\n")}\n` : ""}【本人が前に言った「こうしてほしい」】${cx.pf.length ? cx.pf.join(" / ") : "（まだありません）"}
 【この人について分かっていること（変わらないこと）】
 ${cx.me.length ? cx.me.map(s => "- " + s).join("\n") : "（まだありません）"}
+【体のこと（本人の言葉そのまま・この7日の申告を含む）】
+${(cx.body || []).length ? cx.body.map(s => "- " + s).join("\n") : "（まだありません）"}
+- 体のことは、提案や予定の組み方の参考にしてよい（疲れている日は詰めない、など）。
+- **診断しない・病名を出さない・数値や点数にしない。**本人の言葉を超えて決めつけない。
 ${cx.asking ? `【いま画面で聞いている質問】${cx.asking}
 - この発言は、その答えのつもりかもしれません。答えになっていたら
   「わたしのこと」として覚えてください（op は profile、続けたいことなら goal）。
@@ -5885,6 +6139,7 @@ function quickPrompt(note, cx) {
 【この発話の時間帯】${hint || "（時刻は言われていない）"}
 【この人について分かっていること】${cx.me.length ? cx.me.slice(0, 8).join(" / ") : "（まだありません）"}
 【本人が言った「こうしてほしい」】${cx.pf.length ? cx.pf.join(" / ") : "（まだありません）"}
+【体のこと（本人の言葉）】${(cx.body || []).length ? cx.body.slice(0, 6).join(" / ") : "（まだありません）"}
 
 【守ること】
 - 1〜2文。長くしない。
@@ -5897,6 +6152,7 @@ function quickPrompt(note, cx) {
 - 【この人について分かっていること】の中に、いまの話と**はっきり関係する**ものがあれば、
   「前に〜と言っていましたね」のように1回だけ触れてよい。関係が薄ければ触れない。言い換えず、短く。
 - 疲れ・眠気・落ち込みには、まず受け止める。原因を尋ねない。説教しない。
+- 体のことに触れるときは、診断しない・病名を出さない。本人の言葉を超えて決めつけない。
 - 質問で終わらせない。
 - 迷っているだけのときは、決めさせようとしない。
 
@@ -6541,7 +6797,9 @@ async function saveSettingsNow() {
     timezone: $("#tz").value, defaultEstimate: clamp(+$("#defEst").value || 30, 5, 240),
     breakEveryMin: clamp(+$("#breakEvery").value || 90, 30, 240),
     breakMin: clamp(+$("#breakLen").value || 10, 5, 30),
-    theme: ["auto", "light", "dark"].includes($("#theme").value) ? $("#theme").value : "auto"
+    theme: ["auto", "light", "dark"].includes($("#theme").value) ? $("#theme").value : "auto",
+    reviewDow: clamp(Math.round(+$("#revDow").value), -1, 6),
+    reviewHour: clamp(Math.round(+$("#revHour").value || 0), 0, 23)
   });
   // 見た目は上の change 側で当て済み。ここで当て直すと、
   // 保存の待ち時間の間に選び直された指定を、古い値で上書きしてしまう
@@ -6556,7 +6814,7 @@ async function saveSettingsNow() {
   setTimeout(() => { const el = $("#setMsg"); if (el) el.textContent = ""; }, 2000);
 }
 $("#theme").addEventListener("change", () => applyTheme($("#theme").value));   // 先に見た目だけ当てる
-for (const id of ["#tz", "#defEst", "#breakEvery", "#breakLen", "#theme"]) {
+for (const id of ["#tz", "#defEst", "#breakEvery", "#breakLen", "#theme", "#revDow", "#revHour"]) {
   $(id).addEventListener("change", saveSettingsNow);
 }
 /* 書き出す中身は**ここだけ**が決める（決まり7e）。テストが同じものを読めるようにする。

@@ -1088,6 +1088,54 @@
       state.items = keep; renderAll();
     }
 
+    /* 2026-09-26「見直し」：設定で曜日を選ぶ／古いことを確かめる／今週の気づきを作って取り入れる。
+       **本物の画面で押し、保存先を読み直すところまで見る。** */
+    {
+      const keep = state.items, keepNotes = state.notes, keepAI = SAMPLEFN, nowISO = new Date().toISOString();
+      await step("設定で「週に1回の見直し」の曜日を選ぶと、その場で保存される", async () => {
+        await click('nav.tabs [data-tab="p-set"]');
+        const sel = $$("#revDow"); if (!sel) throw new Error("見直しの欄が無い");
+        sel.value = "3"; sel.dispatchEvent(new Event("change", { bubbles: true }));
+        if (!await waitFor(() => state.settings.reviewDow === 3)) throw new Error("保存されない");
+        const got = await DB.doc("meta/settings").get();
+        if (!got.exists || got.data().reviewDow !== 3) throw new Error("保存先に入っていない");
+      });
+      const old = new Date(Date.now() - 120 * 86400000).toISOString();
+      const p = { id: uid(), kind: "profile", category: "性格・傾向", title: "朝型（点検）", origin: "rule", confirmed: false,
+        status: "open", statedAt: old, createdAt: old, history: [], evidence: { text: "朝型" }, dedupeKey: "walk-prof" };
+      await step("「まだ合っていますか？」で「まだ合っている」を押す", async () => {
+        state.items = [p]; await putItem(p);
+        await click('nav.tabs [data-tab="p-me"]');
+        const b = [...document.querySelectorAll('#p-me [data-act="stillok"]')].find(x => x.dataset.id === p.id);
+        if (!b) throw new Error("聞き直しが出ない");
+        await click(b);
+        if (!await waitFor(() => !!findItem(p.id).checkedAt)) throw new Error("確かめた印が付かない");
+        const got = await DB.doc("items/" + p.id).get();
+        if (!got.exists || !got.data().checkedAt) throw new Error("保存先に入っていない");
+        if ([...document.querySelectorAll('#p-me [data-act="stillok"]')].some(x => x.dataset.id === p.id)) throw new Error("まだ聞いている");
+      });
+      await step("「今週の気づきを作る」を押し、「合ってる」でわたしのことに入れる", async () => {
+        state.items = []; state.notes = ["夜ふかしすると次の日ぜんぜん進まない", "散歩すると気分が軽くなる", "陶芸をやってみたい"]
+          .map(t => ({ id: uid(), text: t, hash: "w" + Math.random(), capturedAt: nowISO, source: "talk", createdAt: nowISO }));
+        const stub = () => Promise.resolve({ text: "うん" });
+        stub.json = () => Promise.resolve({ insights: [{ text: "体を動かすと、気持ちが軽くなるようです", quotes: ["散歩すると気分が軽くなる"] }] });
+        SAMPLEFN = stub; renderMe();
+        const mk = document.querySelector('#p-me [data-act="insight"]');
+        if (!mk) throw new Error("「今週の気づきを作る」が無い");
+        await click(mk);
+        if (!await waitFor(() => state.items.some(i => i.kind === "insight"))) throw new Error("気づきができない");
+        const g = state.items.find(i => i.kind === "insight");
+        const yes = [...document.querySelectorAll('#p-me [data-act="insightyes"]')].find(x => x.dataset.id === g.id);
+        if (!yes) throw new Error("「合ってる」が無い");
+        await click(yes);
+        if (!await waitFor(() => state.items.some(i => i.kind === "profile" && i.fromInsight === g.id))) throw new Error("わたしのことに入らない");
+        const pf = state.items.find(i => i.fromInsight === g.id);
+        const got = await DB.doc("items/" + pf.id).get();
+        if (!got.exists) throw new Error("保存先に入っていない");
+      });
+      state.items = keep; state.notes = keepNotes; SAMPLEFN = keepAI; renderAll();
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "WALK";
     pre.textContent = "===== 操作の総点検 =====\n" + R.join("\n") +

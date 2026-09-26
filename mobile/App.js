@@ -159,14 +159,20 @@ export default function App() {
 
   const relay = useCallback(resp => {
     try {
-      if (!resp || resp.actionIdentifier === DEFAULT_ACTION_IDENTIFIER) return;  // 本体を押しただけ
+      if (!resp) return;
       const req = resp.notification && resp.notification.request;
+      const data = (req && req.content && req.content.data) || {};
+      /* 本体を押しただけなら、ふつうは何もしない（アプリが開くだけ）。
+         見直しの通知だけは「どの画面を開くか」を運ぶ（2026-09-26）。**どの画面にするかは本体が決める。** */
+      const plainTap = resp.actionIdentifier === DEFAULT_ACTION_IDENTIFIER;
+      if (plainTap && !data.tab) return;
       const key = (req && req.identifier) + "/" + resp.actionIdentifier;
       if (seen.current.has(key)) return;
       seen.current.add(key);
-      const data = (req && req.content && req.content.data) || {};
-      const msg = { kind: "notifyaction", action: String(resp.actionIdentifier || ""),
-                    id: String(data.id || ""), day: String(data.day || "") };
+      const msg = plainTap
+        ? { kind: "notifyopen", tab: String(data.tab || "") }
+        : { kind: "notifyaction", action: String(resp.actionIdentifier || ""),
+            id: String(data.id || ""), day: String(data.day || "") };
       if (ready.current) post(msg); else pending.current.push(msg);
     } catch (e) { console.warn("通知の返事を運べませんでした", e); }
   }, [post]);
@@ -208,14 +214,13 @@ export default function App() {
         for (const n of list) {
           const at = Number(n && n.at);
           if (!at || at < Date.now() + 30000) continue;   // もう過ぎたものは鳴らさない
-          await scheduleOne(
-            { title: String((n && n.title) || "予定"), body: String((n && n.body) || ""),
-              /* ボタンの組と、「どの用事か」。**中身は読まずにそのまま返す**だけ
-                 ——意味を決めるのは `app/index.html` の側（2026-09-24・④）。 */
-              categoryIdentifier: CATEGORY,
-              data: { id: String((n && n.id) || ""), day: String((n && n.day) || "") } },
-            new Date(at)
-          );
+          /* ボタンの組と、「どの用事か」。**中身は読まずにそのまま返す**だけ
+             ——意味を決めるのは `app/index.html` の側（2026-09-24・④）。
+             見直しの知らせ（`plain`）には「完了」のボタンを付けない（終わらせる用事ではない）。 */
+          const content = { title: String((n && n.title) || "予定"), body: String((n && n.body) || ""),
+            data: { id: String((n && n.id) || ""), day: String((n && n.day) || ""), tab: String((n && n.tab) || "") } };
+          if (!(n && n.plain)) content.categoryIdentifier = CATEGORY;
+          await scheduleOne(content, new Date(at));
         }
       } catch (e3) { console.warn("通知の予約でつまずきました", e3); }
       return;

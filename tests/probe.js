@@ -4482,6 +4482,110 @@
       state.items = keepItems; state.notes = keepNotes; state.turns = keepTurns; state.docs = keepDocs; hideToast(); showTab(keepTab);
     }
 
+    /* ===== BX群：体のこと・週に1回の見直し・古いことの聞き直し・今週の気づき（2026-09-26・本人の指示）===== */
+    {
+      const keepItems = state.items, keepNotes = state.notes, keepTurns = state.turns, keepDocs = state.docs;
+      const keepSet = state.settings, keepAI = SAMPLEFN, keepTab = view.tab, keepChat = view.chatDay;
+      const tz = state.settings.timezone, nowISO = new Date().toISOString(), today = dayKey(new Date(), tz);
+      const mkNote = (text, at) => ({ id: uid(), text, hash: "bx" + Math.random(), capturedAt: at || nowISO, source: "talk", createdAt: at || nowISO });
+
+      // --- 体のことをAIに渡す ---
+      reset();
+      const n1 = mkNote("今日は少し頭が痛い。"); await putNote(n1); await applyOps(ruleOps(n1), n1);
+      state.items.push({ id: uid(), kind: "profile", category: "体のこと", title: "季節の変わり目に体調を崩しやすい", status: "open", createdAt: nowISO });
+      const cx = contextForAI(mkNote("何しよう"));
+      ok("BX. その日の体調（本人の申告）をAIに渡す", (cx.body || []).some(x => /頭が痛い/.test(x)), JSON.stringify(cx.body));
+      ok("BX. 体のことのわたしのことも、別の欄で渡す（先頭8件で切られない）", (cx.body || []).some(x => /季節の変わり目/.test(x)));
+      const bp = buildPrompt(mkNote("何しよう"), cx), qp = quickPrompt(mkNote("何しよう"), cx);
+      ok("BX. 本体の依頼文に体のことが入り、診断しないと書いてある", /【体のこと/.test(bp) && /頭が痛い/.test(bp) && /診断しない/.test(bp));
+      ok("BX. 速い返事の依頼文にも体のことが入る", /【体のこと/.test(qp) && /頭が痛い/.test(qp) && /診断しない/.test(qp));
+
+      // --- 設定：週に1回の見直し ---
+      ok("BX. 見直しの曜日は -1〜6 に収める", safeSettings({ reviewDow: 9 }).reviewDow === 6 && safeSettings({ reviewDow: -1 }).reviewDow === -1
+         && safeSettings({ reviewDow: "x" }).reviewDow === 0 && safeSettings({ reviewHour: 30 }).reviewHour === 23);
+      state.settings = Object.assign({}, keepSet, { reviewDow: 6, reviewHour: 20 });   // 2026-09-26 は土曜
+      const at = (d, h) => zoned(2026, 9, d, h, 0, tz);
+      ok("BX. 次の見直し：土曜10時なら、その日の20時", nextReviewAt(at(26, 10)).getTime() === at(26, 20).getTime());
+      ok("BX. 次の見直し：土曜21時なら、翌週の土曜20時", nextReviewAt(at(26, 21)).getTime() === zoned(2026, 10, 3, 20, 0, tz).getTime());
+      ok("BX. 見直しの日の、その時刻より後だけ「見直しの日」", reviewNow(at(26, 20)) && !reviewNow(at(26, 19)) && !reviewNow(at(25, 21)));
+      state.settings = Object.assign({}, keepSet, { reviewDow: -1 });
+      ok("BX. 「知らせない」なら、次の見直しも通知も無い", nextReviewAt(at(26, 10)) === null && reviewNotice(at(26, 10)) === null);
+
+      // --- 見直しの通知（押すと「わたしのこと」が開く） ---
+      state.settings = Object.assign({}, keepSet, { reviewDow: parts(new Date(), tz).dow, reviewHour: 23 });
+      reset(); state.items = [{ id: uid(), kind: "idea", title: "陶芸", status: "open", createdAt: nowISO }];
+      const rv = reviewNotice(new Date(Date.now() - 1000 * 60 * 60 * 48));
+      ok("BX. 見直しの知らせは「完了」ボタンなし・開く画面つき・件数を言う",
+         !!rv && rv.plain === true && rv.tab === "p-me" && /気になっていること1件/.test(rv.body), JSON.stringify(rv));
+      showTab("p-chat");
+      nativeReply(JSON.stringify({ kind: "notifyopen", tab: "p-me" }));
+      ok("BX. 見直しの通知を押すと「わたしのこと」が開く", view.tab === "p-me");
+      showTab("p-chat");
+      nativeReply(JSON.stringify({ kind: "notifyopen", tab: "p-set" }));
+      ok("BX. 知らない画面の名前は受け取らない（来た値は疑う・決まり14）", view.tab === "p-chat");
+
+      // --- 会話の下のカードに、見直しの日の1行 ---
+      state.notes = [mkNote("x")]; view.chatDay = today;
+      state.settings = Object.assign({}, keepSet, { reviewDow: parts(new Date(), tz).dow, reviewHour: 0 });
+      ok("BX. 見直しの日は、会話の下に「見直す」が出る", /今日は見直しの日：気になっていること1件/.test(nowCardHTML()) && /data-act="openme"/.test(nowCardHTML()), nowCardHTML().slice(0, 200));
+      state.settings = Object.assign({}, keepSet, { reviewDow: -1 });
+      ok("BX. 知らせない設定なら、その1行も出さない", !/見直しの日/.test(nowCardHTML()));
+
+      // --- 古くなったかもしれないこと ---
+      state.settings = keepSet;
+      reset();
+      const old = new Date(Date.now() - 120 * 86400000).toISOString();
+      const pOld = { id: uid(), kind: "profile", category: "性格・傾向", title: "朝型", status: "open", statedAt: old, createdAt: old, history: [] };
+      const pNew = { id: uid(), kind: "profile", category: "好み", title: "コーヒーが好き", status: "open", statedAt: nowISO, createdAt: nowISO, history: [] };
+      state.items = [pOld, pNew];
+      ok("BX. 90日たったものだけ「まだ合っていますか」の対象", staleProfiles(new Date()).map(p => p.id).join() === pOld.id);
+      showTab("p-me");
+      ok("BX. 「わたしのこと」のいちばん上で聞く", $("#p-me").textContent.indexOf("まだ合っていますか") >= 0
+         && $("#p-me").textContent.indexOf("まだ合っていますか") < $("#p-me").textContent.indexOf("会話から集まったこと"));
+      await act("stillok", pOld.id, null);
+      ok("BX. 「まだ合っている」を押すと、しばらく聞かない", !staleProfiles(new Date()).length && !!pOld.checkedAt && pOld.status === "open");
+      const u = document.querySelector("#toast button"); if (u) { u.click(); await waitUntil(() => !pOld.checkedAt, 1500); }
+      ok("BX. 元に戻すと、また聞く", staleProfiles(new Date()).length === 1);
+      ok("BX. 1回に聞くのは2件まで（時々）", (() => { state.items = [0,1,2,3].map(k => Object.assign({}, pOld, { id: uid(), title: "古い" + k })); renderMe();
+        return document.querySelectorAll('#p-me [data-act="stillok"]').length === 2; })());
+
+      // --- 今週の気づき ---
+      reset();
+      for (const t of ["夜ふかしすると次の日ぜんぜん進まない", "いつか陶芸をやってみたいかも", "今日は少し頭が痛い", "散歩すると気分が軽くなる"]) state.notes.push(mkNote(t));
+      const good = checkInsights({ insights: [
+        { text: "夜の過ごし方が、次の日に響いているようです", quotes: ["夜ふかしすると次の日ぜんぜん進まない"] },
+        { text: "言い換えた引用しか無い気づきかもしれません", quotes: ["夜更かしで翌日だめ"] },
+        { text: "うつ傾向があるかもしれません", quotes: ["頭が痛い"] },
+        { text: "夜型です", quotes: ["夜ふかし"] },
+        { text: "8割の日に疲れているようです", quotes: ["頭が痛い"] } ] }, new Date());
+      ok("BX. 通るのは、推測の形で・原文どおりの根拠がある気づきだけ", good.length === 1 && /響いているようです/.test(good[0].text), JSON.stringify(good));
+      SAMPLEFN = null;
+      ok("BX. AIが無ければ「今週の気づきを作る」は出さない", !canMakeInsight(new Date()));
+      const stub = () => Promise.resolve({ text: "うん" });
+      stub.json = () => Promise.resolve({ insights: [{ text: "体を動かすと、気持ちが軽くなるようです", quotes: ["散歩すると気分が軽くなる"] }] });
+      SAMPLEFN = stub;
+      ok("BX. 発言が3つ以上あり、AIがあれば作れる", canMakeInsight(new Date()));
+      const made = await makeInsights();
+      const ins = state.items.find(i => i.kind === "insight");
+      ok("BX. 気づきは根拠の引用つきで保存される", made === 1 && !!ins && ins.origin === "ai" && ins.confirmed === false && ins.quotes[0] === "散歩すると気分が軽くなる");
+      ok("BX. 作ったあと6日は、もう一度作れない（週に1回）", !canMakeInsight(new Date()));
+      ok("BX. 「合ってる」を押すまで、気づきはAIに渡さない（推測を確定にしない）", !contextForAI(mkNote("x")).me.some(x => /気持ちが軽く/.test(x)));
+      showTab("p-me");
+      ok("BX. 画面に「AIの気づき（推測）」の印と引用が出る", /AIの気づき（推測）/.test($("#p-me").textContent) && /「散歩すると気分が軽くなる」/.test($("#p-me").textContent));
+      await act("insightyes", ins.id, null);
+      ok("BX. 「合ってる」でわたしのことに入り、AIにも渡るようになる",
+         ins.status === "done" && state.items.some(i => i.kind === "profile" && i.fromInsight === ins.id && i.confirmed)
+         && contextForAI(mkNote("x")).me.some(x => /気持ちが軽く/.test(x)));
+      reset(); for (const t of ["a1", "a2", "a3"]) state.notes.push(mkNote(t));
+      const g2 = { id: uid(), kind: "insight", title: "x のようです", quotes: ["a1"], status: "open", origin: "ai", createdAt: nowISO, history: [] };
+      state.items = [g2];
+      await act("insightno", g2.id, null);
+      ok("BX. 「違う」で外れる（わたしのことには入らない）", g2.status === "dropped" && !state.items.some(i => i.kind === "profile"));
+
+      state.items = keepItems; state.notes = keepNotes; state.turns = keepTurns; state.docs = keepDocs;
+      state.settings = keepSet; SAMPLEFN = keepAI; view.chatDay = keepChat; hideToast(); showTab(keepTab);
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;
