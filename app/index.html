@@ -3324,7 +3324,7 @@ function renderDay() {
   // 時刻未定のものは、時間割の「あと」に出す。先に出すと予定表が下に押し下げられる。
   const timelessHTML = (!demo && (plan.timeless || []).length)
     ? `<div class="note info" style="margin-top:12px"><strong>この日にあること（時刻は未定）：</strong>${plan.timeless.map(i => esc(i.title)).join("、")}<br>
-      時刻を言われていないので時間割には入れていません。項目の「訂正」から時刻を入れられます。</div>`
+      時刻を言われていないので時間割には入れていません。項目の「…」→「訂正」から時刻を入れられます。</div>`
     : "";
   const tlHTML = timelineHTML(plan, na, demo);
   const onlyNext = !demo && plan.pref && plan.pref.nextOnly;
@@ -3743,7 +3743,7 @@ function renderMe() {
     }
     if (ideas.length) {
       h += `<div class="cathead"><h3>気になっていること</h3><span class="n">${ideas.length}</span></div>
-        <p class="hint">やると決めたわけではないこと。やると決めたら「訂正」で種類を「タスク」に変えてください。</p>
+        <p class="hint">やると決めたわけではないこと。やると決めたら「…」→「訂正」で種類を「タスク」に変えてください。</p>
         <div class="catgroup">${ideas.slice(0, 20).map(i => itemHTML(i, { noKind: true })).join("")}
         ${ideas.length > 20 ? `<div class="card empty">ほか${ideas.length - 20}件</div>` : ""}</div>`;
     }
@@ -4098,7 +4098,6 @@ function openEst(it) {
 function openManual() {
   const tz = state.settings.timezone;
   openSheet(`<h3>予定・タスクを手で足す</h3>
-    <p class="hint">カレンダー連携がなくても、ここから固定の予定を入れて試せます。</p>
     <div><label class="fld" for="mT">内容</label><input type="text" id="mT" placeholder="例：歯医者"></div>
     <div><label class="fld" for="mK">種類</label><select id="mK">
       <option value="event">予定（固定・動かさない）</option>
@@ -4213,7 +4212,7 @@ async function act(a, id, el) {
     const d = state.docs.find(x => x.id === id);
     const made = state.items.filter(x => x.docId === id);
     openSheet(`<h3>この資料から読み取ったもの</h3>
-      <p class="hint">${esc((d && (d.title || d.sourceName)) || "資料")} から ${made.length}件。合っていないものは訂正か取り消しをしてください。</p>
+      <p class="hint">${esc((d && (d.title || d.sourceName)) || "資料")} から ${made.length}件。合っていないものは「…」から直せます。</p>
       <div class="stack">${made.length ? made.map(x => itemHTML(x)).join("") : '<div class="card empty">まだ何も読み取れていません。</div>'}</div>
       <div class="foot"><button class="btn pri" data-close style="margin-left:auto">閉じる</button></div>`);
     return;
@@ -4821,13 +4820,13 @@ async function applyOps(rawOps, note) {
     if (o.op === "_needs_ai") {
       asks.push(SAMPLEFN
         ? "言い直しのようですが、うまく読み取れませんでした。「スケジュール」タブの「所要時間を直す」から直してください。"
-        : "いまAIを使っていないので、言い直し（時刻や所要時間の変更、完了）は自動で反映できません。「スケジュール」タブのボタンから直すか、設定でAIをオンにしてください。");
+        : "いまAIを使っていないので、言い直し（時刻や所要時間の変更、完了）は自動で反映できません。「スケジュール」タブの項目の「…」→「訂正」から直してください。");
       continue;
     }
     if (!OPS.includes(o.op)) continue;
     const target = o.id ? findItem(String(o.id)) : null;
     if (["update", "done", "defer", "drop", "progress"].includes(o.op) && !target) {
-      asks.push("言い直された用事が特定できませんでした。「スケジュール」タブの項目から「訂正」で直してください。");
+      asks.push("言い直された用事が特定できませんでした。「スケジュール」タブの項目の「…」→「訂正」で直してください。");
       continue;
     }
 
@@ -5894,7 +5893,7 @@ function fitSaybar() {
 function saveDraft() {
   const v = $("#say").value;
   try { localStorage.setItem(DRAFT, v); } catch {}
-  $("#sayNote").textContent = v ? "入力中の内容はこの端末に自動保存されています。" : "";
+  $("#sayNote").textContent = "";   // 下書きは黙って残す（2026-09-26・「この端末」の常設表示を外した）
   const el = $("#say"); el.style.height = "auto"; el.style.height = Math.min(150, el.scrollHeight) + "px";
   el.classList.toggle("more", el.scrollHeight > el.clientHeight + 2);   // 上に続きがあるときだけ、つまみを出す
   fitSaybar();
@@ -5924,7 +5923,6 @@ async function doSend() {
   // （AIオンだと返事まで数十秒かかるため、ここで消さないと「送れていない」ように見える）
   $("#say").value = ""; try { localStorage.removeItem(DRAFT); } catch {}
   saveDraft();
-  $("#sayNote").textContent = "送信しました。読み取っています…";
   try {
     await sendTurn(v);
     $("#sayNote").textContent = "";
@@ -6216,7 +6214,7 @@ $("#btnExport").addEventListener("click", async () => {
     try { await DL.save({ filename: `hitohi-${dayKey(new Date(), state.settings.timezone)}.json`, data }); $("#expOut").innerHTML = '<p class="hint">書き出しました。</p>'; return; }
     catch (e) { /* fall through to copy box */ }
   }
-  $("#expOut").innerHTML = `<p class="hint">保存ダイアログが使えないので、下の内容をコピーして保存してください。</p><textarea readonly style="min-height:140px">${esc(data)}</textarea>`;
+  $("#expOut").innerHTML = `<p class="hint">下の内容をコピーして保存してください。</p><textarea readonly style="min-height:140px">${esc(data)}</textarea>`;
 });
 /* 書き出したJSONを戻す（v4.3）。
    今までは書き出しだけあって、戻す道が無かった。隣に「全部消す」が並んでいるのに。
@@ -6331,7 +6329,7 @@ $("#btnIcsOut").addEventListener("click", async () => {
   if (!count) { toast("出せる予定がありません"); return; }
   const name = `hitohi-${dayKey(new Date(), state.settings.timezone)}.ics`;
   if (DL) { try { await DL.save({ filename: name, data: text }); $("#expOut").innerHTML = `<p class="hint">${count}件の予定を書き出しました。</p>`; return; } catch {} }
-  $("#expOut").innerHTML = `<p class="hint">保存ダイアログが使えないので、下をコピーして <code>${esc(name)}</code> として保存してください（${count}件）。</p><textarea readonly style="min-height:140px">${esc(text)}</textarea>`;
+  $("#expOut").innerHTML = `<p class="hint">下をコピーして <code>${esc(name)}</code> として保存してください（${count}件）。</p><textarea readonly style="min-height:140px">${esc(text)}</textarea>`;
 });
 async function importICS(text, name) {
   const tz = state.settings.timezone;
@@ -6391,7 +6389,7 @@ async function importICS(text, name) {
 $("#btnWipe").addEventListener("click", async () => {
   const yes = await askConfirm({
     title: "すべて消しますか？",
-    body: `会話 ${Object.values(state.turns).reduce((n, l) => n + l.length, 0)}件、原文 ${state.notes.length}件、項目 ${state.items.length}件を消します。<strong>取り消せません。</strong><br>残しておきたい場合は、先に「書き出す（JSON）」を押してください。`,
+    body: `会話 ${Object.values(state.turns).reduce((n, l) => n + l.length, 0)}件、原文 ${state.notes.length}件、項目 ${state.items.length}件を消します。<strong>取り消せません。</strong><br>残しておきたい場合は、先に「記録を書き出す」を押してください。`,
     yes: "すべて消す", danger: true
   });
   if (!yes) return;
@@ -6426,8 +6424,8 @@ $("#btnWipe").addEventListener("click", async () => {
   try { localStorage.removeItem(DRAFT); } catch {}
   $("#say").value = ""; saveDraft();
   lsWrite(); renderAll();
-  $("#expOut").innerHTML = `<p class="hint">${usedDb ? "保存先の記録も、読み直して空になったことを確かめました。" : "この端末の記録を消しました。"}設定は残してあります。</p>`;
-  toast(usedDb ? "すべて消しました" : "この端末の記録を消しました");
+  $("#expOut").innerHTML = `<p class="hint">${usedDb ? "保存先の記録も、読み直して空になったことを確かめました。" : "記録をすべて消しました。"}設定は残してあります。</p>`;
+  toast("すべて消しました");
 });
 
 /* 古い記録だけを整理する（v4.3）。
