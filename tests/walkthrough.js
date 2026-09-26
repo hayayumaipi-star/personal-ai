@@ -295,9 +295,7 @@
       await click('nav.tabs [data-tab="p-day"]');
       const html = $$("#dayOut").innerHTML;
       if (/次にすること/.test(html)) throw new Error("まだ出ている");
-      /* 見出し「今日の案」は外した（2026-09-26・決まり15s）。予定表そのもの（時間軸）か、
-         何も無い日の表示のどちらかが必ずあること。 */
-      if (!/class="tl"|class="bigempty"/.test(html)) throw new Error("肝心の予定表が無い");
+      if (!/今日の案/.test(html)) throw new Error("肝心の予定表が無い");
     });
     await step("タブの名前がスケジュールになっている", async () => {
       const b = document.querySelector('nav.tabs [data-tab="p-day"]');

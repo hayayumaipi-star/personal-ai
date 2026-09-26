@@ -108,13 +108,10 @@
     reset();
     await say("今日、健康診断がある。", T(9, 0));                // 時刻未定の予定（同じ日）
     await say("今日は資料を作らないと。1時間くらい。", T(9, 5));  // 時間割に載るもの
-    /* 時刻を言っていない用事は時間割に置かない（決まり6a）ので、時間軸を出すには時刻つきの予定が要る。
-       前は見出し「今日の案」が枠0件でも出ていたので、それを目印にして通っていた（2026-09-26・決まり15s）。 */
-    await say("今日14時から15時まで会議。", T(9, 6));
     {
       view.day = KEY; renderDay();
       const html = document.querySelector("#dayOut").innerHTML;
-      const iPlan = html.indexOf('class="tl"');   // 見出し「今日の案」は外した（決まり15s）。時間軸そのものを見る
+      const iPlan = html.indexOf("今日の案");
       const iTimeless = html.indexOf("この日にあること");
       ok("A5. 検証の前提：時刻未定の予定と時間割の両方がある",
          iPlan >= 0 && iTimeless >= 0,
@@ -3276,24 +3273,17 @@
         const cs = getComputedStyle(document.documentElement);
         const V = k => String(cs.getPropertyValue(k) || "").trim();
 
-        /* **白と黒を基調にする**（2026-09-26・本人の指示「白と黒を基調として」・決まり15s）。
-           前はここで「accent に色みがある」「緑系」を見ていた（2026-09-21「配色はやっぱり緑にして」）。
-           いまは逆に、**accent と地に色みが無いこと**を見る。値は決めない（決まり15）。 */
-        ok("BI. accent は墨（色みが無い＝白黒の基調・" + theme + "）",
-           chroma(V("--accent")) <= 12, V("--accent") + " 色み" + chroma(V("--accent")));
-        /* 地は accent より厳しく見る。前の淡い青緑（#F1F6F5）は色みが 5 しか無く、
-           12 で見ると**戻しても通った**（壊して確かめて分かった・決まり14）。 */
-        ok("BI. 地とカードも色みが無い（" + theme + "）",
-           chroma(V("--paper")) <= 4 && chroma(V("--surface")) <= 4, V("--paper") + " " + chroma(V("--paper")) + " / " + V("--surface") + " " + chroma(V("--surface")));
-        ok("BI. accent は地の上で強く読める（7以上・" + theme + "）",
-           ratio(V("--accent"), V("--paper")) >= 7, ratio(V("--accent"), V("--paper")).toFixed(2));
-        /* **色が付くのは意味のある所だけ**——注意・終わった・いま。これが灰色になると
-           白黒で「いま」と「終わった」を見分けられなくなる。 */
-        ok("BI. 意味の色（注意・終わった・いま）には色みがある（" + theme + "）",
-           ["--warn", "--done", "--alert"].every(k => chroma(V(k)) >= 60),
-           ["--warn", "--done", "--alert"].map(k => V(k) + " " + chroma(V(k))).join(" / "));
-        // 意味の色が近すぎると、見分けが付かない（accent は墨なので比べない）
-        const pairs = [["--warn", "--done"], ["--warn", "--alert"], ["--done", "--alert"]];
+        ok("BI. accent に色みがある（灰色に戻っていない・" + theme + "）",
+           chroma(V("--accent")) >= 40, V("--accent") + " 色み" + chroma(V("--accent")));
+        /* **accent はこのアプリの緑（青緑）**（2026-09-21・本人の指示「配色はやっぱり緑にして」）。
+           一度 iOS の systemBlue にしたが、戻した。色相の帯で見る——
+           どの緑かは決めない（明暗で値が違うし、微調整も入る）。 */
+        const h = hue(V("--accent"));
+        ok("BI. accent は緑系（青緑・色相140〜200度）（" + theme + "）",
+           h >= 140 && h <= 200, V("--accent") + " 色相" + Math.round(h));
+        // 意味の色が近すぎると、見分けが付かない
+        const pairs = [["--accent", "--warn"], ["--accent", "--done"], ["--accent", "--alert"],
+                       ["--warn", "--done"], ["--warn", "--alert"], ["--done", "--alert"]];
         const near = pairs.filter(([a, b]) => apart(V(a), V(b)) < 25);
         ok("BI. 意味の色は互いに別の色（" + theme + "）", near.length === 0,
            near.map(([a, b]) => a + "×" + b + "=" + Math.round(apart(V(a), V(b))) + "度").join(" / ") || "全部離れている");
@@ -3640,8 +3630,7 @@
          **`/px$/` で絞らないこと**（2026-09-24）。rem のトークンへ移した瞬間に
          **1件も集まらなくなり、0 ≦ 8 で通ってしまう**——数えていないのに通る形。 */
       const sizes = new Set();
-      // 「inherit」は大きさではない（親と同じ、の意味）ので段に数えない（2026-09-26）
-      for (const r of flat) { const v = r.style && r.style.fontSize; if (v && v !== "inherit") sizes.add(v); }
+      for (const r of flat) { const v = r.style && r.style.fontSize; if (v) sizes.add(v); }
       ok("BK. 文字の大きさが8段以内にそろっている", sizes.size <= 8,
          Array.from(sizes).sort().join(" "));
       ok("BK. 段を数えられている（測れていないのに通さない）", sizes.size >= 3, "集まった段 " + sizes.size);
@@ -4851,9 +4840,8 @@
       ok("CB. 印はアイコンと同じ3色（青緑・黄・赤）で、外から読み込まない", /data:image\/svg\+xml/.test(mk) && /0E6F6B/i.test(mk) && /F2A541/i.test(mk) && /E8705E/i.test(mk), mk.slice(0, 60));
       const cs = getComputedStyle(document.documentElement);
       const hex = v => cs.getPropertyValue(v).trim().toUpperCase();
-      /* 2026-09-26（決まり15s）：地は白の基調に変えた。注意・警告はアイコンの色のまま。 */
-      ok("CB. 注意・警告の色はアイコンから取っている（明るいとき）", document.documentElement.getAttribute("data-theme") === "dark"
-         || (hex("--warn") === "#F2A541" && hex("--alert") === "#E8705E"), [hex("--paper"), hex("--warn"), hex("--alert")].join(" "));
+      ok("CB. 地・注意・警告の色はアイコンから取っている（明るいとき）", document.documentElement.getAttribute("data-theme") === "dark"
+         || (hex("--paper") === "#F1F6F5" && hex("--warn") === "#F2A541" && hex("--alert") === "#E8705E"), [hex("--paper"), hex("--warn"), hex("--alert")].join(" "));
       const keepC = state.turns, keepI2 = state.items, keepN2 = state.notes;
       const keepCD = view.chatDay, tk = dayKey(new Date(), TZ);
       state.turns = { [tk]: [{ id: "cb1", role: "user", text: "こんにちは", at: new Date().toISOString() },
@@ -4896,56 +4884,6 @@
         .find(r => r.selectorText === ".turn.me .bub");
       ok("CC. 吹き出し・トーストは明暗の役目の色を使う（直に差し色を塗らない）", !!bubRule && /--me-bub/.test(bubRule.style.background || bubRule.cssText)
          && /--toast-bg/.test(String([...document.styleSheets].flatMap(ss => { try { return [...ss.cssRules]; } catch { return []; } }).find(r => r.selectorText === "#toast")?.cssText)));
-    }
-
-    /* ===== CD群：スケジュールの頭と、何も無い日（2026-09-26・本人の指示
-       「このUI、UXを参考にして作り直して。白と黒を基調として」・決まり15s）=====
-       上から：画面の名前と右上の「＋」→ 年月と「今日」→ 1週間の帯（点つき）→ その日の行（日付・一言・‹ ›）。 */
-    {
-      const keepTab = view.tab, keepDay = view.day, keepCD = view.chatDay;
-      reset();
-      await say("今日14時から15時まで会議。", T(9, 0));
-      await say("明日までに請求書を出す。", T(9, 1));   // 翌日が期限・時刻なし → ○
-      await say("牛乳を買う。", T(9, 2));               // 日付なし → どの日にも点を付けない
-      view.day = KEY; showTab("p-day");
-      const wk = [...document.querySelectorAll("#dWeek [data-day]")];
-      ok("CD. 1週間の帯に7日並ぶ（月曜はじまり）", wk.length === 7 && parts(keyToDate(wk[0].dataset.day, TZ), TZ).dow === 1,
-         wk.map(b => b.dataset.day).join(","));
-      ok("CD. 見ている日にだけ印（aria-current）が付く",
-         wk.filter(b => b.getAttribute("aria-current") === "date").map(b => b.dataset.day).join() === KEY);
-      const tmr = dayKey(new Date(keyToDate(KEY, TZ).getTime() + 36 * 3600e3), TZ);
-      const dot = k => { const b = wk.find(x => x.dataset.day === k); return b ? b.querySelector(".wdot").className : "(帯に無い)"; };
-      ok("CD. 時刻のある予定の日は●", /\bsome\b/.test(dot(KEY)), dot(KEY));
-      ok("CD. 時刻の無い用事だけの日は○", /\bloose\b/.test(dot(tmr)), tmr + " " + dot(tmr));
-      const others = wk.map(b => b.dataset.day).filter(k => k !== KEY && k !== tmr);
-      ok("CD. 日付の無い用事では、どの日にも点を付けない", others.every(k => !/some|loose/.test(dot(k))),
-         others.map(k => k.slice(8) + ":" + dot(k)).join(" "));
-      ok("CD. 年月は見ている日のもの", ($("#dMonth") || {}).textContent === "2026年 9月", ($("#dMonth") || {}).textContent);
-      ok("CD. 日付の行の一言は、その日の件数", /予定1件/.test(($("#dSum") || {}).textContent || ""), ($("#dSum") || {}).textContent);
-      ok("CD. 「＋」は画面の右上にあり、下に重ねない",
-         !!document.querySelector("#p-day .phead #btnManual") && !/＋ 自分で足す/.test($("#dayOut").textContent));
-      ok("CD. 見出し「今日の案」を置かない（別の日を見ると嘘になる）", !/今日の案<\/h2>/.test($("#dayOut").innerHTML));
-      ok("CD. 貼り付くのは日付の行だけ（1週間の帯は貼らない）",
-         getComputedStyle($(".datebar")).position === "sticky" && getComputedStyle($("#dWeek")).position !== "sticky");
-      const curIc = document.querySelector('nav.tabs [aria-current="page"] .ic'), othIc = document.querySelector("nav.tabs button:not([aria-current]) .ic");
-      const bgOf = el => el ? getComputedStyle(el).backgroundColor : "(無い)";
-      ok("CD. 選んだタブには、絵の後ろに丸帯を敷く（ほかのタブには敷かない）",
-         !!curIc && !/rgba\(0, 0, 0, 0\)|transparent/.test(bgOf(curIc)) && /rgba\(0, 0, 0, 0\)|transparent/.test(bgOf(othIc)), bgOf(curIc) + " / " + bgOf(othIc));
-      // 帯の日を押すと、その日へ移る
-      wk[0].click();
-      ok("CD. 帯の日を押すと、その日へ移る", view.day === wk[0].dataset.day, view.day);
-      // 何も無い日：大きく1つだけ。空の箱を並べない
-      goDay("2026-09-08");
-      const out = $("#dayOut");
-      ok("CD. 何も無い日は、大きな表示を1つだけ出す", out.querySelectorAll(".bigempty").length === 1, out.querySelectorAll(".bigempty").length + "個");
-      ok("CD. 何も無い日に「ありません。」の箱を並べない", !/この日にやること<\/h2>/.test(out.innerHTML) && ![...out.querySelectorAll(".card.empty")].some(c => /^ありません/.test(c.textContent.trim())),
-         [...out.querySelectorAll(".card.empty")].map(c => c.textContent.trim()).join(" / "));
-      ok("CD. 何も無い日の一言は「まだ予定はありません」", ($("#dSum") || {}).textContent === "まだ予定はありません", ($("#dSum") || {}).textContent);
-      const go = out.querySelector('.bigempty [data-act="gochat"]');
-      if (go) { go.click(); await new Promise(r => setTimeout(r, 90)); }
-      ok("CD. 何も無い日から、その場でチャットへ移って話せる", !!go && view.tab === "p-chat" && document.activeElement === $("#say"),
-         go ? view.tab + " / " + (document.activeElement && document.activeElement.id) : "ボタンが無い");
-      view.day = keepDay; view.chatDay = keepCD; showTab(keepTab);
     }
 
     const fails = R.filter(x => x.startsWith("FAIL"));
