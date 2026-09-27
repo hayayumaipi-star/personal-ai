@@ -887,6 +887,65 @@ function durJa(m) { if (m == null) return ""; const h = Math.floor(m / 60), r = 
    ======================================================================= */
 const WD = { "日":0,"月":1,"火":2,"水":3,"木":4,"金":5,"土":6 };
 
+/* **暦から出せる日**（2026-09-27・決まり0l）。「母の日に」「クリスマスに」「連休中に」が日付として読めず、期限なしの用事になっていた。
+   祝日は法律で決まっているので、**計算できる**（春分・秋分は 1980〜2099年の近似式）。振替休日と国民の休日も入れる。
+   **本人だけの日（誕生日・記念日）はここに入れない**——暦からは出せないので、すでに入っている予定から借りる（`anchorWhen`）。 */
+const ymdKey = (y, m, d) => { const t = new Date(Date.UTC(y, m - 1, d)); return t.toISOString().slice(0, 10); };
+const nthDow = (y, m, n, dow) => { const f = new Date(Date.UTC(y, m - 1, 1)).getUTCDay(); return 1 + (dow - f + 7) % 7 + (n - 1) * 7; };
+const equinox = (y, c) => Math.floor(c + 0.242194 * (y - 1980) - Math.floor((y - 1980) / 4));
+/* 名前 → その年の [月, 日]。祝日でない行事（クリスマス・母の日…）も、日が決まっているものだけ */
+const NAMED_DAYS = [
+  [["クリスマスイブ", "クリスマスイヴ"], y => [12, 24]], [["クリスマス"], y => [12, 25]],
+  [["バレンタインデー", "バレンタイン"], y => [2, 14]], [["ホワイトデー"], y => [3, 14]],
+  [["ハロウィーン", "ハロウィン"], y => [10, 31]], [["大晦日", "大みそか"], y => [12, 31]],
+  [["元日", "元旦"], y => [1, 1]], [["成人の日"], y => [1, nthDow(y, 1, 2, 1)]],
+  [["建国記念の日"], y => [2, 11]], [["天皇誕生日"], y => [2, 23]],
+  [["ひな祭り", "ひなまつり", "桃の節句"], y => [3, 3]], [["春分の日"], y => [3, equinox(y, 20.8431)]],
+  [["昭和の日"], y => [4, 29]], [["憲法記念日"], y => [5, 3]], [["みどりの日"], y => [5, 4]],
+  [["こどもの日", "子供の日"], y => [5, 5]], [["母の日"], y => [5, nthDow(y, 5, 2, 0)]],
+  [["父の日"], y => [6, nthDow(y, 6, 3, 0)]], [["七夕"], y => [7, 7]],
+  [["海の日"], y => [7, nthDow(y, 7, 3, 1)]], [["山の日"], y => [8, 11]],
+  [["敬老の日"], y => [9, nthDow(y, 9, 3, 1)]], [["秋分の日"], y => [9, equinox(y, 23.2488)]],
+  [["スポーツの日", "体育の日"], y => [10, nthDow(y, 10, 2, 1)]], [["文化の日"], y => [11, 3]],
+  [["勤労感謝の日"], y => [11, 23]]
+];
+const HOLIDAY_NAMES = ["元日", "成人の日", "建国記念の日", "天皇誕生日", "春分の日", "昭和の日", "憲法記念日", "みどりの日",
+  "こどもの日", "海の日", "山の日", "敬老の日", "秋分の日", "スポーツの日", "文化の日", "勤労感謝の日"];
+const namedDay = (name, y) => { const e = NAMED_DAYS.find(e => e[0].includes(name)); if (!e) return null; const [m, d] = e[1](y); return ymdKey(y, m, d); };
+const HOLIDAY_CACHE = {};
+const addKey = (k, n) => { const t = new Date(k + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+function jpHolidays(y) {
+  if (HOLIDAY_CACHE[y]) return HOLIDAY_CACHE[y];
+  const set = new Set(HOLIDAY_NAMES.map(n => namedDay(n, y)));
+  const dow = k => new Date(k + "T00:00:00Z").getUTCDay();
+  const add = addKey;
+  for (const k of [...set].sort()) {                    // 振替休日：日曜の祝日のあと、祝日でない最初の日
+    if (dow(k) !== 0) continue;
+    let n = add(k, 1); while (set.has(n)) n = add(n, 1); set.add(n);
+  }
+  for (const k of [...set]) {                           // 国民の休日：祝日にはさまれた平日
+    const mid = add(k, 1), nx = add(k, 2);
+    if (set.has(nx) && !set.has(mid) && dow(mid) !== 0) set.add(mid);
+  }
+  return (HOLIDAY_CACHE[y] = set);
+}
+/* その日を含む（無ければ次の）**3日以上続く休み**（土日＋祝日）。無ければ null */
+function nextLongWeekend(fromKey) {
+  const add = addKey;
+  const off = k => { const d = new Date(k + "T00:00:00Z").getUTCDay(); return d === 0 || d === 6 || jpHolidays(+k.slice(0, 4)).has(k); };
+  let k = fromKey;
+  while (off(add(k, -1)) && k > add(fromKey, -10)) k = add(k, -1);   // いまが休みの途中なら、その始まりから
+  for (let i = 0; i < 400; i++) {
+    if (off(k)) {
+      let e = k; while (off(add(e, 1))) e = add(e, 1);
+      const len = Math.round((new Date(e) - new Date(k)) / 86400000) + 1;
+      if (len >= 3 && e >= fromKey) return { start: k < fromKey ? fromKey : k, end: e };
+      k = add(e, 1);
+    } else k = add(k, 1);
+  }
+  return null;
+}
+
 /* 「30分後に電話する」「1時間半後に出る」（2026-09-27・時刻として読めていなかった）。
    話した時刻から数えて、その日時を言ったのと同じに読む。ほかに時刻を言っていれば、そちらが先。 */
 /* 「あと2時間で出発」「あと30分で着く」も同じ（2026-09-27・時刻として読めず、2時間が所要時間になっていた）。
@@ -974,6 +1033,34 @@ function parseWhen(rawText, baseISO, tz) {
       return { abs: `${y}-05-06`, prec: "week", label: m[1], start: `${y}-04-29` }; });
     grab(/お盆/, () => { const y = (bp.mo < 8 || (bp.mo === 8 && bp.d <= 16)) ? bp.y : bp.y + 1;
       return { abs: `${y}-08-16`, prec: "week", label: "お盆", start: `${y}-08-13` }; });
+    /* 「連休中に部屋を片付けたい」「次の連休は旅行」——**3日以上続く休み**（土日＋祝日・決まり0l）。いまが連休の途中ならその連休、
+       「次の」と言えばその次。はっきりしない時期として持つ（決まり2）。会社の休み（年末年始・夏休み）は暦から出せないので入れない。 */
+    grab(/(次の|今度の|次)?\s*(?:大型)?連休(中|の間)?(?=\s*(?:に|は|の|まで|から|、|,|。|$))/, m => {
+      const today = dayKey(base, tz);
+      let r = nextLongWeekend(today);
+      if (r && m[1] && r.start <= today) r = nextLongWeekend(addKey(r.end, 1));
+      if (!r) return null;
+      return { abs: r.end, prec: "week", label: (m[1] ? "次の" : "") + "連休" + (m[2] ? "中" : ""), start: r.start };
+    });
+    /* 「母の日にカーネーションを贈る」「クリスマスイブは友達とディナー」——**名前の日**（決まり0l）。これから来るその日。
+       「クリスマスの準備」「母の日のプレゼント」のように**「の」で物につながるときは、その日までに**（締切）。
+       「〜の前に」「クリスマス前に」はその前日までの締切、「〜の前日に」は前日。
+       **見出しからは落とさない**（`keep`）——「母の日」は日付であると同時に、何のための用事かを言っている。 */
+    {
+      const names = NAMED_DAYS.flatMap(e => e[0]).sort((a, b) => b.length - a.length).join("|");
+      grab(new RegExp("(?:(今年|来年)\\s*の?\\s*)?(?<![一-鿿ァ-ヶー])(" + names + ")(?=\\s*(?:の|に|は|まで|から|前|当日|、|,|。|$))"), m => {
+        const today = dayKey(base, tz);
+        let k = namedDay(m[2], bp.y + (m[1] === "来年" ? 1 : 0));
+        if (!m[1] && k < today) k = namedDay(m[2], bp.y + 1);
+        const after = text.slice(m.index + m[0].length);
+        let deadline = false;
+        if (/^\s*(?:の\s*)?前日/.test(after)) k = addKey(k, -1);
+        else if (/^\s*(?:の\s*)?前(?:に|まで|は|、|$)/.test(after)) { k = addKey(k, -1); deadline = true; }
+        else if (/^\s*の\s*(?!日|夜|晩|朝|昼|夕方|午前|午後|\d)/.test(after)) deadline = true;
+        if (k < today) return null;
+        return { abs: k, prec: "day", keep: true, deadline };
+      });
+    }
   }
 
   grab(/(今週|来週|再来週|次の週)?\s*の?\s*([日月火水木金土])\s*曜日?/, m => {
@@ -1095,7 +1182,24 @@ function parseWhen(rawText, baseISO, tz) {
   if (!out) {
     // time given with no date at all → treat as the note's own day
     if (tH != null) { out = { off: 0, prec: "day", timeOnly: true }; span = tSpan; }
-    else return null;
+    else {
+      /* **日付も時刻も無いが、いつのことかは言っている**（2026-09-27・決まり0l）。
+         「帰りに牛乳を買う」「寝る前にストレッチ」「夕方に歯医者」は、期限なしの用事になっていた。
+         どれも**いちばん近いその時**のこと（今日。起きたら＝次に起きたとき、時間帯がもう過ぎていれば明日）。
+         日付の言葉は言っていないので `timeOnly`（AIが足した日付を引き戻す基準・夜の希望をずっとの希望のままにする）。
+         くり返しの話（毎日・いつも・平日）には当てない——あれは続けたいことで、今日の用事ではない。 */
+      if (/(毎|いつも|平日|休日|週末|普段|ふだん)/.test(text)) return null;
+      const rt = text.match(/(朝起きたら|起きたら|目が覚めたら|仕事終わり|仕事帰り|仕事の後|仕事のあと|会社帰り|学校帰り|バイト終わり|バイト帰り|帰り道|帰りに|帰宅後|家に帰ったら|帰ったら|寝る前|放課後|昼休み)/);
+      const wd = !rt && text.match(/(?<![毎今明日])(午前中|午前|朝|昼過ぎ|昼|午後|夕方|夜|晩)(?=に|は|から|のうちに|中に|、)/);
+      if (rt) {
+        const w = rt[1];
+        const off = /起きたら|目が覚めたら/.test(w) ? (bp.h >= 4 ? 1 : 0) : w === "昼休み" ? (bp.h >= 14 ? 1 : 0) : w === "放課後" ? (bp.h >= 19 ? 1 : 0) : 0;
+        out = { off, prec: "day", timeOnly: true, keep: true, routine: true };
+      } else if (wd) {
+        const endH = { 午前中: 12, 午前: 12, 朝: 12, 昼: 15, 昼過ぎ: 16, 午後: 18, 夕方: 19, 夜: 24, 晩: 24 }[wd[1]];
+        out = { off: bp.h * 60 + bp.mi >= endH * 60 - 30 ? 1 : 0, prec: "day", timeOnly: true, keep: true, routine: true };
+      } else return null;
+    }
   }
 
   /* 午前・午後も日付も言われていない「10時」は、12時間のどちらか分からない。
@@ -1153,7 +1257,7 @@ function parseWhen(rawText, baseISO, tz) {
   const hasTime = tH != null;
   const when = zoned(ky, km, kd, hasTime ? tH : 23, hasTime ? tM : 59, tz).toISOString();
 
-  const isDeadline = !periodFrom && /まで(に)?|締切|締め切り|しめきり|〆切|提出|期限/.test(text);
+  const isDeadline = !periodFrom && (!!out.deadline || /まで(に)?|締切|締め切り|しめきり|〆切|提出|期限/.test(text));
   const res = {
     iso: when, dayKey: key,
     precision: out.prec === "week" ? "week" : (hasTime ? "exact" : "day"),
@@ -1167,7 +1271,9 @@ function parseWhen(rawText, baseISO, tz) {
     // 画面に出す時期の言い方（「来月ごろ」「今年の冬ごろ」「春から」）。日付だけだと「5/31 ごろ」になり、春の話だと読めない
     periodJa: out.label && out.prec === "week" && !hasTime
       ? out.label + (periodFrom ? "から" : /中$/.test(out.label) ? "" : "ごろ") : null,
-    periodFrom
+    periodFrom,
+    keepWord: !!out.keep,         // 「母の日」「帰りに」は見出しに残す（決まり0l）
+    routine: !!out.routine        // 「帰りに」「夕方に」＝いちばん近いその時。続けたいことの期限にはしない
   };
 
   // explicit 「N時からM時まで」 range → an event
@@ -1561,7 +1667,7 @@ const RE_CUT_WINDOW = new RegExp(
 function cleanTitle(s, when, opts) {
   const keepHabit = !!(opts && opts.keepHabit);
   let t = s;
-  if (when && when.span) {
+  if (when && when.span && !when.keepWord) {
     /* 日付・時刻の跡に1文字だけ取り残される形（2026-09-27・実測）：
        「毎朝7時に」の「毎」（日付の読み取りが「朝7時」だけを取る）→「毎ジョギングする」、
        「、今週中」の「中」（「今週」だけを取る）→「本を返す、中」。 */
@@ -1633,7 +1739,9 @@ function cleanTitle(s, when, opts) {
   t = t.replace(/^(\S*[一-鿿々ァ-ヴー])で$/, (m, x) => x.length >= 2 ? x : m).replace(/(起き|寝)て$/, "$1る").replace(/家を出て$/, "家を出る");
   /* 「引っ越したい」が「引っ越する」になっていた（2026-09-27・実測）。**すぐ前が漢字1文字**（その前は漢字でない・お／ご でない）
      なら「話す」「返す」「引っ越す」の形なので「す」。2文字以上（勉強したい）やお茶したい は今までどおり「する」。 */
-  if (!keepHabit) t = t.replace(/(^|[^一-鿿々ァ-ヴーおご])([一-鿿])したい$/, "$1$2す")
+  /* 「過ごしたい」「増やしたい」「減らしたい」「動かしたい」も五段の「す」（2026-09-27・「過ごする」になっていた）。
+     漢字1文字＋送り仮名1文字（ご・や・ら・か・ば）＋したい。 */
+  if (!keepHabit) t = t.replace(/(^|[^一-鿿々ァ-ヴーおご])([一-鿿][ごやらかば]?)したい$/, "$1$2す")
     .replace(/したい$/, "する").replace(/([えけげせぜてでねへべめれ]|寝|見|出|着|得)たい$/, "$1る");
   t = normalizeEnding(t);
   if (t.length > 60) t = t.slice(0, 58) + "…";
@@ -1831,7 +1939,9 @@ function classify(rawS, lineWhen) {
    **日付・時刻は、それが予定の話だといういちばん強い印**なので、ここで受ける。入れないもの：
    過ぎた日の話（昨日・先週・〜た）／天気／問いかけ／気持ち・様子の言葉で終わる文（来週は忙しい）／中身の語が無い文。
    締め切りの話は用事（締切つき）、ほかは予定（時刻が無ければ時刻未定）。 */
-const RE_SAID_WHEN = /(\d{1,2}\s*(時(?!間)|[:：]\d{2}|日(?!間)|月)|\d{1,2}\/\d{1,2}|\d{1,3}\s*(日|週間|[かヶケカ]月)\s*後|週明け|月初め|月初|年末|年明け|ゴールデンウィーク|ゴールデンウイーク|GW|お盆|今日|明日|明後日|あさって|今夜|今晩|今週|来週|再来週|今月|来月|週末|土日|[月火水木金土日]曜|(?<![一-鿿])[春夏秋冬](?=に|は|から|頃|ごろ|中|まで|くらい|ぐらい|、|,|$))/;
+const RE_SAID_WHEN_SRC_0 = String.raw`(\d{1,2}\s*(時(?!間)|[:：]\d{2}|日(?!間)|月)|\d{1,2}\/\d{1,2}|\d{1,3}\s*(日|週間|[かヶケカ]月)\s*後|週明け|月初め|月初|年末|年明け|ゴールデンウィーク|ゴールデンウイーク|GW|お盆|今日|明日|明後日|あさって|今夜|今晩|今週|来週|再来週|今月|来月|週末|土日|[月火水木金土日]曜|(?<![一-鿿])[春夏秋冬](?=に|は|から|頃|ごろ|中|まで|くらい|ぐらい|、|,|$))`;
+// 名前の日（母の日・クリスマス）と連休も、日付を言ったことにする（決まり0l）
+const RE_SAID_WHEN = new RegExp(RE_SAID_WHEN_SRC_0.slice(0, -1) + "|連休|(?<![一-鿿ァ-ヶー])(?:" + NAMED_DAYS.flatMap(e => e[0]).join("|") + "))");
 const RE_PAST_TALK = /(昨日|きのう|一昨日|おととい|先週|先月|去年|昨年|さっき|この前)/;
 const RE_STATE_END = /(い|たい|ない|そう|よう|らしい|みたい|だ|です|ます|でした|だった|ね|よ|な|か|かも|けど|のに|[たっ]た)[。！!？?]*$/;
 const RE_DEADLINE_WORD = /(締め切り|締切|〆切|しめきり|期限|提出日|納期)/;
@@ -1887,6 +1997,48 @@ function orderByLine(list, tz) {        // list: [{ line: 行番号, w: parseWhe
     }
     return w;
   });
+}
+
+/* **暦から出せない本人の日は、入っている予定から借りる**（2026-09-27・決まり0l）。
+   「誕生日にケーキを買う」「旅行の前に荷物をまとめる」「会議までに資料を作る」が、期限なしの用事になっていた。
+   まだ済んでいない・今日から先の予定（と、同じ発言で先に言った予定）のうち、名前が合っていちばん近いものの日を使う。
+   - 「〜の日に」「〜当日」、日で終わる名前（誕生日・記念日）＋「に／は」 → その日
+   - 「〜までに」「〜の前に」 → 締切。時刻のある予定ならその始まりまで、時刻の無い予定なら「前に」は前日まで
+   - 「〜の前日」 → 前日
+   **「母の誕生日」と言ったのに「父の誕生日」の予定を借りない**（「◯◯の」が付いていれば、予定の名前にもそれが要る）。
+   見つからなければ今までどおり日付なし。見出しは本人の言葉のまま（日付の言葉ではないので落とさない）。 */
+function anchorWhen(s, noteDayKey, extra, tz) {
+  const t = halfWidth(s);
+  if (!/(前日|前に|前まで|までに|まで|当日|日に|日は|[日式会]に|[日式会]は)/.test(t)) return null;
+  // 借りる先は予定だけ（用事どうしで借りると、さっき借りた用事からまた借りて1日ずれる）
+  const pool = state.items.concat(extra || []).filter(i => i.status === "open" && i.kind === "event"
+      && isDate(i.dayKey) && i.dayKey >= noteDayKey && !i.suggested && !i.built && !i.repeat
+      && i.duePrecision !== "week" && i.duePrecision !== "none")
+    .sort((a, b) => (a.dayKey < b.dayKey ? -1 : a.dayKey > b.dayKey ? 1 : 0));
+  for (const it of pool) {
+    const ht = halfWidth(it.title || "");
+    const words = [ht.replace(/[をにへでがは]?(する|行く|ある)$/, "")].concat(contentWords(it.title || "")).filter(w => w && w.length >= 2);
+    for (const w of words) {
+      const i = t.indexOf(w);
+      if (i < 0) continue;
+      const pre = /([一-鿿ァ-ヶー]{1,6})の\s*$/.exec(t.slice(0, i));
+      if (pre && !ht.includes(pre[1])) continue;                   // 「母の誕生日」に「父の誕生日」を当てない
+      const after = t.slice(i + w.length);
+      const timed = it.kind === "event" && !it.timeUnknown && !it.allDay && validISO(it.start);
+      const day = k => ({ iso: zoned(...k.split("-").map(Number), 23, 59, tz).toISOString(), dayKey: k, precision: "day", hasTime: false });
+      let r = null;
+      if (/^\s*(?:の\s*)?前日/.test(after)) r = Object.assign(day(addKey(it.dayKey, -1)), { isDeadline: false });
+      else if (/^\s*(?:の\s*)?(?:前に|前まで|までに|まで)/.test(after)) {
+        const before = /^\s*(?:の\s*)?前/.test(after);
+        r = timed ? { iso: it.start, dayKey: it.dayKey, precision: "exact", hasTime: true, isDeadline: true }
+          : Object.assign(day(before ? addKey(it.dayKey, -1) : it.dayKey), { isDeadline: true });
+      } else if (/^\s*(?:の\s*)?(?:当日|日に|日は)/.test(after) || (/[日式会]$/.test(w) && /^\s*(?:に|は)/.test(after))) {
+        r = Object.assign(day(it.dayKey), { isDeadline: false });
+      }
+      if (r && r.dayKey >= noteDayKey) return Object.assign(r, { span: null, keepWord: true, anchoredTo: it.title });
+    }
+  }
+  return null;
 }
 
 function extractByRule(note, settings) {
@@ -1963,7 +2115,8 @@ function extractByRule(note, settings) {
     const single = order.length === 1;   // 1行に1話題のときだけ、行全体の日時・所要時間を使う
     const usedSen = new Set();
 
-    for (const kind of order) {
+    for (const kind0 of order) {
+    let kind = kind0;
     let sen = picked[kind];
     // 「忘れないようにしておいて」のような、中身の無い文が選ばれたときは、
     // 同じ行の前の文から見出しを取る（「友達にAIの構想を送ろう」）。
@@ -1993,6 +2146,14 @@ function extractByRule(note, settings) {
       const wIsPast = w.dayKey < noteDayKey && !w.isDeadline;
       if (wIsPast && (when.isDeadline || when.dayKey >= noteDayKey)) w = when;
     }
+    // 「誕生日に」「旅行の前に」——暦から出せない本人の日は、入っている予定から借りる（決まり0l）
+    if (!w && (kind === "task" || kind === "event")) {
+      w = anchorWhen(s, noteDayKey, items, tz);
+      if (w && w.isDeadline) kind = "task";              // 「会議までに資料を作る」は会議ではなく、締切のある用事
+    }
+    /* 「午後に銀行に行く」「仕事終わりにジムに行く」——時刻を言っていないので、予定表の時刻未定の欄に入れず、
+       その日の用事にする（時間帯を言っていれば、その中に置く・決まり6a）。前と同じ扱いに、日付が付いただけ（決まり0l） */
+    if (kind === "event" && w && w.routine && !w.hasTime) kind = "task";
     const d = parseDuration(s) != null ? parseDuration(s)
             : (extraDur[kind] != null ? extraDur[kind] : (single ? dur : null));
 
@@ -2126,6 +2287,7 @@ function extractByRule(note, settings) {
     } else if (kind === "idea") {
       base.note = s;
     } else if (kind === "goal") {
+      if (w && w.routine) w = null;                      // 「寝る前に読書したい」の「寝る前」は今日の期限ではない
       base.due = w ? w.iso : null;
       base.duePrecision = w ? w.precision : "none";
     } else if (kind === "profile") {
