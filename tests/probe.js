@@ -730,8 +730,9 @@
          f(w.start) === "9/12 22:00" && f(w.end) === "9/12 23:00", f(w.start) + "〜" + f(w.end));
 
       w = at(21, 0, "午前10時から11時まで勉強する");
-      ok("U. 「午前10時」と言われたら、21時でも午前のまま",
-         f(w.start) === "9/12 10:00", f(w.start));
+      /* 2026-09-27：過ぎた「午前10時」は翌朝の10時（言った瞬間に過ぎた予定にしない）。午前のままなのは変わらない */
+      ok("U. 「午前10時」と言われたら、21時でも午前のまま（過ぎているので翌朝）",
+         f(w.start) === "9/13 10:00", f(w.start));
 
       w = at(21, 0, "明日10時から11時まで勉強する");
       ok("U. 日付を言われていたら触らない",
@@ -3646,7 +3647,8 @@
          **`/px$/` で絞らないこと**（2026-09-24）。rem のトークンへ移した瞬間に
          **1件も集まらなくなり、0 ≦ 8 で通ってしまう**——数えていないのに通る形。 */
       const sizes = new Set();
-      for (const r of flat) { const v = r.style && r.style.fontSize; if (v) sizes.add(v); }
+      // 「min(var(--fs-1), 13px)」は同じ段に上限を付けただけ（タブの名前・2026-09-27）。段としては --fs-1
+      for (const r of flat) { const v = r.style && r.style.fontSize; if (v) sizes.add(v.replace(/^min\((var\(--fs-\d\)),.*\)$/, "$1")); }
       ok("BK. 文字の大きさが8段以内にそろっている", sizes.size <= 8,
          Array.from(sizes).sort().join(" "));
       ok("BK. 段を数えられている（測れていないのに通さない）", sizes.size >= 3, "集まった段 " + sizes.size);
