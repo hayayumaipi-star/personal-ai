@@ -5927,6 +5927,12 @@
         const hiddenByCard = !/class="nct"/.test(nowCardHTML());
         window.nextAction = keepNA; state.turns = keepTurns; state.notes = keepNotes; view.chatDay = keepChat;
         ok("CR. 直前の返事が省いたときは会話の下のカードが出し、返事が出したときはカードが省く", shownByCard && hiddenByCard, "card出す=" + shownByCard + " card省く=" + hiddenByCard); }
+      // ⑧ 確かめ直して見つけた言い方（2026-09-27）：返事の文に、画面で出さない区分を書かない・くり返しを言う
+      { reset(); const n = mkNote("ゴミの日は火曜と金曜"); const r = await applyOps(ruleOps(n), n);
+        ok("CR. くり返しの予定を足したと言うときは「毎週火」も言う（1回きりに見せない）", r.changes.some(c => /ゴミの日（毎週火）/.test(c)) && r.changes.some(c => /ゴミの日（毎週金）/.test(c)), r.changes.join(" / "));
+        reset(); const m = mkNote("15時に歯医者に行く"); await applyOps(ruleOps(m), m);
+        const ans = answerQuestion("今日何するんだっけ", planFor("2026-09-15"), "2026-09-15");
+        ok("CR. 「今日何する？」の答えに「固定の予定」と書かない（区分を画面に出さない・決まり15s）", /予定は「歯医者/.test(ans || "") && !/固定/.test(ans || ""), ans); }
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 

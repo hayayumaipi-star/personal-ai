@@ -6684,7 +6684,7 @@ async function applyOps(rawOps, note) {
       touch(it.dayKey);
       touch(it.targetDay);   // 締切が明日でも、手を付けるのが今日なら今日の案を見せる
       touchId(it);
-      changes.push(`${KIND_JA[it.kind]}を追加：${it.title}${describeWhen(it, tz)}`);
+      changes.push(`${KIND_JA[it.kind]}を追加：${it.title}${it.repeat ? `（${repeatJa(it.repeat)}）` : ""}${describeWhen(it, tz)}`);
       // 午前とも午後とも読める時刻だった。選んだほうを書いて、もう一方を出して聞き返す
       if (it.whenAlt) {
         asks.push(`「${it.title}」は ${fmtDT(it.start || it.due, tz)} と読みました。`
@@ -7718,7 +7718,7 @@ function answerQuestion(rawText, plan, key, dw = "今日") {
       .concat((plan.timeless || []).map(x => x.item || x).filter(i => i && i.title));
     if (!todays.length && !fixed.length && !plan.unplaced.length && !loose.length) return `${dw}やることとして記録しているものは、まだ無いよ。`;
     const bits = [];
-    if (fixed.length) bits.push(`固定の予定は${fixed.map(i => `「${i.title}」`).join("と")}`);
+    if (fixed.length) bits.push(`予定は${fixed.map(i => `「${i.title}」`).join("と")}`);
     if (todays.length) bits.push(`やることに入れているのは${todays.slice(0, 3).map(i => `「${i.title}」`).join("、")}${todays.length > 3 ? `ほか${todays.length - 3}件` : ""}`);
     if (loose.length) bits.push(`時刻を決めていないのが${loose.slice(0, 3).map(i => `「${i.title}」`).join("、")}${loose.length > 3 ? `ほか${loose.length - 3}件` : ""}`);
     if (plan.unplaced.length) bits.push(`${dw}に入りきらなかったのが${plan.unplaced.length}件`);
