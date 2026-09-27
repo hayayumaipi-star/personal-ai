@@ -5587,6 +5587,75 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== CO. ふだんの言い方80文で見つけた読み違い（2026-09-27・本人の指示「ほかにも読めてないものがないか探して直して」） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const at = (h, m) => zoned(2026, 9, 15, h, m, TZ).toISOString();     // 火曜 10:00
+      const mkNote = (text, h = 10) => ({ id: uid(), text, hash: "co" + text + h + Math.random(), capturedAt: at(h, 0), source: "talk", sourceName: null, createdAt: at(h, 0) });
+      const read = text => { reset(); return ruleOps(mkNote(text)).filter(o => o.op === "add" && o._built).map(o => o._built); };
+      const hm = iso => hhmm(minOfDay(iso, TZ));
+      const show = its => its.map(i => i.kind + "「" + i.title + "」" + (i.dayKey || "") + (i.spanEndKey ? "〜" + i.spanEndKey : "") + "/" + (i.duePrecision || "") + (i.start && !i.timeUnknown && !i.allDay ? " " + hm(i.start) : "")).join(" ｜ ");
+      const one = (rows, f) => rows.map(r => { const its = read(r[0]); return its.length === 1 && f(its[0], r) ? null : r[0] + "→" + (show(its) || "なし"); }).filter(Boolean);
+      // ① 時期・日付の言葉
+      const when = [["週明けに企画書を出す", "企画書を出す", "2026-09-21", "（週明けごろ）"], ["月初めに家賃を払う", "家賃を払う", "2026-10-05", "（月初めごろ）"],
+                    ["年末に大掃除", "大掃除", "2026-12-31", "（年末ごろ）"], ["年明けに初詣", "初詣", "2027-01-10", "（年明けごろ）"],
+                    ["ゴールデンウィークに旅行", "旅行", "2027-05-06", "（ゴールデンウィークごろ）"], ["お盆に帰省する", "帰省する", "2027-08-16", "（お盆ごろ）"]];
+      const f1 = one(when, (it, r) => it.title === r[1] && it.dayKey === r[2] && describeWhen(it, TZ) === r[3]);
+      ok("CO. 「週明け」「月初め」「年末」「年明け」「ゴールデンウィーク」「お盆」を時期として読む", f1.length === 0, f1.join(" ／ "));
+      const rel = [["3日後に締め切り", "締め切り", "2026-09-18"], ["1週間後に結果発表", "結果発表", "2026-09-22"], ["2週間後に試験", "試験", "2026-09-29"],
+                   ["12/24にクリスマスパーティー", "クリスマスパーティー", "2026-12-24"], ["8月15日に帰省", "帰省", "2027-08-15"],
+                   ["今夜中にメールを返す", "メールを返す", "2026-09-15"], ["今日のうちに資料をまとめる", "資料をまとめる", "2026-09-15"]];
+      const f2 = one(rel, (it, r) => it.title === r[1] && it.dayKey === r[2]);
+      ok("CO. 「3日後」「1週間後」「12/24」「今夜中に」「今日のうちに」を読む・2週間より前に過ぎた日付は来年", f2.length === 0, f2.join(" ／ "));
+      const ban = read("今晩8時に電話する")[0];
+      ok("CO. 「今晩8時に」は今日の20時（見出しに「今」を残さない）", !!ban && ban.title === "電話する" && ban.dayKey === "2026-09-15" && hm(ban.due) === "20:00", ban ? show([ban]) : "なし");
+      const dd = read("今週の金曜までにレポート")[0];
+      ok("CO. 「金曜までにレポート」は締切のある用事（予定にしない）", !!dd && dd.kind === "task" && dd.dueIsDeadline && dd.dayKey === "2026-09-18", dd ? show([dd]) : "なし");
+      const ws = read("土日は実家に帰る")[0];
+      ok("CO. 「土日は実家に帰る」は土曜から日曜まで続く予定", !!ws && ws.kind === "event" && ws.allDay && ws.dayKey === "2026-09-19" && ws.spanEndKey === "2026-09-20" && ws.title === "実家に帰る", ws ? show([ws]) : "なし");
+      // ② 「あと◯時間で」
+      const soon = read("あと2時間で出発")[0];
+      ok("CO. 「あと2時間で出発」は2時間後の予定（2時間を長さにしない・言い直しと聞き返さない）", !!soon && soon.kind === "event" && hm(soon.start) === "12:00" && soon.title === "出発"
+         && !ruleOps(mkNote("あと2時間で出発")).some(o => o.op === "_needs_ai"), soon ? show([soon]) : "なし");
+      ok("CO. 「あと1時間で終わる」は残り時間であって、いつかの話ではない", !relTime("レポート、あと1時間で終わる") && !!relTime("あと30分で着く") && RE_PROGRESS.test("レポート、あと1時間で終わる"), "");
+      // ③ 言い直し
+      const rs = read("明日の会議、10時じゃなくて11時だった")[0];
+      ok("CO. 「10時じゃなくて11時」は11時（見出しに「じゃなくて」を残さない）", !!rs && rs.title === "会議" && hm(rs.start) === "11:00" && rs.dayKey === "2026-09-16", rs ? show([rs]) : "なし");
+      const ch = read("打ち合わせを14時に変更")[0];
+      ok("CO. 「打ち合わせを14時に変更」の見出しは「打ち合わせ」", !!ch && ch.title === "打ち合わせ", ch ? show([ch]) : "なし");
+      // ④ 食事の名前
+      const meals = [["お昼休みに銀行に行く", i => i.title === "お昼休みに銀行に行く" && !i.isMeal], ["金曜の夜は友達とご飯", i => i.title === "夕食を食べる"],
+                     ["日曜の昼にランチ", i => i.title === "昼食を食べる"]];
+      const f4 = one(meals, (it, r) => r[1](it));
+      ok("CO. 「お昼休み」は食事ではない・「夜は友達とご飯」は夕食（話した時刻で決めない）", f4.length === 0, f4.join(" ／ "));
+      const nine = mealTitle("19時にご飯を食べる", at(10, 0), TZ);
+      ok("CO. 「19時にご飯」は言った時刻で夕食", nine === "夕食を食べる", nine);
+      // ⑤ 名詞だけの用事・いつか・続けたいこと・体調・その日のあり方
+      const kinds = [["パスポートの更新", "task"], ["車検", "task"], ["ゴミ出し", "task"], ["暇なときに部屋の模様替え", "idea"],
+                     ["平日の朝はジョギング", "goal"], ["昨日あんまり寝れなかった", "condition"], ["明日は一日中家にいる", "event"],
+                     ["来週のどこかで髪を切りたい", "task"], ["もうすぐ会議", "task"]];
+      const f5 = kinds.map(([t, k]) => { reset(); const ops = ruleOps(mkNote(t)); const got = ops.filter(o => o.op === "add").map(o => o._built.kind).concat(ops.filter(o => o.op === "condition").map(() => "condition"));
+        return got.length === 1 && got[0] === k ? null : t + "→" + got.join(",") || "なし"; }).filter(Boolean);
+      ok("CO. 「車検」「ゴミ出し」は用事・「暇なときに」は気になっていること・「平日の朝は」は続けたいこと・「寝れなかった」は体調・「一日中家にいる」は終日", f5.length === 0, f5.join(" ／ "));
+      const home = read("明日は一日中家にいる")[0], mo = read("もうすぐ会議")[0];
+      ok("CO. 見出しに「もうすぐ」を残さない・「家にいる」は終日の予定", !!home && home.allDay && !!mo && mo.title === "会議", show([home, mo].filter(Boolean)));
+      // ⑥ 曜日を続けて書く
+      const mwf = read("来週の月水金に英会話");
+      ok("CO. 「来週の月水金に英会話」は月・水・金の3件", mwf.length === 3 && mwf.every(i => i.title === "英会話") && mwf.map(i => i.dayKey).sort().join() === "2026-09-21,2026-09-23,2026-09-25", show(mwf));
+      const noSplit = ["今月水曜に歯医者", "土日にジム"].map(t => { const its = read(t); return its.length === 1 ? null : t + "→" + show(its); }).filter(Boolean);
+      ok("CO. 「今月水曜」「土日」は分けない", noSplit.length === 0, noSplit.join(" ／ "));
+      // ⑦ 済んだ報告（開いている用事と照合できたときだけ）
+      reset();
+      { const n1 = mkNote("牛乳を買う"); await putNote(n1); await applyOps(ruleOps(n1), n1);
+        const n2 = mkNote("牛乳買った", 11); await putNote(n2); const ops = ruleOps(n2);
+        const it = state.items.find(i => i.title === "牛乳を買う");
+        ok("CO. 「牛乳買った」で「牛乳を買う」が完了になる", !!it && ops.some(o => o.op === "done" && o.id === it.id), JSON.stringify(ops.map(o => o.op)));
+        const o3 = ruleOps(mkNote("昨日映画を見た", 12));
+        ok("CO. 照合できない過去の話（「映画を見た」）で、どれが終わったのかと聞き返さない", !o3.some(o => o.op === "_ambiguous_done"), JSON.stringify(o3.map(o => o.op))); }
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
