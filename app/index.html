@@ -1003,7 +1003,15 @@ function parseWhen(rawText, baseISO, tz) {
      どちらの場合も、選ばなかったほうを返して聞き返す。黙って確定させない（決まり2）。 */
   let altShiftMin = 0;                 // もう一方の読み方は、選んだ時刻の ±12時間
   if (bareHour && !out.timeOnly && tH != null) {
+    /* **「今日」と言って、午前のほうがもう過ぎているなら午後**（2026-09-27・言い方の組み合わせ検査で発見）。
+       10時の「今日6時までに資料を作る」を朝6時と読み、言った瞬間に締切切れになっていた。
+       決まり4b と同じ考え（これから来るほうを選び、もう一方を持って聞き返す）を、今日の6〜11時にも当てる。 */
+    const sameDay = out.abs ? out.abs === dayKey(base, tz) : out.off === 0;
+    const atToday = hh => zoned(bp.y, bp.mo, bp.d, hh, tM, tz).getTime();
     if (tH >= 1 && tH <= 5) { tH += 12; pmShift = 12; altShiftMin = -720; }
+    else if (sameDay && tH <= 11 && atToday(tH) < base.getTime() && atToday(tH + 12) >= base.getTime()) {
+      tH += 12; pmShift = 12; altShiftMin = -720;
+    }
     else if (tH === 6) { altShiftMin = 720; }
   }
 
@@ -1894,7 +1902,7 @@ function findSimilar(it) {
 async function mergeInto(keep, incoming, changes, tz) {
   const add = [];
   if (keep.estimateMin == null && incoming.estimateMin != null) { keep.estimateMin = incoming.estimateMin; add.push("所要時間"); }
-  if (!keep.dayKey && incoming.dayKey) { keep.dayKey = incoming.dayKey; keep.due = incoming.due; keep.duePrecision = incoming.duePrecision; add.push("期限"); }
+  if (!keep.dayKey && incoming.dayKey) { keep.dayKey = incoming.dayKey; keep.due = incoming.due; keep.duePrecision = incoming.duePrecision; keep.dueIsDeadline = !!incoming.dueIsDeadline; add.push("期限"); }
   if (!keep.targetDay && incoming.targetDay) { keep.targetDay = incoming.targetDay; add.push("実行日"); }
   if (!keep.preferWindow && incoming.preferWindow) { keep.preferWindow = incoming.preferWindow; add.push("時間帯"); }
   if (!keep.travelMin && incoming.travelMin) { keep.travelMin = incoming.travelMin; add.push("移動"); }
@@ -2691,6 +2699,109 @@ function rangeSpans(text) {
   for (let m; (m = RE_RANGE_AT.exec(text));) { out.push({ i: m.index, len: m[0].length }); if (m.index === RE_RANGE_AT.lastIndex) RE_RANGE_AT.lastIndex++; }
   return out;
 }
+/* =======================================================================
+   **本人の言葉と、置いた時刻を突き合わせる**（2026-09-27・本人の指示「そもそもこのようなことが起きない仕組みを」・決まり6q）
+   ======================================================================= */
+/* 読み違いは、読み取りの道（ルール・AI・組み立て）が増えるたびに、別の入口から入ってくる。
+   だから入口ごとに直すのではなく、**出口で1回、本人の言葉と合っているかを確かめる**。
+   確かめるのは「その時刻を、本人はどんな役目で言ったか」だけ：
+   ・「18時から」「18時に」＝**始まり**  ・「18時まで」「18時までに」＝**終わりの線（締切）**
+   ・言っていない時刻＝**本人の言葉ではない**
+   読み取り方は1か所（`timeRoles`）。ルールの項目もAIの項目も、足す直前に必ず `wordCheck` を通る。 */
+const RE_CLOCK_ROLE = /(午前|午後|朝|昼|夕方|夜|晩|深夜|夜中)?\s*(\d{1,2})\s*(?:時(?!間|限|代)\s*(半|\d{1,2}\s*分)?|[:：](\d{2}))\s*(?:ぐらい|くらい|頃|ごろ|前後|ちょうど)?\s*(までに|まで|から|より|〜|～|-|–)?/g;
+function timeRoles(text) {
+  const t = halfWidth(String(text || ""));
+  const out = [];
+  RE_CLOCK_ROLE.lastIndex = 0;
+  for (let m; (m = RE_CLOCK_ROLE.exec(t));) {
+    if (m.index === RE_CLOCK_ROLE.lastIndex) RE_CLOCK_ROLE.lastIndex++;
+    const h = +m[2];
+    const mi = m[3] === "半" ? 30 : m[3] ? (parseInt(m[3], 10) || 0) : m[4] ? +m[4] : 0;
+    if (h > 24 || mi > 59) continue;
+    const w = m[1] || "";
+    let mins;
+    if (/午後|夕方|夜|晩/.test(w)) mins = [(h < 12 ? h + 12 : h) * 60 + mi];
+    else if (/昼/.test(w)) mins = [(h <= 6 ? h + 12 : h) * 60 + mi];
+    else if (w) mins = [h * 60 + mi];                                  // 午前・朝・深夜・夜中
+    else mins = h < 12 ? [h * 60 + mi, (h + 12) * 60 + mi] : h === 12 ? [720 + mi, mi] : [h * 60 + mi];      // 12時＝昼の12時か夜中の0時
+    const tail = m[5] || "";
+    const before = t.slice(Math.max(0, m.index - 4), m.index);
+    const role = /まで/.test(tail) ? "until"
+      : /から|より|〜|～|-|–/.test(tail) ? "from"
+      : /(から|〜|～|-|–)[、,，]?\s*$/.test(before) ? "until"         // 「10時から12時」の12時＝終わり
+      : "at";
+    out.push({ i: m.index, mins: mins.map(x => x % 1440), role });
+  }
+  return out;
+}
+/* その時刻を、本人はどう言ったか。"start"（から・に）／"until"（まで）／null（言っていない）。
+   同じ時刻を始まりとしても言っていれば、始まりを採る（「10時から12時、12時から昼食」）。 */
+function timeRoleOf(text, minOfDayVal) {
+  const hits = timeRoles(text).filter(r => r.mins.includes(((minOfDayVal % 1440) + 1440) % 1440));
+  if (!hits.length) return null;
+  return hits.some(r => r.role !== "until") ? "start" : "until";
+}
+/* 発言から「何時何分」が決まる言葉があるか（時刻・「30分後」・「今から」「すぐ」）。
+   **無いのに時刻が付いていたら、それは本人の言葉ではない**（AIが足した）。
+   「午後に」「夜」のような時間帯だけでは、何時何分かは決まらない——時間帯として持つ（決まり6a）。 */
+const RE_CLOCK_SAID = /(\d{1,2}\s*(時(?!間)|[:：]\d{2})|\d{1,3}\s*(分|時間)\s*(後|前)|正午|今から|いまから|これから|今すぐ|いますぐ|すぐ)/;
+/* 足す直前・直す直前に、**必ず**通す（ルールの項目もAIの項目も）。直したことは本人に言う（決まり5）。
+   `op` は "add" / "update"。返すのは、本人に知らせる文（無ければ null）。 */
+function wordCheck(it, note, tz, op) {
+  if (!it || !note || !note.text || it.suggested || it.built || it.allDay) return null;
+  if (it.kind !== "task" && it.kind !== "event") return null;
+  const text = note.text;
+  const isAI = it.origin === "ai";
+  // ① 予定の始まりが、本人が「まで」としか言っていない時刻だった → 締切として扱う
+  if (it.kind === "event" && it.start && !it.timeUnknown && validISO(it.start)) {
+    const sm = minOfDay(it.start, tz);
+    const role = timeRoleOf(text, sm);
+    if (role === "until" && op === "add") {
+      const dur = (it.end && validISO(it.end)) && !it.endUnknown
+        ? clamp(Math.round((new Date(it.end) - new Date(it.start)) / 60000), 5, 600) : null;
+      it.kind = "task"; it.fixed = false;
+      it.due = it.start; it.duePrecision = "exact"; it.dueIsDeadline = true;
+      if (dur != null && it.estimateMin == null) it.estimateMin = dur;
+      delete it.start; delete it.end; delete it.endUnknown; delete it.timeUnknown;
+      it.history = (it.history || []).concat({ at: new Date().toISOString(), by: "app",
+        what: `「${hhmm(sm)}まで」は終わりの時刻なので、始まりではなく締切として扱った` });
+      return `「${it.title}」は、${hhmm(sm)}から始めるのではなく、${hhmm(sm)}までに終える用事として入れました。`;
+    }
+    // ② 言っていない時刻（AIが足した） → 時刻は採らない（日付は残す・決まり8）
+    if (role === null && isAI && op === "add" && !RE_CLOCK_SAID.test(halfWidth(text))) {
+      it.timeUnknown = true;
+      it.history = (it.history || []).concat({ at: new Date().toISOString(), by: "app",
+        what: "時刻は言っていなかったので、時刻未定にした" });
+      return null;
+    }
+  }
+  // ④ 時間帯（午前中に・夕方に）も、本人の言葉に無ければ採らない。「夕方6時」の「夕方」は時刻の一部
+  if (it.kind === "task" && it.preferWindow && isAI && op === "add"
+      && !/(午前|朝|午後|昼|夕|夜|晩)/.test(withoutClockQual(halfWidth(text)))) {
+    delete it.preferWindow;
+    it.history = (it.history || []).concat({ at: new Date().toISOString(), by: "app",
+      what: "時間帯は言っていなかったので、時間帯の希望を外した" });
+  }
+  // ③ 用事の時刻は、言い方どおりに「始まり」か「締切」かを決める
+  if (it.kind === "task" && it.duePrecision === "exact" && validISO(it.due)) {
+    const dm = minOfDay(it.due, tz);
+    if (dm === 23 * 60 + 59) return null;
+    const role = timeRoleOf(text, dm);
+    if (role === "until") it.dueIsDeadline = true;
+    else if (role === "start") it.dueIsDeadline = false;
+    else if (isAI && op === "add" && !RE_CLOCK_SAID.test(halfWidth(text))) {
+      // 言っていない時刻 → その日のうちに、に戻す（置き場所を勝手に決めない・決まり6a）。
+      // 時間帯（「午後に」）を言っていれば、それを置き場所にする。
+      const k = it.dayKey || dayKey(new Date(it.due), tz);
+      it.due = zoned(...k.split("-").map(Number), 23, 59, tz).toISOString();
+      it.duePrecision = "day"; it.dueIsDeadline = false;
+      if (!it.preferWindow) { const w = parseIntent(text).window; if (w) it.preferWindow = w; }
+      it.history = (it.history || []).concat({ at: new Date().toISOString(), by: "app",
+        what: "時刻は言っていなかったので、その日のうちにやる用事にした" });
+    }
+  }
+  return null;
+}
 /* 「今から午後6時ぐらいまで」「これから18:00まで」。始まりは言っていない（＝いま）。 */
 const RE_NOW_UNTIL = /(今から|いまから|これから|今すぐ|いますぐ)[、,\s]*(?:(午前|午後|朝|昼|夕方|夜|晩)\s*)?(\d{1,2})\s*(?:時\s*(半|\d{1,2}\s*分)?|[:：](\d{2}))\s*(?:ぐらい|くらい|頃|ごろ|前後)?\s*まで/;
 const RE_DUR_TIMES = /(\d{1,3})\s*分\s*(?:かける|×|x|X|\*|＊)\s*(\d{1,2})\s*回?/;
@@ -3256,17 +3367,27 @@ function planFor(key, opts) {
   const WINDOWS = { morning: [6 * 60, 12 * 60], afternoon: [12 * 60, 18 * 60], evening: [17 * 60, 24 * 60] };
   const WINDOW_JA = { morning: "午前中", afternoon: "午後", evening: "夕方以降" };
 
-  const placedAt = t => {
+  const exactAt = t => {
     if (t.duePrecision !== "exact" || !validISO(t.due)) return null;
     if (dayKey(new Date(t.due), tz) !== key) return null;
     const m = minOfDay(t.due, tz);
     return m === 23 * 60 + 59 ? null : m;     // 23:59 は「その日まで」＝置き場所ではない
   };
+  /* **締切の時刻を、始まりにしない**（2026-09-27・実機で報告・決まり6q）。
+     「18時までに資料を作る」が **18:00〜18:30** に置かれ、「18:00からと言っていました」と出ていた
+     （締切を過ぎてから始める・本人が言っていないことを言ったと書く）。
+     「まで」の時刻は**終わりの線**なので、置き場所ではなく**時間帯 [その日のはじめ, 締切]** として扱う。 */
+  const placedAt = t => t.dueIsDeadline ? null : exactAt(t);
+  const deadlineAt = t => t.dueIsDeadline ? exactAt(t) : null;
   /* 置いてよい時間帯。「午前中に」のような言葉のほか、
      「6時から9時の間に」のように**本人が範囲を言った**ものも入る（v4.5）。 */
-  const winOf = t => (t.winFrom != null && t.winTo != null && t.winTo > t.winFrom)
-    ? [t.winFrom, t.winTo]
-    : (t.preferWindow && WINDOWS[t.preferWindow] ? WINDOWS[t.preferWindow] : null);
+  const winOf = t => {
+    if (t.winFrom != null && t.winTo != null && t.winTo > t.winFrom) return [t.winFrom, t.winTo];
+    const pw = t.preferWindow && WINDOWS[t.preferWindow] ? WINDOWS[t.preferWindow] : null;
+    const dl = deadlineAt(t);
+    if (dl != null) return pw ? [pw[0], Math.min(pw[1], dl)] : [0, dl];   // 締切までに終える
+    return pw;
+  };
   /* **置き場所は「その日のどこ」であって、「どの日」ではない**（v4.6）。
      「明日の午前中に資料を作る」を、今日の午前が空いているからといって**今日に置かない**。
      実機で、明日6〜9時の作業が今日の「置かないもの」に理由付きで出た。
@@ -3305,7 +3426,8 @@ function planFor(key, opts) {
     const need = Math.max(5, num(t.remainingMin != null ? t.remainingMin : (assumed ? st.defaultEstimate : t.estimateMin), 1, 1440) || st.defaultEstimate);
     const win = winOf(t);
     const winName = (t.winFrom != null && t.winTo != null)
-      ? `${hhmm(t.winFrom)}〜${hhmm(t.winTo)}の間` : WINDOW_JA[t.preferWindow];
+      ? `${hhmm(t.winFrom)}〜${hhmm(t.winTo)}の間`
+      : deadlineAt(t) != null ? `${hhmm(deadlineAt(t))}まで` : WINDOW_JA[t.preferWindow];
     const bufNeed = (t.estimateUncertain || pref.buffer) ? Math.min(30, Math.max(15, Math.round(need / 3))) : 0;
     let put = false, missedWindow = false;
 
@@ -5034,7 +5156,7 @@ async function act(a, id, el) {
       history: [{ at: new Date().toISOString(), by: "user", what: "手入力で追加" }], dayKey: d, duePrecision: "exact"
     };
     if (kind === "event") { it.fixed = true; it.start = start; it.end = new Date(zoned(y, mo, dd, hh, mm, tz).getTime() + e * 60000).toISOString(); }
-    else { it.fixed = false; it.due = start; it.estimateMin = e; it.dueIsDeadline = true; }
+    else { it.fixed = false; it.due = start; it.estimateMin = e; it.dueIsDeadline = false; }   // 欄の名前は「時刻」＝その時刻に置く
     it.dedupeKey = dedupeKey(it);
     await putItem(it); closeSheet(); renderAll(); return;
   }
@@ -5400,12 +5522,18 @@ const RE_PROGRESS = /(進んでない|進んでいない|あまり進ま|全然�
 const RE_FEELINGONLY = /^(そっか|うーん|はぁ|疲れた|しんどい|眠い|だるい|つらい|楽しかった|よかった|まあよかった)[。、！!…\s]*$/;
 
 /* 「できれば今日」「午前中に」——締切とは別の、実行したい時期 */
+/* 「夕方6時」「午後3時」の「夕方」「午後」は**時刻の一部**（午前か午後か）で、時間帯の希望ではない（決まり6q）。
+   時間帯として読むと「夕方6時までに2時間」が 17:00〜18:00 の1時間に押し込まれ、置けなくなった（実測）。
+   長さを変えずに空白で伏せる（根拠の位置をずらさない）。 */
+const RE_CLOCK_QUAL = /(午前中|午前|午後|朝|昼|夕方|夜|晩|深夜|夜中)\s*(?=\d{1,2}\s*(?:時(?!間)|[:：]\d))/g;
+function withoutClockQual(t) { return String(t || "").replace(RE_CLOCK_QUAL, m => " ".repeat(m.length)); }
 function parseIntent(text) {
   const t = halfWidth(text);
   const out = { window: null, wantToday: false, wantTomorrow: false };
-  if (RE_WIN_MORNING.test(t)) out.window = "morning";
-  else if (RE_WIN_AFTERNOON.test(t)) out.window = "afternoon";
-  else if (RE_WIN_EVENING.test(t)) out.window = "evening";
+  const tw = withoutClockQual(t);
+  if (RE_WIN_MORNING.test(tw)) out.window = "morning";
+  else if (RE_WIN_AFTERNOON.test(tw)) out.window = "afternoon";
+  else if (RE_WIN_EVENING.test(tw)) out.window = "evening";
   if (/(できれば|できたら|なるべく|可能なら|今日中に|今日のうちに)\s*.{0,6}(今日|きょう)?/.test(t) && /(今日|きょう|午前|午後)/.test(t)) out.wantToday = true;
   if (/(今日|きょう)(中)?に?(は)?(進め|やっ|終わら|送っ|片付け)/.test(t)) out.wantToday = true;
   return out;
@@ -5794,6 +5922,8 @@ async function applyOps(rawOps, note) {
         };
         applyFields(it, o, tz, note, { soleAdd });
       }
+      // **本人の言葉と時刻を突き合わせる**（決まり6q）。ルールの項目もAIの項目も、ここを必ず通る
+      { const said = wordCheck(it, note, tz, "add"); if (said) asks.push(said); }
       // AIが「ご飯食べに行こうかな」のような言い方で返してきても、食事は名前を揃える
       const mt = mealTitle(it.title, note.capturedAt, tz) || mealTitle(o.quote || "", note.capturedAt, tz);
       if (mt && it.kind === "task") {
@@ -5824,6 +5954,7 @@ async function applyOps(rawOps, note) {
     else if (o.op === "update") {
       const before = { title: target.title, day: target.dayKey, est: target.estimateMin, start: target.start };
       applyFields(target, o, tz, note);
+      wordCheck(target, note, tz, "update");       // 「18時までにして」は締切、「18時にして」は始まり（決まり6q）
       if (typeof o.title === "string" && o.title.trim()) target.title = cleanTitle(o.title.trim(), null, { keepHabit: target.kind === "goal" }).slice(0, 80);
       target.corrected = true; target.confirmed = true; target.whenAlt = null;   // 本人が決めたので、もう一方は要らない
       target.dedupeKey = dedupeKey(target);
@@ -6342,6 +6473,9 @@ ${buildBlock}
 **日付だけ言われていて午前・午後が言われていない「1時」〜「5時」は、午後（13時〜17時）です。**
 「明日1時から2時まで」は13時から14時のことで、深夜1時ではありません。
 「6時」〜「11時」は、そのまま午前として扱ってください。
+ただし「今日」と言っていて、午前のほうがもう過ぎていれば午後です（10時に「今日6時までに」なら18時）。
+**「18時まで」「18時までに」の時刻は、始まりではなく締切です。**kind は task、dueTime にその時刻を入れてください
+（その時刻から始まる event にしないこと）。**本人が言っていない時刻・時間帯は入れないでください**（dueTime は null）。
 「午前10時」「夜10時」のように言われているときは、そのまま従ってください。
 **「6時から9時の間に30分」「6〜9時の間に30分」は、3時間の予定ではありません。**
 その時間帯のどこかで30分、という意味です。window は "18:00-21:00" のように、
@@ -6683,6 +6817,11 @@ async function sendTurn(text) {
        「AIのopsを全部残す」にすると組み立てが二重になる。 */
     const fills = (ops || []).filter(o => o.op === "dayfill");
     if (ro.length) ops = fills.concat(ro);
+  } else if (usedAI && ops) {
+    /* **組み立てを頼まれたのに時間帯が読めなかったことを、AIの道でも黙らない**（2026-09-27・実機で報告）。
+       前はルールの道でしか言わなかったので、AIがオンだと**AIの読み（18:00〜22:00）だけが黙って入った**。 */
+    const bf = ruleOps(note).filter(o => o.op === "buildfail");
+    if (bf.length) ops = ops.concat(bf);
   }
   const quickText = quick ? await quick : "";
 

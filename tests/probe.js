@@ -5059,6 +5059,266 @@
          win(req(9, 0, "13時から17時までの間で勉強を30分かける2回。予定を組み立てて")));
     }
 
+    /* ===== CI群：言い方の組み合わせ検査（2026-09-27・本人の指示「そもそもこのようなことが起きない仕組みを」・決まり6q）=====
+       1つずつ報告を待って直すのをやめる。**言い方の部品を掛け合わせて何千通りも流し、
+       どの言い方でも守られるべきこと（不変の約束）を確かめる。**
+       約束は4つ：
+       A. 「今から◯時まで…組み立てて」は、いまから◯時までの時間帯になる（言い方を変えても）
+       B. 「◯時までに」の用事は、◯時から始めない（締切の後ろに置かない）
+       C. AIが「まで」の時刻を始まりにしても、出口で直る
+       D. 置いた理由の文が「◯時からと言っていました」と書くなら、本人は本当に◯時から（に）と言っている */
+    {
+      const TZc = state.settings.timezone;
+      const keepS = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      // 前の群が作業時間の帯を変えたまま残していることがある。ここでは一日じゅう使える既定で測る
+      state.settings = Object.assign({}, state.settings, { workStart: "00:00", workEnd: "23:59" });
+      const fmtFail = (arr) => arr.length ? arr.length + "件 例：" + arr.slice(0, 3).join(" ／ ") : "全部守られた";
+
+      /* ---- A. 組み立ての依頼（2,592通り） ---- */
+      {
+        const at = zoned(2026, 9, 15, 12, 39, TZc).toISOString();
+        const heads = ["", "おはよう今日は起きるのが遅かった"];
+        const starts = ["今から", "いまから", "これから"];
+        const ends = [["6時", 1080], ["午後6時", 1080], ["18時", 1080], ["18:00", 1080], ["夕方6時", 1080], ["6時半", 1110]];
+        const approx = ["", "ぐらい"];
+        const untils = ["まで", "までの"];
+        const reqs = ["予定を組み立てて", "スケジュールを作って", "予定を埋めて"];
+        const contents = [["", null], ["勉強は4時間以上したい", { 勉強: 240 }], ["勉強2時間と散歩30分", { 勉強: 120, 散歩: 30 }]];
+        const seps = ["", "、"];
+        let n = 0; const badWin = [], badWant = [], badHead = [];
+        for (const h of heads) for (const st of starts) for (const [e, eMin] of ends) for (const ap of approx)
+        for (const u of untils) for (const rq of reqs) for (const [c, want] of contents) for (const sp of seps) {
+          if (!c && sp) continue;
+          const text = h + st + e + ap + u + rq + (c ? sp + c : "");
+          n++;
+          let r = null;
+          try { r = parseDayRequest({ id: "ci", text, hash: "h", capturedAt: at, source: "talk", sourceName: null, createdAt: at }, TZc); } catch (err) { r = null; }
+          if (!r || r.dayKey !== "2026-09-15" || r.win[0] !== 760 || r.win[1] !== eMin) { badWin.push(text + "→" + (r ? r.dayKey + " " + hhmm(r.win[0]) + "-" + hhmm(r.win[1]) : "組み立てない")); continue; }
+          if (want) for (const [k, m] of Object.entries(want)) {
+            const w = r.wants.find(x => x.title.includes(k));
+            if (!w || w.min !== m) badWant.push(text + "→" + k + (w ? w.min : "無し"));
+          }
+          if (h && r.headLen !== text.indexOf(st)) badHead.push(text);
+        }
+        ok("CI.A 「今から◯時まで…組み立てて」は、どの言い方でも いまから◯時まで（" + n + "通り）", badWin.length === 0, fmtFail(badWin));
+        ok("CI.A 言った活動と長さを、どの言い方でも取りこぼさない", badWant.length === 0, fmtFail(badWant));
+        ok("CI.A 前置き（おはよう…）は、どの言い方でも ふつうの読み取りへ回す", badHead.length === 0, fmtFail(badHead));
+        ok("CI.A 組み合わせの数が足りている（測れていないのに通さない）", n >= 2000, n + "通り");
+      }
+
+      /* ---- B・D. 締切の言い方（ルールの道・ほんとうに足して計画まで作る） ---- */
+      const reasonLies = [];
+      const checkReasons = (plan, text) => {
+        for (const b of plan.blocks || []) {
+          const m = /(\d{2}):(\d{2})からと言っていました/.exec(b.reason || "");
+          if (m && timeRoleOf(text, +m[1] * 60 + +m[2]) !== "start") reasonLies.push(text + "→" + m[0]);
+        }
+      };
+      {
+        const today = dayKey(new Date(), TZc);
+        const [y, mo, d] = today.split("-").map(Number);
+        const at = zoned(y, mo, d, 10, 0, TZc).toISOString();
+        const days = ["", "今日"];
+        const times = [["18時", 1080], ["午後6時", 1080], ["18:00", 1080], ["夕方6時", 1080], ["6時", 1080]];
+        const approx = ["", "ぐらい"];
+        const untils = ["までに", "まで"];
+        const acts = ["資料を作る", "レポートを書く", "部屋を片付ける", "勉強を2時間する", "洗濯する"];
+        let n = 0; const startAt = [], after = [], notDl = [], notPlaced = [];
+        for (const dy of days) for (const [tm, dl] of times) for (const ap of approx) for (const u of untils) for (const a of acts) {
+          const text = dy + tm + ap + u + a;
+          n++;
+          reset();
+          const note = { id: "cib" + n, text, hash: "h" + n, capturedAt: at, source: "talk", sourceName: null, createdAt: at };
+          const items = [];
+          for (const o of ruleOps(note)) if (o.op === "add" && o._built) { wordCheck(o._built, note, TZc, "add"); items.push(o._built); }
+          state.items = items;
+          const it = items.find(i => i.kind === "task" || i.kind === "event");
+          if (!it) { startAt.push(text + "→読み取れない"); continue; }
+          if (it.kind !== "task" || !it.dueIsDeadline) notDl.push(text + "→" + it.kind + (it.dueIsDeadline ? "" : "（締切ではない）"));
+          const plan = planFor(today, { nowMin: 600 });
+          if (!plan.blocks.some(b => b.item && b.item.id === it.id)) notPlaced.push(text + "→置かれない");
+          for (const b of plan.blocks.filter(b => b.item && b.item.id === it.id)) {
+            if (b.s === dl) startAt.push(text + "→" + hhmm(b.s) + "から");
+            if (b.e > dl) after.push(text + "→" + hhmm(b.s) + "-" + hhmm(b.e));
+          }
+          checkReasons(plan, text);
+        }
+        ok("CI.B 「◯時までに」は、どの言い方でも ◯時から始めない（" + n + "通り）", startAt.length === 0, fmtFail(startAt));
+        ok("CI.B 締切を過ぎて終わる枠を作らない", after.length === 0, fmtFail(after));
+        ok("CI.B 「まで」の時刻は、どの言い方でも締切として持つ", notDl.length === 0, fmtFail(notDl));
+        ok("CI.B 締切までに空きがあれば、締切の前に置く（締切を理由に置き忘れない）", notPlaced.length === 0, fmtFail(notPlaced));
+
+        /* 直しすぎない：「から」「に」は始まりのまま、その時刻に置く */
+        const starts = ["18時から資料を作る", "18時に資料を作る", "午後6時から勉強を1時間する", "18:00から洗濯する", "今日18時に部屋を片付ける"];
+        const moved = [];
+        for (const text of starts) {
+          reset();
+          const note = { id: "cis", text, hash: "hs", capturedAt: at, source: "talk", sourceName: null, createdAt: at };
+          const items = [];
+          for (const o of ruleOps(note)) if (o.op === "add" && o._built) { wordCheck(o._built, note, TZc, "add"); items.push(o._built); }
+          state.items = items;
+          const it = items.find(i => i.kind === "task" || i.kind === "event");
+          const plan = planFor(today, { nowMin: 600 });
+          const b = it && plan.blocks.find(b => b.item && b.item.id === it.id);
+          if (!b || b.s !== 1080) moved.push(text + "→" + (b ? hhmm(b.s) : "置かれない（" + (it ? it.kind + " " + it.due + " " + ((plan.unplaced || []).map(u => u.reason).join("/") || (plan.loose || []).length + "件loose") : "項目なし") + "）"));
+          checkReasons(plan, text);
+        }
+        ok("CI.B 直しすぎない：「18時から」「18時に」は18:00に置く", moved.length === 0, fmtFail(moved));
+      }
+
+      /* ---- C・D. AIが「まで」の時刻を始まりにした（出口で直るか） ---- */
+      {
+        const today = dayKey(new Date(), TZc);
+        const [y, mo, d] = today.split("-").map(Number);
+        const at = zoned(y, mo, d, 12, 39, TZc).toISOString();
+        const phr = ["午後6時ぐらいまで勉強は4時間以上したい", "18時まで勉強4時間", "6時までに勉強を4時間やりたい",
+                     "夕方6時頃までに勉強4時間", "18:00までに4時間は勉強したい", "今日は午後6時まで勉強する、4時間"];
+        const bad = [], silent = [];
+        let n = 0;
+        for (const text of phr) for (const kind of ["event", "task"]) {
+          n++;
+          reset();
+          const note = { id: "cic" + n, text, hash: "hc" + n, capturedAt: at, source: "talk", sourceName: null, createdAt: at };
+          await putNote(note);
+          const r = await applyOps([{ op: "add", kind, title: "勉強", dueDate: today, dueTime: "18:00", estimateMin: 240, duePrecision: "exact", quote: text }], note);
+          const it = state.items.find(i => i.title === "勉強");
+          if (!it) { bad.push(text + "（" + kind + "）→入らない"); continue; }
+          if (it.kind === "event" || !it.dueIsDeadline) bad.push(text + "（" + kind + "）→" + it.kind + (it.dueIsDeadline ? "" : "・締切でない"));
+          const plan = planFor(today, { nowMin: 760 });
+          const b = plan.blocks.find(b => b.item && b.item.id === it.id);
+          if (!b) bad.push(text + "（" + kind + "）→置かれない");
+          if (b && (b.s >= 1080 || b.e > 1080)) bad.push(text + "（" + kind + "）→" + hhmm(b.s) + "-" + hhmm(b.e));
+          if (kind === "event" && !r.asks.some(a => /までに終える/.test(a))) silent.push(text);
+          checkReasons(plan, text);
+        }
+        ok("CI.C AIが「まで」の時刻を始まりにしても、出口で締切に直る（" + n + "通り）", bad.length === 0, fmtFail(bad));
+        ok("CI.C 直したことを黙らない（予定を締切に変えたら、そう言う）", silent.length === 0, fmtFail(silent));
+      }
+      ok("CI.D 置いた理由の「◯時からと言っていました」は、本人が本当に◯時から（に）と言ったときだけ", reasonLies.length === 0, fmtFail(reasonLies));
+
+      /* ---- E. AIが、本人の言っていない時刻を足した（出口で外れるか・直しすぎないか） ---- */
+      {
+        const today = dayKey(new Date(), TZc);
+        const [y, mo, d] = today.split("-").map(Number);
+        const tmr = dayKey(new Date(zoned(y, mo, d, 12, 0, TZc).getTime() + 86400000), TZc);
+        const at = zoned(y, mo, d, 10, 0, TZc).toISOString();
+        const run1 = async (text, op) => {
+          reset();
+          const note = { id: "cie", text, hash: "he", capturedAt: at, source: "talk", sourceName: null, createdAt: at };
+          await putNote(note);
+          await applyOps([Object.assign({ op: "add", quote: text }, op)], note);
+          return state.items.find(i => i.title === op.title);
+        };
+        const invented = [], kept = [];
+        // 時刻を言っていない → AIの時刻は採らない
+        let it = await run1("資料を作らないと", { kind: "task", title: "資料を作る", dueDate: today, dueTime: "15:00", duePrecision: "exact", estimateMin: 60 });
+        if (!it || it.duePrecision === "exact") invented.push("資料を作らないと→" + (it ? it.duePrecision + " " + it.due : "入らない"));
+        else { const pl = planFor(today, { nowMin: 600 }); if (pl.blocks.some(b => b.item && b.item.id === it.id && b.s === 900)) invented.push("資料を作らないと→15:00に置いた"); }
+        it = await run1("歯医者に行く", { kind: "event", title: "歯医者に行く", dueDate: today, dueTime: "15:00", duePrecision: "exact" });
+        // 日付も言っていないので、AIの日付ごと外れる（決まり7d）。どちらでも、時刻が残らなければよい
+        const noClock = it => !!it && (it.kind === "event" ? (!it.start || it.timeUnknown) : it.duePrecision !== "exact");
+        if (!noClock(it)) invented.push("歯医者に行く→" + (it ? "時刻 " + it.start : "入らない"));
+        it = await run1("明日歯医者", { kind: "event", title: "歯医者", dueDate: tmr, dueTime: "10:00", duePrecision: "exact" });
+        if (!it || !it.timeUnknown || it.dayKey !== tmr) invented.push("明日歯医者→" + (it ? (it.timeUnknown ? "" : "時刻 " + it.start + " ") + it.dayKey : "入らない"));
+        it = await run1("午後に資料を作る", { kind: "task", title: "資料を作る", dueDate: today, dueTime: "15:00", duePrecision: "exact", estimateMin: 60 });
+        if (!noClock(it)) invented.push("午後に資料を作る→" + (it ? it.duePrecision + " " + it.due : "入らない"));
+        // 日付を言っていれば日付は残り、時間帯が置き場所になる
+        it = await run1("今日の午後に資料を作る", { kind: "task", title: "資料を作る", dueDate: today, dueTime: "15:00", duePrecision: "exact", estimateMin: 60 });
+        if (!noClock(it) || it.dayKey !== today || it.preferWindow !== "afternoon") invented.push("今日の午後に資料を作る→" + (it ? it.duePrecision + " " + it.dayKey + " " + it.preferWindow : "入らない"));
+        // 時間帯も、言っていなければ採らない（「夕方6時」の「夕方」は時刻の一部）
+        it = await run1("今日の夕方6時までに資料を作る", { kind: "task", title: "資料を作る", dueDate: today, dueTime: "18:00", duePrecision: "exact", estimateMin: 120, preferWindow: "evening" });
+        if (!it || it.preferWindow) invented.push("今日の夕方6時までに資料を作る→時間帯 " + (it ? it.preferWindow : "入らない"));
+        it = await run1("今日の夕方に資料を作る", { kind: "task", title: "資料を作る", dueDate: today, duePrecision: "day", estimateMin: 60, preferWindow: "evening" });
+        if (!it || it.preferWindow !== "evening") kept.push("今日の夕方に資料を作る→時間帯 " + (it ? it.preferWindow : "入らない"));
+        it = await run1("明日の朝ランニングする", { kind: "task", title: "ランニングする", dueDate: tmr, duePrecision: "day", estimateMin: 30, preferWindow: "morning" });
+        if (!it || it.preferWindow !== "morning") kept.push("明日の朝ランニングする→時間帯 " + (it ? it.preferWindow : "入らない"));
+        // 直しすぎない：言った時刻はそのまま
+        it = await run1("15時に歯医者", { kind: "event", title: "歯医者", dueDate: today, dueTime: "15:00", duePrecision: "exact" });
+        if (!it || it.timeUnknown || minOfDay(it.start, TZc) !== 900) kept.push("15時に歯医者→" + (it ? it.start : "入らない"));
+        it = await run1("3時から歯医者", { kind: "event", title: "歯医者", dueDate: today, dueTime: "15:00", duePrecision: "exact" });
+        if (!it || it.timeUnknown || minOfDay(it.start, TZc) !== 900) kept.push("3時から歯医者→" + (it ? it.start : "入らない"));
+        it = await run1("14時から資料を作る", { kind: "task", title: "資料を作る", dueDate: today, dueTime: "14:00", duePrecision: "exact", estimateMin: 60 });
+        if (!it || it.duePrecision !== "exact" || it.dueIsDeadline) kept.push("14時から資料を作る→" + (it ? it.duePrecision + (it.dueIsDeadline ? "・締切" : "") : "入らない"));
+        ok("CI.E AIが足した時刻（本人は言っていない）は、出口で外れる", invented.length === 0, fmtFail(invented));
+        ok("CI.E 直しすぎない：本人が言った時刻はそのまま", kept.length === 0, fmtFail(kept));
+      }
+
+      /* ---- G. 時刻の役目の読み分け（表で固定する） ---- */
+      {
+        const table = [
+          ["10時から12時まで勉強", [["from", 600], ["until", 720]]],
+          ["10時〜12時 会議", [["from", 600], ["until", 720]]],
+          ["14時-16時 資料作り", [["from", 840], ["until", 960]]],
+          ["10時から、12時まで", [["from", 600], ["until", 720]]],
+          ["18時までに資料", [["until", 1080]]],
+          ["午後6時ぐらいまで", [["until", 1080]]],
+          ["18時から資料", [["from", 1080]]],
+          ["18時に歯医者", [["at", 1080]]],
+          ["18:00まで", [["until", 1080]]],
+          ["夕方6時頃までに", [["until", 1080]]],
+        ];
+        const wrong = [];
+        for (const [text, want] of table) {
+          const got = timeRoles(text);
+          const okk = got.length === want.length && want.every(([role, m], i) => got[i].role === role && got[i].mins.includes(m));
+          if (!okk) wrong.push(text + "→" + got.map(g => g.role + ":" + g.mins.map(hhmm).join("|")).join(" "));
+        }
+        ok("CI.G 時刻の役目（から・まで・に）を、言い方の表どおりに読み分ける（" + table.length + "通り）", wrong.length === 0, fmtFail(wrong));
+      }
+
+      /* ---- H. 「今日」と言った6〜11時：午前がもう過ぎていれば午後（聞き返しつき）・まだなら午前のまま ---- */
+      {
+        const at = (h, m) => zoned(2026, 9, 15, h, m, TZc).toISOString();
+        const table = [
+          [at(10, 0), "今日6時までに資料を作る", "18:00", true],
+          [at(10, 0), "今日9時に歯医者に行く", "21:00", true],
+          [at(8, 0), "今日9時に歯医者に行く", "09:00", false],
+          [at(10, 0), "今日3時に歯医者に行く", "15:00", true],
+          [at(10, 0), "明日6時に起きる", "06:00", true],
+          [at(10, 0), "明日9時に歯医者に行く", "09:00", false],
+          [at(22, 30), "今日9時に歯医者に行く", "09:00", false],
+          [at(10, 0), "今日の午前9時に歯医者", "09:00", false],
+        ];
+        const wrong = [];
+        for (const [base, text, hm, alt] of table) {
+          const w = parseWhen(text, base, TZc);
+          const got = w ? hhmm(minOfDay(w.iso, TZc)) : "読めない";
+          if (got !== hm || !!(w && w.altStart) !== alt) wrong.push(text + "（" + base.slice(11, 16) + "Z）→" + got + (w && w.altStart ? "・聞き返す" : ""));
+        }
+        ok("CI.H 「今日」の6〜11時は、午前が過ぎていれば午後と読む（言われていれば触らない）", wrong.length === 0, fmtFail(wrong));
+      }
+
+      /* ---- I. 同じ決まりを、AIへの依頼文にも書いてある（ルールとAIで答えが割れないように・決まり4c） ---- */
+      {
+        const nb = { id: "cii", text: "18時までに資料を作る", hash: "hi", capturedAt: T(10, 0), source: "talk", sourceName: null, createdAt: T(10, 0) };
+        const pr = buildPrompt(nb, contextForAI(nb));
+        ok("CI.I 依頼文：「まで」の時刻は始まりではなく締切", /「まで」「18時までに」の時刻は、始まりではなく締切/.test(pr) || /始まりではなく締切/.test(pr));
+        ok("CI.I 依頼文：言っていない時刻・時間帯は入れない", /本人が言っていない時刻・時間帯は入れない/.test(pr));
+        ok("CI.I 依頼文：「今日」の過ぎた朝は午後", /「今日」と言っていて、午前のほうがもう過ぎていれば午後/.test(pr));
+      }
+
+      /* ---- F. 組み立ての時間帯が読めなかったことを、AIの道でも黙らない（実際に1回流す） ---- */
+      {
+        const keepAI = SAMPLEFN, keepView = view.day, keepChat = view.chatDay;
+        const stub = () => Promise.resolve({ text: "受け止めの一言。" });
+        stub.json = () => Promise.resolve({ ops: [{ op: "add", kind: "task", title: "勉強をする", dueDate: null,
+          duePrecision: "none", quote: "勉強" }], habit: "" });
+        SAMPLEFN = stub;
+        reset();
+        let turn = null;
+        try {
+          await sendTurn("6時に予定を組み立てて、勉強もしたい");
+          const tdy = dayKey(new Date(), state.settings.timezone);
+          turn = (state.turns[tdy] || []).filter(t => t.role === "assistant").pop();
+        } finally { SAMPLEFN = keepAI; view.day = keepView; view.chatDay = keepChat; }
+        const txt = turn ? turn.text : "";
+        ok("CI.F AIがオンでも「どの時間帯かを読み取れませんでした」と言う", /どの時間帯かを読み取れませんでした/.test(txt), txt.slice(0, 80));
+        ok("CI.F そのときもAIが読んだ用事は入る（知らせるだけで捨てない）", state.items.some(i => i.title === "勉強をする"), state.items.map(i => i.title).join("/"));
+      }
+
+      state.notes = keepS.notes; state.items = keepS.items; state.turns = keepS.turns; state.docs = keepS.docs; state.settings = keepS.settings;
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;
