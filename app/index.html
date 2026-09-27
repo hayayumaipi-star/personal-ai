@@ -8,20 +8,23 @@
   /* **地と差し色は、アプリのアイコン（一日のタイムライン）から取る**（2026-09-26・本人の指示
      「アプリアイコンのデザインと親和性が高いものに」）。地＝アイコンの淡い青緑、
      注意＝アイコンの黄、「いま」・警告＝アイコンの赤。差し色（青緑）は前から同じ。 */
-  --paper:#F1F6F5; --surface:#FFFFFF; --surface-2:#E3ECEA;
+  --paper:#F1F6F5; --surface:#FBFDFC; --surface-2:#E3ECEA;
   --ink:#172120; --ink-2:#55605E; --ink-3:#85908E;
   --line:#D3DEDB; --line-strong:#BCC9C6;
-  --accent:#0D6E6B; --accent-soft:#DDEFEC; --accent-ink:#0A4E4C;
-  --warn:#F2A541; --warn-soft:#FDF1DD; --warn-ink:#855000;
-  --done:#34C759; --done-soft:#E3F7E8; --done-ink:#1B7030;
-  --alert:#E8705E; --alert-soft:#FCEAE6; --alert-ink:#AA3226;
+  /* **マットに**（2026-09-27・本人の指示「もう少しUI、UXをマットにして」・決まり15u）。
+     差し色と意味の色は彩度を落とし、面の白は少しだけ沈める。地・注意・警告の色はアイコンのまま。 */
+  --accent:#2F6B67; --accent-soft:#E1ECE9; --accent-ink:#234E4B;
+  --warn:#F2A541; --warn-soft:#F6EFE3; --warn-ink:#855000;
+  --done:#4E9E68; --done-soft:#E5EFE7; --done-ink:#2B6A3D;
+  --alert:#E8705E; --alert-soft:#F5ECE9; --alert-ink:#AA3226;
   /* 明暗で役目が変わる色（2026-09-26・決まり15r）。明るいときは前と1pxも変えない値。 */
-  --surface-up:#FFFFFF; --edge:transparent; --accent-line:#0D6E6B; --focus:#0D6E6B;
-  --me-bub:#0D6E6B; --me-ink:#F1F6F5;
+  --surface-up:#FBFDFC; --edge:transparent; --accent-line:#9DBAB6; --focus:#2F6B67;
+  --me-bub:#2F6B67; --me-ink:#F1F6F5;
   --toast-bg:#172120; --toast-ink:#F1F6F5; --toast-btn:#F1F6F5; --toast-btn-ink:#172120;
   --mark-filter:none;
   --mark-tile:#DCEDEA; --mark:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='9.3' y='6' width='2.4' height='20' rx='1.2' fill='%23BFD8D4'/%3E%3Ccircle cx='10.5' cy='9.5' r='3.3' fill='%230E6F6B'/%3E%3Ccircle cx='10.5' cy='16' r='3.3' fill='%23F2A541'/%3E%3Ccircle cx='10.5' cy='22.5' r='3.3' fill='%23E8705E'/%3E%3Crect x='16' y='7.3' width='11' height='4.4' rx='2.2' fill='%230E6F6B'/%3E%3Crect x='16' y='13.8' width='7.5' height='4.4' rx='2.2' fill='%23F2A541'/%3E%3Crect x='16' y='20.3' width='9.5' height='4.4' rx='2.2' fill='%23E8705E'/%3E%3C/svg%3E");
-  --shadow:0 1px 2px rgba(16,40,38,.05), 0 6px 20px rgba(16,40,38,.07);
+  /* 影でぼかして浮かせない。浮くもの（日付バー・トースト）は細い線1本だけ（マット・決まり15u） */
+  --shadow:0 0 0 1px rgba(23,33,32,.08);
   --r:12px;
   /* **文字の大きさは rem で持つ**（2026-09-24・案⑥「端末の文字サイズに追従させる」）。
      px で書くと、端末やブラウザで既定の文字を大きくしている人に**何も効かない**。
@@ -46,16 +49,16 @@
   --paper:#0B1110; --surface:#162120; --surface-2:#243130; --surface-up:#1E2B29;
   --ink:#E6EDEB; --ink-2:#A3AFAC; --ink-3:#88958F;
   --line:#2A3634; --line-strong:#3A4744;
-  --edge:rgba(255,255,255,.055); --accent-line:#2E8A84; --focus:#3FA39C;
+  --edge:rgba(255,255,255,.055); --accent-line:#3E7A75; --focus:#4F948E;
   --me-bub:#1D5E5A; --me-ink:#EAF6F4;
-  --toast-bg:#2A3836; --toast-ink:#E6EDEB; --toast-btn:#3A4A47; --toast-btn-ink:#8BDBD5;
+  --toast-bg:#2A3836; --toast-ink:#E6EDEB; --toast-btn:#3A4A47; --toast-btn-ink:#9ECBC6;
   --mark-filter:saturate(.82) brightness(.94);
-  --accent:#4FC3BC; --accent-soft:#14332F; --accent-ink:#8BDBD5;
-  --warn:#F5B25C; --warn-soft:#3A2C12; --warn-ink:#FFC97E;
-  --done:#30D158; --done-soft:#123A1C; --done-ink:#5BE07E;
-  --alert:#F07A6E; --alert-soft:#3D1C18; --alert-ink:#FF9D90;
+  --accent:#6AAFA9; --accent-soft:#1A2E2C; --accent-ink:#9ECBC6;
+  --warn:#D8A868; --warn-soft:#332B1C; --warn-ink:#E8C38E;
+  --done:#5FAE7A; --done-soft:#182E20; --done-ink:#8CCB9F;
+  --alert:#D6857C; --alert-soft:#36221F; --alert-ink:#E9A69C;
   --mark-tile:#1E302E;
-  --shadow:0 0 0 1px rgba(255,255,255,.05), 0 8px 24px rgba(0,0,0,.35);
+  --shadow:0 0 0 1px rgba(255,255,255,.06);
 }}
 :root[data-theme="dark"]{
   color-scheme:dark;
@@ -66,16 +69,16 @@
   --paper:#0B1110; --surface:#162120; --surface-2:#243130; --surface-up:#1E2B29;
   --ink:#E6EDEB; --ink-2:#A3AFAC; --ink-3:#88958F;
   --line:#2A3634; --line-strong:#3A4744;
-  --edge:rgba(255,255,255,.055); --accent-line:#2E8A84; --focus:#3FA39C;
+  --edge:rgba(255,255,255,.055); --accent-line:#3E7A75; --focus:#4F948E;
   --me-bub:#1D5E5A; --me-ink:#EAF6F4;
-  --toast-bg:#2A3836; --toast-ink:#E6EDEB; --toast-btn:#3A4A47; --toast-btn-ink:#8BDBD5;
+  --toast-bg:#2A3836; --toast-ink:#E6EDEB; --toast-btn:#3A4A47; --toast-btn-ink:#9ECBC6;
   --mark-filter:saturate(.82) brightness(.94);
-  --accent:#4FC3BC; --accent-soft:#14332F; --accent-ink:#8BDBD5;
-  --warn:#F5B25C; --warn-soft:#3A2C12; --warn-ink:#FFC97E;
-  --done:#30D158; --done-soft:#123A1C; --done-ink:#5BE07E;
-  --alert:#F07A6E; --alert-soft:#3D1C18; --alert-ink:#FF9D90;
+  --accent:#6AAFA9; --accent-soft:#1A2E2C; --accent-ink:#9ECBC6;
+  --warn:#D8A868; --warn-soft:#332B1C; --warn-ink:#E8C38E;
+  --done:#5FAE7A; --done-soft:#182E20; --done-ink:#8CCB9F;
+  --alert:#D6857C; --alert-soft:#36221F; --alert-ink:#E9A69C;
   --mark-tile:#1E302E;
-  --shadow:0 0 0 1px rgba(255,255,255,.05), 0 8px 24px rgba(0,0,0,.35);
+  --shadow:0 0 0 1px rgba(255,255,255,.06);
 }
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -217,7 +220,7 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
       ほかのカードと同じく**白い面・枠線なし**にして、色は左の帯だけに絞る（地との明暗差で浮かせる・決まり15）。 */
 .blk.fixed,.blk.flex,.blk.allday{background:var(--surface);border:1px solid var(--edge)}
 .blk::before{content:"";position:absolute;left:7px;top:7px;bottom:7px;width:3px;border-radius:2px;background:var(--accent)}
-.blk.now{box-shadow:0 0 0 2px var(--accent)}
+.blk.now{box-shadow:0 0 0 1px var(--accent-line)}   /* 次の枠は細い線1本（光る2pxの輪にしない・決まり15u） */
 /* 休憩・予備は枠にしない。細い帯にして、短さがそのまま見えるようにする */
 .blk.thin{border-radius:10px;padding:0 11px 0 16px;justify-content:center;gap:0;
   min-height:max(calc(var(--min,10) * var(--tlscale)), 22px)}
@@ -277,8 +280,9 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
 .tlrow.nowline span{position:absolute;left:0;top:-8px;background:var(--paper);padding-right:7px;
   font-family:var(--f-disp);font-size:var(--fs-1);font-weight:700;color:var(--alert-ink);letter-spacing:.06em}
 
+/* 上の太い線は角丸に沿って曲がり、光って見えた。細い線1本だけにする（マット・決まり15u） */
 .next{background:var(--surface);border:1px solid var(--accent-line);border-radius:var(--r);
-  border-top:3px solid var(--accent);padding:13px 14px;display:flex;flex-direction:column;gap:8px}
+  padding:13px 14px;display:flex;flex-direction:column;gap:8px}
 .next .nt{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);line-height:1.45}
 .next .nr{font-size:var(--fs-3);color:var(--ink-2);line-height:1.7}
 /* 訂正の画面（2026-09-26）：チェックの行は指で押しやすく、消す操作はたたんで保存から離す */
@@ -340,9 +344,8 @@ details.dz summary{color:var(--alert-ink)}
 .pickwrap input[type=date]{position:absolute;inset:0;width:100%;height:100%;
   opacity:0;border:0;padding:0;margin:0;min-height:0;cursor:pointer}
 
+/* すりガラスにしない（マット・決まり15u）。無地の面に上の線1本。 */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--surface);
-  background:color-mix(in srgb, var(--surface) 80%, transparent);
-  -webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);
   border-top:1px solid var(--line);padding:5px 6px calc(5px + env(safe-area-inset-bottom,0px));
   display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
 nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px;border-radius:8px;
@@ -370,7 +373,7 @@ nav.tabs button:active{opacity:.5}
 .sheet .inner{background:var(--surface-up);width:100%;max-width:640px;max-height:78vh;max-height:78dvh;overflow-y:auto;
   overscroll-behavior:contain;animation:sheetin .22s cubic-bezier(.32,.72,0,1);
   border-radius:16px;padding:10px 15px 14px;display:flex;flex-direction:column;gap:12px;
-  box-shadow:0 -6px 28px var(--scrim)}
+  box-shadow:none}
 .sheet .foot{position:sticky;bottom:-14px;background:var(--surface-up);padding:10px 0 4px;margin-top:2px;
   border-top:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .sheet .foot .wide{flex:1 1 100%;justify-content:center;margin-left:0!important}

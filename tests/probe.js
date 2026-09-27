@@ -4961,6 +4961,45 @@
       box.remove(); showTab(keepTab);
     }
 
+    /* ===== CF群：マットにする（2026-09-27・本人の指示「もう少しUI、UXをマットにして」・決まり15u）=====
+       光って見えるもの（ぼかした影・すりガラス・鮮やかな差し色・角丸に沿って曲がる太い線）を置かない。
+       見るのは性質であって値ではない（決まり15）。 */
+    {
+      const root = document.documentElement, before = root.getAttribute("data-theme");
+      const sat = h => { h = h.trim(); const n = parseInt(h.slice(1), 16);
+        const c = [n >> 16 & 255, n >> 8 & 255, n & 255].map(x => x / 255);
+        const mx = Math.max(...c), mn = Math.min(...c), l = (mx + mn) / 2;
+        return mx === mn ? 0 : (mx - mn) / (l > .5 ? 2 - mx - mn : mx + mn); };
+      // 影の3つ目の長さ＝ぼかし。色（rgba(...) や #...）を除いてから数を読む（「0」には px が付かない）
+      const blurred = sh => String(sh).split(/,(?![^(]*\))/).some(part => {
+        const n = part.replace(/rgba?\([^)]*\)|#[0-9a-f]+|inset|[a-z-]+\([^)]*\)/gi, " ").trim().split(/\s+/).map(parseFloat).filter(x => !isNaN(x));
+        return (n[2] || 0) > 0; });
+      const got = {};
+      for (const theme of ["light", "dark"]) {
+        root.setAttribute("data-theme", theme);
+        const cs = getComputedStyle(root), v = k => cs.getPropertyValue(k).trim();
+        got[theme] = { sh: v("--shadow"), acc: v("--accent"), done: v("--done") };
+      }
+      if (before) root.setAttribute("data-theme", before); else root.removeAttribute("data-theme");
+      ok("CF. 浮くものを、ぼかした影で浮かせない（細い線1本・両方のテーマ）", !blurred(got.light.sh) && !blurred(got.dark.sh),
+         got.light.sh + " / " + got.dark.sh);
+      ok("CF. 差し色と「済んだ」の緑は、彩度を抑える（両方のテーマ）",
+         ["light", "dark"].every(t => sat(got[t].acc) <= .45 && sat(got[t].done) <= .45),
+         ["light", "dark"].map(t => t + " " + got[t].acc + "=" + sat(got[t].acc).toFixed(2) + " " + got[t].done + "=" + sat(got[t].done).toFixed(2)).join(" / "));
+      const nav = getComputedStyle(document.querySelector("nav.tabs"));
+      const bf = nav.backdropFilter || nav.webkitBackdropFilter || "none";
+      ok("CF. タブバーをすりガラスにしない（無地の面）", bf === "none" && !/rgba\(.*,\s*0?\.\d+\)$/.test(nav.backgroundColor), bf + " / " + nav.backgroundColor);
+      openSheet("<p>cf</p>");
+      const inner = document.querySelector(".sheet .inner");
+      const ish = inner ? getComputedStyle(inner).boxShadow : "シートが無い";
+      closeSheet();
+      ok("CF. シートを影で浮かせない（後ろの暗がりで分かる）", ish === "none", ish);
+      const tmp = document.createElement("div"); tmp.className = "next"; document.body.appendChild(tmp);
+      const nc = getComputedStyle(tmp);
+      ok("CF. 「次にすること」の上に太い線を引かない（角丸に沿って曲がる）", nc.borderTopWidth === nc.borderLeftWidth, nc.borderTopWidth + " / " + nc.borderLeftWidth);
+      tmp.remove();
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;
