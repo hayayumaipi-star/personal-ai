@@ -11,7 +11,7 @@
      ④ 通知で押された返事を、そのまま中へ運ぶ（2026-09-24）
      ⑤ Googleカレンダーへの通信を代わりに行う（2026-09-27・決まり17）
 
-   ⑤も「運ぶ」だけです。**どの予定を読み書きするかは、殻は知りません**（`app/index.html` の `gcalSync()`）。
+   ⑤も「運ぶ」だけです。**どの予定を読み書きするかは、殻は知りません**（`app/index.html` の `gcalTwoWay()`）。
    殻が持つのは2つだけ：**Google へのログイン**（Google は WebView の中でのログインを禁じているので、
    殻でしかできない）と、**鍵（アクセストークン）**。**鍵はページに渡しません**——ページは
    「この道にこう頼んで」と言うだけで、殻が鍵を付けて Google へ送り、返事だけを返します。
@@ -68,11 +68,10 @@ import { AndroidImportance } from "expo-notifications/build/NotificationChannelM
    読み込めなければ何もしない（EAS で作った APK でだけ動く）。ここで落とすとアプリ全体が開かなくなる。 */
 let GS = null;
 try { GS = require("@react-native-google-signin/google-signin").GoogleSignin; } catch (e) { GS = null; }
-/* 頼む権限は**2つだけ**：予定を読む／このアプリが作ったカレンダー（「AI秘書」）の中だけ書く。
-   **本人のほかの予定を書き換える権限は持たない。** 決めるのは殻（ページからは広げられない）。 */
+/* 頼む権限は**1つだけ**：予定を見て編集する（`calendar.events`）。メインのカレンダーと同期するため（本人の指示・決まり17）。
+   カレンダーそのものを作る・消す・共有する権限（`calendar`）は頼まない。決めるのは殻（ページからは広げられない）。 */
 const GCAL_SCOPES = [
-  "https://www.googleapis.com/auth/calendar.events.readonly",
-  "https://www.googleapis.com/auth/calendar.app.created"
+  "https://www.googleapis.com/auth/calendar.events"
 ];
 const GCAL_BASE = "https://www.googleapis.com/calendar/v3/";
 let gsReady = false;

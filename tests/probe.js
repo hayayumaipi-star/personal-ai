@@ -6215,111 +6215,157 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
-    /* ===== CV. Googleカレンダー（2026-09-27・本人の指示「読む＋書く」・決まり17） =====
-       偽の殻と偽の Google で、読む・書く・変える・消す・くり返し・送らないもの・欄の出し方を見る。
+    /* ===== CV. Googleカレンダーと同期（2026-09-27・本人の指示「メインで双方向」・決まり17） =====
+       偽の殻と偽の Google（メインのカレンダー）で、読む・書く・両方向の変更・消す・守り・くり返し・送らないもの・欄を見る。
        **本物の Google とは通していない**（このテストは中身の決まりだけを見る）。 */
     {
       const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
-      const keepRN = window.ReactNativeWebView, keepCap = gcalCap;
+      const keepRN = window.ReactNativeWebView, keepCap = gcalCap, keepAC = window.askConfirm;
       state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
       const tk = dayKey(new Date(), TZ), tmr = addKey(tk, 1);
       const iso = (k, h, m = 0) => zoned(...k.split("-").map(Number), h, m, TZ).toISOString();
       const hm = x => hhmm(minOfDay(x, TZ));
       // 話したのは本物の「いま」（「明日」が本物の明日になる）。時刻は朝8時に固定して、午前午後の読み分けに寄りかからない
       const mkNoteCV = text => { const at = iso(tk, 8); return { id: uid(), text, hash: "cv" + text + Math.random(), capturedAt: at, source: "talk", sourceName: null, createdAt: at }; };
-      // 偽の Google。primary＝本人のカレンダー、作ったカレンダーは cal1
-      const G = { primary: [], cals: {}, calls: [], seq: 0, noCal: false };
+      const say = async text => { const n = mkNoteCV(text); await putNote(n); await applyOps(ruleOps(n), n); };
+      // 偽の Google（メインのカレンダーだけ）。updated は書くたびに進む
+      const G = { ev: [], calls: [], seq: 0, clock: 0, empty: false };
+      const up = () => new Date(Date.UTC(2026, 0, 1) + (++G.clock) * 1000).toISOString();
+      const list = () => G.empty ? [] : G.ev.flatMap(e => e.recurrence
+        ? [{ id: e.id + "_1", recurringEventId: e.id, summary: e.summary, start: e.start, end: e.end, updated: e.updated }] : [e]);
       const reply = o => setTimeout(() => nativeReply(JSON.stringify(o)), 0);
       const route = m => {
         const path = String(m.path || ""), body = m.body ? JSON.parse(m.body) : null, meth = m.method;
         G.calls.push(meth + " " + path);
         const ok = (d, st = 200) => reply({ id: m.id, status: st, body: d == null ? "" : JSON.stringify(d) });
-        if (path === "calendars/primary/events" && meth === "GET") return ok({ items: G.primary });
-        if (path === "calendars" && meth === "POST") { const id = "cal" + (Object.keys(G.cals).length + 1); G.cals[id] = []; return ok({ id, summary: body.summary }); }
-        const mm = /^calendars\/([^/]+)(?:\/events(?:\/([^/]+))?)?$/.exec(path);
+        if (path === "calendars/primary/events") {
+          if (meth === "GET") return ok({ items: list() });
+          if (meth === "POST") { const ev = Object.assign({}, body, { id: "e" + (++G.seq), updated: up() }); G.ev.push(ev); return ok(ev); }
+        }
+        const mm = /^calendars\/primary\/events\/([^/]+)$/.exec(path);
         if (!mm) return ok({ error: { message: "bad" } }, 400);
-        const cid = decodeURIComponent(mm[1]), eid = mm[2] && decodeURIComponent(mm[2]), cal = G.cals[cid];
-        if (!cal || G.noCal) return ok({ error: { message: "Not Found" } }, 404);
-        if (!/\/events/.test(path)) return ok({ id: cid });
-        if (meth === "GET") return ok({ items: cal });
-        if (meth === "POST") { const ev = Object.assign({ id: "e" + (++G.seq) }, body); cal.push(ev); return ok(ev); }
-        const i = cal.findIndex(e => e.id === eid);
+        const i = G.ev.findIndex(e => e.id === decodeURIComponent(mm[1]));
         if (i < 0) return ok({ error: { message: "Not Found" } }, 404);
-        if (meth === "PUT") { cal[i] = Object.assign({ id: eid }, body); return ok(cal[i]); }
-        if (meth === "DELETE") { cal.splice(i, 1); return ok(null, 204); }
+        if (meth === "GET") return ok(G.ev[i]);
+        if (meth === "PATCH") { G.ev[i] = Object.assign({}, G.ev[i], body, { updated: up() }); return ok(G.ev[i]); }
+        if (meth === "DELETE") { G.ev.splice(i, 1); return ok(null, 204); }
         return ok(null, 400);
       };
       const shell = { postMessage: raw => { const m = JSON.parse(raw);
         if (m.kind === "gauth") return reply({ id: m.id, ok: true, email: "me@example.com" });
         if (m.kind === "gcal") return route(m); } };
       const settle = async () => { for (let i = 0; i < 40; i++) await new Promise(r => setTimeout(r, 5)); };
+      const gev = id => G.ev.find(e => e.id === id);
+      const byRef = ref => state.items.find(i => i.gcalRef === ref);
       try {
         // ⓪ 殻が無い（Artifact）：欄を出さない・何もしない
         delete window.ReactNativeWebView; gcalCap = null; localStorage.removeItem(GCAL_LS);
         showTab("p-set"); renderSettings();
         ok("CV. 殻が無い（Artifact）ときは、Googleカレンダーの欄を出さない", $("#gcalCard").hidden === true);
         ok("CV. 殻が無ければ、合わせても何も起きない", (await gcalSync()) === null);
-        // ① 殻がある：つなぐ前の欄（送るもの・読むもの・費用を先に書く）
+        // ① 殻がある：つなぐ前の欄（両方向であること・送るもの・費用を先に書く）
         window.ReactNativeWebView = shell; gcalCap = null; reset();
         await gcalProbe(); renderSettings();
         const card = $("#gcalCard");
-        ok("CV. Android アプリでは欄が出て、送るもの・読むもの・費用を書いてから「Google でつなぐ」を出す",
-          !card.hidden && /読むもの/.test(card.textContent) && /送るもの/.test(card.textContent) && /費用はかかりません/.test(card.textContent)
-          && /アプリの提案は送りません/.test(card.textContent) && !!$("#btnGcalOn"), card.textContent.replace(/\s+/g, " ").slice(0, 140));
-        // ② 読む
-        G.primary = [
-          { id: "g1", summary: "歯医者", updated: "u1", start: { dateTime: iso(tmr, 10) }, end: { dateTime: iso(tmr, 11) } },
-          { id: "g2", summary: "旅行", updated: "u1", start: { date: addKey(tk, 3) }, end: { date: addKey(tk, 5) } },
-          { id: "g3", summary: "断った会議", updated: "u1", start: { dateTime: iso(tmr, 13) }, end: { dateTime: iso(tmr, 14) }, attendees: [{ self: true, responseStatus: "declined" }] },
-          { id: "g4", summary: "取り消された", status: "cancelled", updated: "u1", start: { dateTime: iso(tmr, 15) }, end: { dateTime: iso(tmr, 16) } },
-          { id: "g5", summary: "自分が書いた", updated: "u1", start: { dateTime: iso(tmr, 17) }, end: { dateTime: iso(tmr, 18) }, extendedProperties: { private: { hitohiId: "x" } } }
+        ok("CV. Android アプリでは欄が出て、両方向に映ること・取り消すと Google でも消えること・送るもの・費用を書いてから「Google と同期する」を出す",
+          !card.hidden && /どちらで変えても/.test(card.textContent) && /取り消すと Google でも/.test(card.textContent) && /送るのは/.test(card.textContent)
+          && /費用はかかりません/.test(card.textContent) && /アプリの提案・タスクは送りません/.test(card.textContent) && !!$("#btnGcalOn"), card.textContent.replace(/\s+/g, " ").slice(0, 160));
+        // ② Google → ここ
+        G.ev = [
+          { id: "g1", summary: "歯医者", updated: up(), start: { dateTime: iso(tmr, 10) }, end: { dateTime: iso(tmr, 11) } },
+          { id: "g2", summary: "旅行", updated: up(), start: { date: addKey(tk, 3) }, end: { date: addKey(tk, 5) } },
+          { id: "g3", summary: "断った会議", updated: up(), start: { dateTime: iso(tmr, 13) }, end: { dateTime: iso(tmr, 14) }, attendees: [{ self: true, responseStatus: "declined" }] },
+          { id: "g4", summary: "取り消された", status: "cancelled", updated: up(), start: { dateTime: iso(tmr, 15) }, end: { dateTime: iso(tmr, 16) } }
         ];
         $("#btnGcalOn").click(); await settle();
-        const gi = () => state.items.filter(i => i.origin === "google");
-        const den = gi().find(i => i.title === "歯医者"), trip = gi().find(i => i.title === "旅行");
-        ok("CV. 「Google でつなぐ」でログインして、Google の予定を予定表に出す（断った・取り消された・こちらが書いたものは出さない）",
-          gcalGet().on === true && gi().length === 2 && !!den && hm(den.start) === "10:00" && den.dayKey === tmr && den.fixed,
-          gi().map(i => i.title).join("・"));
-        ok("CV. 何日も続く終日は全部の日に（Google の終わりは次の日を指す）", !!trip && trip.allDay && trip.dayKey === addKey(tk, 3) && trip.spanEndKey === addKey(tk, 4), trip ? trip.dayKey + "〜" + trip.spanEndKey : "なし");
-        ok("CV. Google から来た予定には「Googleカレンダー」の印", !!den && /Googleカレンダー/.test(srcChip(den)));
-        ok("CV. 読んだ予定は予定表に出る", planFor(tmr).blocks.some(b => b.item && b.item.id === den.id));
-        // ③ Google で変わった・消えた
-        G.primary[0] = Object.assign({}, G.primary[0], { summary: "歯医者（変更）", updated: "u2", start: { dateTime: iso(tmr, 11) }, end: { dateTime: iso(tmr, 12) } });
-        G.primary.splice(1, 1);
+        const gi = () => state.items.filter(i => i.origin === "google" && i.status === "open");
+        const den = byRef("g1"), trip = byRef("g2");
+        ok("CV. 「Google と同期する」で、Google の予定を予定表に出す（断った・取り消されたものは出さない）",
+          gcalGet().on === true && gi().length === 2 && !!den && hm(den.start) === "10:00" && den.dayKey === tmr, gi().map(i => i.title).join("・"));
+        ok("CV. 何日も続く終日は全部の日に（Google の終わりは次の日を指す）", !!trip && trip.allDay && trip.spanEndKey === addKey(tk, 4), trip ? trip.dayKey + "〜" + trip.spanEndKey : "なし");
+        ok("CV. Google から来た予定には「Googleカレンダー」の印・予定表に出る", /Googleカレンダー/.test(srcChip(den)) && planFor(tmr).blocks.some(b => b.item && b.item.id === den.id));
+        ok("CV. 読んだだけでは、Google に何も書かない", !G.calls.some(c => /^(POST|PATCH|DELETE)/.test(c)), G.calls.join(" | "));
+        Object.assign(gev("g1"), { summary: "歯医者（変更）", updated: up(), start: { dateTime: iso(tmr, 11) }, end: { dateTime: iso(tmr, 12) } });
+        G.ev = G.ev.filter(e => e.id !== "g2");
         await gcalSync();
-        const den2 = state.items.find(i => i.gcalRef === "g1");
-        ok("CV. Google で変わった予定は、ここでも変わる", !!den2 && den2.title === "歯医者（変更）" && hm(den2.start) === "11:00", den2 ? den2.title : "なし");
-        ok("CV. Google で消えた予定は、ここからも消える", !state.items.some(i => i.gcalRef === "g2"));
-        den2.corrected = true; den2.title = "歯医者（ここで直した）";
-        G.primary[0] = Object.assign({}, G.primary[0], { summary: "歯医者（また変更）", updated: "u3" });
+        ok("CV. Google で変わった予定は、ここでも変わる", byRef("g1").title === "歯医者（変更）" && hm(byRef("g1").start) === "11:00", byRef("g1").title);
+        const tripNow = state.items.find(i => i.title === "旅行");
+        ok("CV. Google で消えた予定は、ここでも取り消しになる（履歴に残る）", !!tripNow && tripNow.status === "dropped" && tripNow.history.some(h => /Googleカレンダーで消された/.test(h.what)));
+        // ③ ここ → Google（Google から来た予定をここで直す）
+        const d1 = byRef("g1"); d1.start = iso(tmr, 16); d1.end = iso(tmr, 17); d1.corrected = true; await putItem(d1);
+        G.calls = []; await gcalSync();
+        ok("CV. ここで Google の予定の時刻を直したら、Google でも変わる（名前・日時だけ送る）", G.calls.includes("PATCH calendars/primary/events/g1") && gev("g1").start.dateTime === d1.start
+          && gev("g1").summary === "歯医者（変更）" && !("attendees" in (JSON.parse(JSON.stringify(gcalBody(d1, TZ))))), gev("g1").start.dateTime);
+        // ④ 両方で変わったら、あとから変えたほう
+        d1.title = "歯医者A"; await putItem(d1); d1.updatedAt = "2026-01-01T00:00:00.000Z";
+        Object.assign(gev("g1"), { summary: "歯医者B", updated: "2030-01-01T00:00:00.000Z" });
         await gcalSync();
-        ok("CV. ここで直した予定は、Google 側の変化で上書きしない", state.items.find(i => i.gcalRef === "g1").title === "歯医者（ここで直した）");
-        // ④ 書く：話した予定だけ「AI秘書」へ
-        const n = mkNoteCV("明日15時から16時まで会議");
-        await putNote(n); await applyOps(ruleOps(n), n);
+        ok("CV. 両方で変わったら、あとから変えたほう（Google が後）", byRef("g1").title === "歯医者B" && gev("g1").summary === "歯医者B", byRef("g1").title + " / " + gev("g1").summary);
+        d1.title = "歯医者C"; await putItem(d1); d1.updatedAt = "2031-01-01T00:00:00.000Z";
+        Object.assign(gev("g1"), { summary: "歯医者D", updated: "2030-06-01T00:00:00.000Z" });
+        await gcalSync();
+        ok("CV. 両方で変わったら、あとから変えたほう（ここが後）", byRef("g1").title === "歯医者C" && gev("g1").summary === "歯医者C", byRef("g1").title + " / " + gev("g1").summary);
+        // ⑤ 話した予定はメインに入る。提案・タスクは送らない
+        await say("明日15時から16時まで会議");
         const meet = state.items.find(i => i.title === "会議");
         state.items.push({ id: uid(), noteId: "x", kind: "event", title: "アプリの提案の散歩", suggested: true, origin: "rule", status: "open", fixed: false,
           start: iso(tmr, 18), end: iso(tmr, 19), dayKey: tmr, duePrecision: "exact", history: [], evidence: { text: "", start: 0, end: 0 } });
-        G.calls = []; await gcalSync(); await settle();
-        const cal = Object.values(G.cals)[0] || [];
-        ok("CV. 話した予定は Google の「AI秘書」カレンダーに書く（id を覚える）", Object.keys(G.cals).length === 1 && cal.length === 1 && cal[0].summary === "会議"
-          && cal[0].extendedProperties.private.hitohiId === meet.id && !!meet.gcalId, JSON.stringify(cal.map(e => e.summary)));
-        ok("CV. アプリの提案・Google から来た予定は書かない（メインのカレンダーには書かない）", !cal.some(e => /提案|歯医者/.test(e.summary)) && !G.calls.some(c => /primary\/events/.test(c) && !/^GET/.test(c)), G.calls.join(" | "));
+        await say("明日までに資料を作る");
+        { const old = { id: uid(), noteId: "x", kind: "event", title: "10日前の打ち合わせ", origin: "rule", status: "open", fixed: true,
+            start: iso(addKey(tk, -10), 10), end: iso(addKey(tk, -10), 11), dayKey: addKey(tk, -10), duePrecision: "exact", history: [], evidence: { text: "", start: 0, end: 0 } };
+          old.dedupeKey = dedupeKey(old); state.items.push(old); }
         G.calls = []; await gcalSync();
-        ok("CV. 変わっていなければ、書き直さない", !G.calls.some(c => /^(PUT|POST) calendars\/cal/.test(c)), G.calls.join(" | "));
-        meet.start = iso(tmr, 17); meet.end = iso(tmr, 18); await putItem(meet);
+        const gm = G.ev.find(e => e.summary === "会議");
+        ok("CV. 1週間より前の予定は、あとから Google に送らない", !G.ev.some(e => /10日前/.test(e.summary || "")));
+        ok("CV. 話した予定は Google のメインに入る（こちらの印つき・つながる）", !!gm && gcalHid(gm) === meet.id && meet.gcalRef === gm.id, JSON.stringify(G.ev.map(e => e.summary)));
+        ok("CV. アプリの提案・タスクは Google に送らない", !G.ev.some(e => /提案|資料/.test(e.summary || "")));
         G.calls = []; await gcalSync();
-        ok("CV. 時刻を直したら、Google の予定も直す", G.calls.some(c => /^PUT calendars\/cal1\/events\//.test(c)) && /T08:00:00/.test(cal[0].start.dateTime), cal[0] && cal[0].start.dateTime);
+        ok("CV. 変わっていなければ、書き直さない（同じ予定を二重に作らない）", !G.calls.some(c => /^(PATCH|POST)/.test(c)) && G.ev.filter(e => e.summary === "会議").length === 1, G.calls.join(" | "));
+        // ⑥ ここで取り消す → Google からも消す。元に戻す → 入れ直す（消えたと読まない）
         await act("drop", meet.id, null); await gcalSync();
-        ok("CV. 取り消したら、Google からも消す", cal.length === 0 && !meet.gcalId, String(cal.length));
-        // 記録ごと消した項目のぶん（持ち主の居ない予定）も消す
-        const n2 = mkNoteCV("明日9時から10時まで打ち合わせ"); await putNote(n2); await applyOps(ruleOps(n2), n2); await gcalSync();
-        const mt = state.items.find(i => i.title === "打ち合わせ");
-        ok("CV. もう1件書ける", cal.length === 1 && !!mt && !!mt.gcalId);
-        state.items = state.items.filter(i => i.id !== mt.id); await gcalSync();
-        ok("CV. 記録ごと消した予定も、Google から消す", cal.length === 0, String(cal.length));
-        // ⑤ くり返しを RRULE に写す（決まり0p と同じ日に当たる）
-        const base = { id: "r", title: "家賃", kind: "event", start: iso("2026-09-25", 10), end: iso("2026-09-25", 11), dayKey: "2026-09-25" };
+        ok("CV. ここで取り消したら、Google からも消す", !G.ev.some(e => e.summary === "会議") && !meet.gcalRef);
+        const snap = JSON.parse(JSON.stringify(Object.assign({}, meet, { status: "open", gcalRef: gm.id })));
+        Object.assign(meet, snap); await putItem(meet); await gcalSync();
+        ok("CV. 取り消しを元に戻したら、Google に入れ直す（Google で消えたとは読まない）", meet.status === "open" && G.ev.filter(e => e.summary === "会議").length === 1 && !!meet.gcalRef, meet.status);
+        // ⑦ 完全に消す → その1件だけ Google からも消す
+        window.askConfirm = async () => true;
+        await act("delitem", meet.id, null); await settle();
+        ok("CV. 記録ごと消したら、その1件だけ Google からも消す", !G.ev.some(e => e.summary === "会議") && !state.items.some(i => i.id === meet.id));
+        // ⑧ ここで話したばかりの同じ予定が Google にもある：二重に作らず、つなぐ
+        await say("明後日12時から13時まで昼会");
+        const hiru = state.items.find(i => i.title === "昼会");
+        G.ev.push({ id: "g9", summary: "昼会", updated: up(), start: { dateTime: hiru.start }, end: { dateTime: hiru.end } });
+        G.calls = []; await gcalSync();
+        ok("CV. 同じ予定が Google にもあれば、二重に作らずにつなぐ", hiru.gcalRef === "g9" && G.ev.filter(e => e.summary === "昼会").length === 1
+          && state.items.filter(i => i.title === "昼会").length === 1, G.calls.join(" | "));
+        // ⑨ 守り：消しすぎない／1件も返らないときは消えたと読まない
+        const many = [];
+        for (let i = 0; i < 12; i++) { const it = { id: uid(), noteId: "x", kind: "event", title: "消す予定" + i, origin: "rule", status: "open", fixed: true,
+          start: iso(addKey(tk, 2), 6 + i), end: iso(addKey(tk, 2), 6 + i, 30), dayKey: addKey(tk, 2), duePrecision: "exact", history: [], evidence: { text: "", start: 0, end: 0 } };
+          it.dedupeKey = dedupeKey(it); state.items.push(it); many.push(it); }
+        await gcalSync();
+        for (const it of many) { it.status = "dropped"; await putItem(it); }
+        await gcalSync();
+        ok("CV. 1回に消すのは10件まで。超えたら止めて言う", G.ev.filter(e => /消す予定/.test(e.summary)).length === 2 && /多すぎる/.test(gcalGet().lastError || ""), gcalGet().lastError);
+        await gcalSync();
+        ok("CV. 残りは次に合わせたときに消す", G.ev.filter(e => /消す予定/.test(e.summary)).length === 0);
+        await say("明後日9時から10時まで朝会"); await say("明後日17時から18時まで面談"); await gcalSync();
+        const linkedBefore = state.items.filter(i => i.gcalRef && i.status === "open").length;
+        G.empty = true; await gcalSync(); G.empty = false;
+        ok("CV. Google から1件も返らないときは、消えたと読まない（こちらは何も取り消さない）", linkedBefore >= 3
+          && state.items.filter(i => i.gcalRef && i.status === "open").length === linkedBefore && /念のため/.test(gcalGet().lastError || ""), String(linkedBefore));
+        // ⑩ くり返し：くり返しとして1件で書き、その1回ぶんを別の予定として取り込まない
+        await say("毎週月曜10時からゼミ");
+        const zemi = state.items.find(i => i.title === "ゼミ");
+        await gcalSync();
+        const gz = G.ev.find(e => e.summary === "ゼミ");
+        ok("CV. くり返しの予定は、くり返し（RRULE）として1件だけ書く", !!gz && /RRULE:FREQ=WEEKLY;BYDAY=MO/.test((gz.recurrence || [])[0] || "") && zemi.gcalRef === gz.id, gz ? JSON.stringify(gz.recurrence) : "なし");
+        await gcalSync();
+        ok("CV. Google から返る「その1回ぶん」を、別の予定として取り込まない", state.items.filter(i => /ゼミ/.test(i.title)).length === 1);
+        G.ev = G.ev.filter(e => e.id !== gz.id); await gcalSync();
+        ok("CV. Google でくり返しごと消されたら、ここでも取り消し", zemi.status === "dropped", zemi.status);
+        // ⑪ くり返しを RRULE に写す（決まり0p と同じ日に当たる）
+        const base = { id: "r", title: "家賃", kind: "event", origin: "rule", start: iso("2026-09-25", 10), end: iso("2026-09-25", 11), dayKey: "2026-09-25" };
         const RR = r => gcalRRule(Object.assign({}, base, { repeat: r }), TZ);
         const table = [[{ kind: "monthly", dom: 25 }, "RRULE:FREQ=MONTHLY;BYMONTHDAY=25"], [{ kind: "monthly", dom: 31 }, "RRULE:FREQ=MONTHLY;BYMONTHDAY=28,29,30,31;BYSETPOS=-1"],
           [{ kind: "monthly", dom: -1 }, "RRULE:FREQ=MONTHLY;BYMONTHDAY=-1"], [{ kind: "monthly", nth: 2, dow: 3 }, "RRULE:FREQ=MONTHLY;BYDAY=2WE"],
@@ -6331,38 +6377,38 @@
         ok("CV. 「この日はやらない」は、その回を外す（EXDATE）", (bx.recurrence || []).some(x => x === "EXDATE;TZID=" + TZ + ":20261025T100000"), JSON.stringify(bx.recurrence));
         const ad = gcalBody(Object.assign({}, base, { allDay: true, spanEndKey: "2026-09-27" }), TZ);
         ok("CV. 何日も続く終日は、Google の形（終わりは次の日）で書く", ad.start.date === "2026-09-25" && ad.end.date === "2026-09-28", JSON.stringify([ad.start, ad.end]));
-        // ⑤b 話したら、呼ばなくても少し待ってまとめて書く／前に出てきたら合わせ直す
-        const n4 = mkNoteCV("明後日12時から13時まで昼会"); await putNote(n4); await applyOps(ruleOps(n4), n4);
-        await new Promise(r => setTimeout(r, 4600)); await settle();
-        ok("CV. 話したら、呼ばなくても少し待って Google に書く", cal.some(e => e.summary === "昼会"), JSON.stringify(cal.map(e => e.summary)));
+        // ⑫ 話したら、呼ばなくても少し待って合わせる／前に出てきたら合わせ直す
+        await say("明後日19時から20時まで夕食会"); await new Promise(r => setTimeout(r, 4600)); await settle();
+        ok("CV. 話したら、呼ばなくても少し待って Google に入れる", G.ev.some(e => e.summary === "夕食会"), JSON.stringify(G.ev.map(e => e.summary)));
         { const g = gcalGet(); g.lastSync = new Date(Date.now() - 3600000).toISOString(); gcalPut(g); }
         Object.defineProperty(document, "visibilityState", { get: () => "visible", configurable: true });
         G.calls = []; document.dispatchEvent(new Event("visibilitychange"));
         await new Promise(r => setTimeout(r, 800)); await settle();
         delete document.visibilityState;
         ok("CV. アプリが前に出てきたら（10分以上たっていれば）Google と合わせ直す", G.calls.some(c => /^GET calendars\/primary\/events/.test(c)), G.calls.join(" | "));
-        // ⑤c ここで話した予定と同じものが Google にもある（本人が両方に入れた）：二重に出さない
-        const hiru = state.items.find(i => i.title === "昼会");
-        G.primary.push({ id: "g9", summary: "昼会", updated: "u1", start: { dateTime: hiru.start }, end: { dateTime: hiru.end } });
-        await gcalSync();
-        ok("CV. ここで話した予定と同じものが Google にあっても、二重に出さない", !state.items.some(i => i.gcalRef === "g9")
-          && state.items.filter(i => i.title === "昼会" && i.status === "open").length === 1);
-        // ⑥ 「AI秘書」が Google で消されていた：作り直さず、止めて言う
-        const n3 = mkNoteCV("明日20時から21時まで電話"); await putNote(n3); await applyOps(ruleOps(n3), n3);
-        G.noCal = true; await gcalSync();
-        ok("CV. 「AI秘書」カレンダーが消されていたら、作り直さずに書き込みを止めて言う", gcalGet().noWrite === true && /見つからない/.test(gcalGet().lastError || "") && Object.keys(G.cals).length === 1, gcalGet().lastError);
-        G.noCal = false;
-        // ⑦ 記録は端末の中：書き出し・設定に入れない。鍵はページに来ない
+        // ⑬ 記録は端末の中：書き出し・設定に入れない。鍵はページに来ない
         const ex = exportPayload();
         ok("CV. つないでいるアカウントは、書き出しにも設定にも入れない（端末の中だけ）", !/me@example\.com/.test(ex) && !/gcal|google/i.test(JSON.stringify(state.settings)));
-        const src = [gcalReq, gcalSync, gcalPull, gcalPush, gcalConnect].map(String).join("\n");
+        const src = [gcalReq, gcalSync, gcalTwoWay, gcalConnect].map(String).join("\n");
         ok("CV. ページは鍵（アクセストークン）を扱わない（殻が付ける）", !/accessToken|Bearer|Authorization/.test(src));
-        // ⑧ 古い APK（Google を知らない殻）：返事が無い → 使えないと言う
+        // ⑭ 同期をやめる → Google の予定はそのまま・Google から来た予定はここから外す。つなぎ直したら、こちらの印で見つけ直す
+        const nEv = G.ev.length;
+        await gcalDisconnect(); await settle();
+        ok("CV. 同期をやめても Google の予定は消さない。Google から来た予定はここから外す・話した予定は残る",
+          G.ev.length === nEv && !state.items.some(i => i.origin === "google") && state.items.some(i => i.title === "夕食会" && !i.gcalRef), String(G.ev.length));
+        // 同期をやめている間に、ここで時刻を直した（名前と時刻では見つけられない）
+        const yu = state.items.find(i => i.title === "夕食会");
+        yu.start = iso(addKey(tk, 2), 20); yu.end = iso(addKey(tk, 2), 21); await putItem(yu);
+        G.calls = []; await gcalConnect(); await settle();
+        ok("CV. つなぎ直したら、こちらの印で見つけ直す（時刻を直していても、同じ予定を2つ作らない・直した時刻を送る）",
+          !!yu.gcalRef && G.ev.filter(e => e.summary === "夕食会").length === 1 && !G.calls.some(c => /^POST/.test(c))
+          && G.ev.find(e => e.summary === "夕食会").start.dateTime === yu.start && state.items.filter(i => i.title === "夕食会").length === 1, G.calls.join(" | "));
+        // ⑮ 古い APK（Google を知らない殻）：返事が無い → 使えないと言う
         window.ReactNativeWebView = { postMessage: () => {} }; gcalCap = null;
         await gcalProbe(); renderSettings();
         ok("CV. 古い APK では「作り直すと使える」と言う（黙って固まらない）", gcalCap === false && /作り直す/.test($("#gcalCard").textContent));
       } finally {
-        clearTimeout(gcalTimer); localStorage.removeItem(GCAL_LS); gcalCap = keepCap;
+        clearTimeout(gcalTimer); localStorage.removeItem(GCAL_LS); gcalCap = keepCap; window.askConfirm = keepAC;
         if (keepRN) window.ReactNativeWebView = keepRN; else delete window.ReactNativeWebView;
         state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
         showTab("p-chat");
