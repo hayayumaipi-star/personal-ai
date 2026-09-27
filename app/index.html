@@ -1814,6 +1814,8 @@ const RE_DONE  = /(した$|しました|終わった(?!ら)|終わりました|�
    **位置はずらさない**（根拠の引用は原文の同じ場所を指す）。 */
 const RE_CLOCK = /\d{1,2}\s*時(?!間)|\d{1,2}:\d{2}/;   // 「2時間」の「2時」は時刻ではない（テストで見つけた）
 const RE_SEQ = /^(そのあと|その後|それから|あとは|次に|終わったら)/;
+const RE_WIN_HEAD = /^(午前中|午前|午後|昼過ぎ|お昼|昼|夕方|夜|晩|朝)(に|は|から|で|の)/;
+const RE_WIN_ANY = /(午前中|午前|午後|昼過ぎ|お昼|昼|夕方|夜|晩|朝)(に|は|から|で)/;
 const RE_DATE_HEAD = /^(今日|明日|明後日|あさって|今夜|今晩|来週|今週|再来週|来月|今度の|次の|[月火水木金土日]曜|\d{1,2}\s*[月\/]|\d{1,2}\s*日(?!間))/;
 function splitLines(text) {
   const out = []; let base = 0, lineNo = -1;
@@ -1836,9 +1838,13 @@ function splitLines(text) {
            （2026-09-27・テスターで発見。3つ目の面接が黙って消えていた）。前の話も日付か時刻を言っているときだけ。 */
         //    続きの言い足し（「資料を作らないと。明日までに相手に送るやつ。」）は分けない——前の話に時刻があり、新しい話が予定の語か時刻を持つときだけ
         const newDay = cur && /[。！!？?]\s*$/.test(cur.text) && cur.clock && RE_DATE_HEAD.test(t) && (clock || RE_EVENT.test(t) || RE_GOTO.test(t));
-        if (cur && t && !openRange && ((clock && cur.clock) || (seq && cur.text.trim().length >= 2) || but || newDay)) { topics.push(cur); cur = null; }
-        if (!cur) cur = { text: "", start: c.start, clock: false, dated: false };
+        /* ⑤「今日は午前中に掃除、午後から買い物、夜は映画」——**時間帯で始まる話が続けば、次の話**（2026-09-27・テスター2周目。1件「掃除、買い物、夜は映画」になっていた）。
+           前の話も時間帯を言っているときだけ（「疲れた、夜は早く寝る」は分けない）。日付は前の話から渡る（carryFrom）。 */
+        const win = RE_WIN_HEAD.test(t);
+        if (cur && t && !openRange && ((clock && cur.clock) || (seq && cur.text.trim().length >= 2) || but || newDay || (win && cur.win))) { topics.push(cur); cur = null; }
+        if (!cur) cur = { text: "", start: c.start, clock: false, dated: false, win: false };
         cur.text += c.text; cur.clock = cur.clock || clock; cur.dated = cur.dated || RE_DATE_HEAD.test(t);
+        cur.win = cur.win || RE_WIN_ANY.test(t);
       }
       if (cur) topics.push(cur);
       for (const tp of topics) {
@@ -1985,7 +1991,9 @@ function cleanTitle(s, when, opts) {
   t = t.replace(/^[（(][日月火水木金土](?:曜日?)?[）)]\s*(?:に|は)?/, "").replace(/^頭(?:に|まで|は)\s*/, "").replace(/^\d{1,3}\s*日間\s*/, "");
   t = t.replace(/^(?:締め切り|締切|〆切|しめきり)の\s*/, "").replace(/(?<=\S)(?:の|は|が)?(?:締め切り|締切|〆切|しめきり)$/, "");
   t = t.replace(/^必着で\s*/, "").replace(/^朝晩(?:に|は)?\s*/, "");
-  t = t.replace(/^(?:前|過ぎ|すぎ|以降|以後)(?:に|から|は)\s*/, "");        // 時刻の跡に残った「前に」「過ぎに」「以降に」
+  t = t.replace(/^(?:前|過ぎ|すぎ|以降|以後)(?:に|から|は)\s*/, "");
+  // 話を時間帯で分けた跡（「夜は映画」）。見出しのいちばん頭だけ（「夕食の買い出し」「夜景」は中身なので触らない）
+  if (opts && opts.winSplit) t = t.replace(/^(?:午前中|午前|午後|昼過ぎ|お昼|夕方|夜|晩)(?:は|から)\s*(?=\S{2})/, "");        // 時刻の跡に残った「前に」「過ぎに」「以降に」
   t = t.replace(/(?<=予約)を?\s*(?:入れた|取った)$/, "");
   t = t.replace(/[をは]?[、,，\s]*(に|へ)?(変更|移動)(して|する|で|です)?$/, "").trim();
   t = t.replace(/[、,，\s]*(じゃなくて|じゃなく|ではなくて|ではなく)[、,，\s]*/g, "").replace(/[、,，\s]+$/, "").trim();   // 言い直しの跡（「会議、じゃなくて」）   // 「会議、10時から11時に変更」の「、変更」も
@@ -2120,8 +2128,11 @@ const RE_VERB_END = /[^そよろっ](く|ぐ|つ|ぬ|ぶ|む|る)[。、]?$|[^�
 const looksDecided = s => RE_DECIDED.test(s) || (RE_VERB_END.test(s) && contentWords(s).length > 0);
 /* 「明日プレゼンの準備。」のような名詞止め */
 const RE_NOUN_TASK = /(準備|予約|掃除|洗濯|買い物|連絡|提出|申請|登録|練習|片付け|支払い|振込|振り込み|手続き|返却|予習|復習|会計|入金|更新|車検|点検|修理|ゴミ出し|ごみ出し|申し込み|申込|解約|契約|返品|受け取り|引き取り|クリーニング|模様替え|大掃除|衣替え|草むしり|散髪|報告|相談|電話|メール|返信|お迎え|迎え|散歩|勉強|宿題|課題|注文|問い合わせ|手配|予約確認|お礼)[。、]?$/;
+// 「1万円おろす」「¥1,000払う」「￥500を返す」——金額とお金の動詞（2026-09-27）。判定と強さの両方で同じものを見る（決まり7e）
+const RE_MONEY_TASK = { test: s => /(\d[\d,]*\s*(円|万円?|千円)|[¥￥]\s*\d)/.test(s) && /(払う|払い|振り込|振込|おろす|下ろす|引き出す|送金|入金|返す|貸す|チャージ)/.test(s) };
 function taskStrength(s) {
   let n = 0;
+  if (RE_MONEY_TASK.test(s)) n += 2;
   if (RE_SELFTASK.test(s)) n += 3;              // しないと／なきゃ／忘れないように
   if (/(しておいて|しといて|やっておいて)/.test(s)) n += 2;
   if (looksDecided(s)) n += 2;
@@ -2269,7 +2280,7 @@ function classify(rawS, lineWhen) {
   if ((isTask || looksDecided(s)) && taskStrength(s) >= 2) return "task";
   if (isEvent) return "event";
   // 「1万円おろす」「¥1,000払う」——金額の話の用事（2026-09-27・何も記録されていなかった）
-  if (/(\d[\d,]*\s*(円|万円?|千円)|¥\s*\d)/.test(s) && /(払う|払い|振り込|振込|おろす|下ろす|引き出す|送金|入金|返す|貸す|チャージ)/.test(s) && !RE_SAID_PAST.test(s)) return "task";
+  if (RE_MONEY_TASK.test(s) && !RE_SAID_PAST.test(s)) return "task";
   return datedLeftover(s, lineWhen);
 }
 /* **受け皿：日付か時刻を言ったのに、どの種類にも当たらなかった文**（2026-09-27・本人の指示「ほかにも最適化できないか模索して」）。
@@ -2287,7 +2298,8 @@ const RE_STATE_END = /(い|たい|ない|そう|よう|らしい|みたい|だ|�
 const RE_DAY_MOOD = /(バタバタ|ドタバタ|余裕|暇|ひま|大変|忙し(い)?|移動中|不安|心配|緊張|憂鬱|楽しみ|ワクワク|わくわく|ドキドキ|面倒|めんどう|めんどくさい|最悪|最高|無理|ギリギリ|ぎりぎり)(が(ある|ない))?(かも|そう|だ|です)?$/;
 const RE_DEADLINE_WORD = /(締め切り|締切|〆切|しめきり|期限|提出日|納期)/;
 function datedLeftover(s, lineWhen) {
-  if (!lineWhen || !RE_SAID_WHEN.test(s)) return null;
+  // 同じ行の前の話から日付を受け取った話（「明日は午前中に病院、午後は仕事」の「午後は仕事」）も、日付を言った話として読む
+  if (!lineWhen || !(RE_SAID_WHEN.test(s) || lineWhen.carried)) return null;
   if (RE_PAST_TALK.test(s) || RE_WEATHER.test(s) || RE_QUESTION_END.test(s) || RE_ASK.test(s)) return null;
   if (RE_NARRATIVE.test(s) || RE_SOFT.test(s) || RE_MAYBE.test(s) || RE_NEGATED.test(s) || RE_CANCELLED.test(s)) return null;
   // 言い直し（「明日の予定、15時じゃなくて14時だった」）は新しい予定ではない。照合は ruleOps／AI の仕事（決まり6h）
@@ -2420,8 +2432,10 @@ function extractByRule(note, settings) {
        範囲（〜から〜まで）を言っている行は分けない（「10時から12時と13時から15時」は範囲が2つ）。 */
     const tc = !days && !/(から|まで|〜|～)/.test(l.text) && RE_TWO_CLOCK.exec(l.text);
     if (tc && tc[1] !== tc[3]) {
+      // 「8時と20時に薬を飲む」——もう一方が13時以降なら、12時より前のほうは午前（2026-09-27・どちらも20時になり1件に重なっていた）
+      const pmOther = Math.max(+tc[1], +tc[3]) >= 13;
       for (const [h, half] of [[tc[1], tc[2]], [tc[3], tc[4]]]) {
-        const sub = x => x.replace(RE_TWO_CLOCK, h + "時" + (half || ""));
+        const sub = x => x.replace(RE_TWO_CLOCK, (pmOther && +h < 12 ? "午前" : "") + h + "時" + (half || ""));
         topics.push(Object.assign({}, l, { text: sub(l.text), sentences: l.sentences.map(se => Object.assign({}, se, { text: sub(se.text) })) }));
       }
       continue;
@@ -2470,7 +2484,8 @@ function extractByRule(note, settings) {
     const picked = {}, order = [], extraDur = {};
     let travelMin = null;
     for (const sen of line.sentences) {
-      if (RE_DONE.test(sen.text) && !RE_TASK.test(sen.text) && !RE_CANCELLED.test(sen.text)) continue;   // 「行かないことにした」は取りやめ（メモに残す）
+      // 「飲み会に行くことにした」は決めたこと（済んだ報告ではない・2026-09-27 まで何も記録されなかった）
+      if (RE_DONE.test(sen.text) && !RE_TASK.test(sen.text) && !RE_CANCELLED.test(sen.text) && !RE_SETTLED.test(sen.text.trim())) continue;   // 「行かないことにした」は取りやめ（メモに残す）
       // 「移動に30分かかる」——これは用事でも所要時間でもない。予定に付ける。
       const tv = parseTravel(sen.text);
       if (tv != null) { travelMin = tv; continue; }
@@ -2497,7 +2512,7 @@ function extractByRule(note, settings) {
     }
     usedSen.add(sen.start);
     const s = sen.text;
-    const senWhen0 = carryDay(s, carryFrom[ti] && RE_CLOCK.test(s) ? carryFrom[ti] : null, parseWhen(s, note.capturedAt, tz));
+    const senWhen0 = carryDay(s, carryFrom[ti] && (RE_CLOCK.test(s) || RE_WIN_HEAD.test(s.trim())) ? carryFrom[ti] : null, parseWhen(s, note.capturedAt, tz));
     const senWhen = (moved && senWhen0 && senWhen0.ampmOpen && senWhen0.hasTime
       && (senWhen0.start || senWhen0.iso) === (rawWhens[ti].start || rawWhens[ti].iso)) ? shiftWhen(senWhen0, moved, tz) : senWhen0;
     // 1行に複数の話題があるときは、行全体の日時を他の話題に持ち込まない。
@@ -2527,7 +2542,7 @@ function extractByRule(note, settings) {
 
     const base = {
       id: uid(), noteId: note.id, kind,
-      title: cleanTitle(s, kind === "condition" ? null : senWhen, { keepHabit: kind === "goal" }),
+      title: cleanTitle(s, kind === "condition" ? null : senWhen, { keepHabit: kind === "goal", winSplit: ti > 0 && topics[ti - 1].lineNo === line.lineNo && RE_WIN_HEAD.test(s.trim()) }),
       evidence: { text: rawLine, start: line.start, end: line.end },
       origin: "rule", corrected: false,
       status: "open", confirmed: false,
@@ -2538,7 +2553,7 @@ function extractByRule(note, settings) {
     // 日時と長さを取り除いたら、数字のかけらしか残らなかった文は用事ではない。
     // 長さだけを言っている（「たぶん2、3時間はかかる。」→ 見出しが「たぶん2」になっていた）。
     // 拾った長さは、直前に拾ったものに付ける。
-    if ((kind === "task" || kind === "event") && !contentWords(base.title).length && /\d/.test(base.title) && !/\d\s*限/.test(base.title)) {
+    if ((kind === "task" || kind === "event") && !contentWords(base.title).length && /\d/.test(base.title) && !/\d\s*限/.test(base.title) && !RE_MONEY_TASK.test(base.title)) {
       const prev = items[items.length - 1];
       if (d != null && prev && prev.kind === "task" && prev.estimateMin == null) prev.estimateMin = d;
       continue;

@@ -6048,6 +6048,21 @@
         ok("CS. AIの ops が1件の物でも落ちない", !threw && state.items.length === 1, threw || "");
         reset(); await applyOps([{ op: "add", kind: "event", title: "会議", dueDate: "9999-12-31", dueTime: "10:00" }], n);
         ok("CS. AIの日付がありえない年なら採らない", state.items.length === 1 && !/^9999/.test(state.items[0].dayKey || ""), show(state.items)); }
+      // ⑪ 0o で「まだ読めていない」と書いたもの（時間帯で分ける・時刻2つ・ことにした・¥）
+      { const a = read("今日は午前中に掃除、午後から買い物、夜は映画");
+        ok("CS. 「午前中に掃除、午後から買い物、夜は映画」は時間帯ごとに3つ", a.length === 3 && a.map(i => i.title).join() === "掃除,買い物,映画" && a[0].preferWindow === "morning" && a[1].preferWindow === "afternoon", show(a));
+        const b = read("明日は午前中に病院、午後は仕事");
+        ok("CS. 分けたあとの話にも、前で言った日付が効く（明日の病院・明日の仕事）", b.length === 2 && b.every(i => i.dayKey === "2026-09-16"), show(b));
+        const c = read("夜はいつも頭が痛くなる"), d = read("明日は、午前中に病院に行く");
+        const c2 = read("毎日、朝に散歩する"), c3 = read("資料を作って、夜は休む");
+        ok("CS. 時間帯の言葉で始まっても、前に時間帯が無ければ分けない（明日は、午前中に病院／毎日、朝に散歩／資料を作って、夜は休む）",
+          c.length <= 1 && d.length === 1 && d[0].title === "病院に行く" && d[0].dayKey === "2026-09-16" && c2.length === 1 && c2[0].kind === "goal" && c3.length === 1, show(c.concat(d, c2, c3)));
+        const e = read("8時と20時に薬を飲む");
+        ok("CS. 「8時と20時に」は2件・8時は朝（もう一方が13時以降なら午前）", e.length === 2 && e.map(i => hm(i.due || i.start)).sort().join() === "08:00,20:00", show(e));
+        const f = one("飲み会に行くことにした");
+        ok("CS. 「〜に行くことにした」は決めたこと（済んだ話として捨てない）", !!f && f.title === "飲み会に行く", f ? show([f]) : "なし");
+        const g = one("¥1,000払う"), h = one("立て替えた¥500を返す");
+        ok("CS. 「¥1,000払う」「¥500を返す」はお金の用事", !!g && g.kind === "task" && !!h && h.kind === "task", show([g, h].filter(Boolean))); }
       // ⑩ 画面：長い英数字・大きな文字・横向き
       { const sheetRules = []; for (const sh of document.styleSheets) { let rules; try { rules = sh.cssRules; } catch { continue; } for (const r of rules) sheetRules.push(r); }
         const bodyRule = sheetRules.find(r => r.selectorText === "body" && r.style && r.style.overflowWrap);
