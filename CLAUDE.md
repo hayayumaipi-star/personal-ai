@@ -29,6 +29,7 @@
 | 「留守のあいだに」 | **出ない**（`db` が無いので `lifeos_results` を読めない） | 出る |
 | 書き出し | **文字をコピーするだけ**（`downloads` が無い） | ダウンロードのダイアログ |
 | 記録 | **まだ空**（移す道が要る・`docs/残タスク.md` の 1-1） | これまでのぶん全部 |
+| Googleカレンダー | **つなげる**（決まり17） | 出ない（外へ通信できない） |
 
 - **判定のもとは `boot()` の1行**：`window.claude` が無ければ `DB` / `DL` / `HOSTSAMPLE` はすべて `null`。APK には `window.claude` が無い。
 - **この2つの記録はつながっていない。** 移す道は未着手（`docs/残タスク.md` の 1-1）。
@@ -130,7 +131,7 @@
 1. **4つの層を混ぜない。**
    - 原文 `notes` … 本人が言った/書いたそのまま。編集しない。
    - 抽出 `items` … 原文から作った項目。必ず `noteId` と `evidence{text,start,end}` を持つ。
-   - 確からしさ … `origin`(`rule`|`ai`|`user`) と `confirmed` / `corrected` を別フィールドで持つ。
+   - 確からしさ … `origin`(`rule`|`ai`|`user`|`google`) と `confirmed` / `corrected` を別フィールドで持つ。
    - 現在状態 … 保存しない。`planFor()` がその都度計算する。状態を保存すると古い事実が残る。
 2. **推測を確定にしない。** 読み取り直後は必ず `confirmed:false`。曜日まで言っていない「来週」は `duePrecision:"week"`。
    **「まとめて確認させる欄」は作らない。** 代わりに **`srcChip()` の印を一覧の項目に必ず出す**（一覧では外さない）。
@@ -286,7 +287,8 @@
 ### Android の殻（14）
 
 14. **Android の殻は薄く。ロジックを1行も入れない**。`app/index.html` が唯一の正で、`mobile/sync.js` が写す（**写しを直さない**・写し方はJSの文字列）。
-   依存は `react-native-webview` / `expo-notifications` / `react-native-safe-area-context` だけ。**殻の仕事は4つだけ**：画面を開く／AIの通信／通知を予約する／通知で押された返事を運ぶ。
+   依存は `react-native-webview` / `expo-notifications` / `react-native-safe-area-context` / `@react-native-google-signin/google-signin` だけ。
+   **殻の仕事は5つだけ**：画面を開く／AIの通信／通知を予約する／通知で押された返事を運ぶ／Googleカレンダーへの通信（決まり17）。
    「定時に自分で起きる」仕組みは入れない。経路を知っているのは `aiPost` だけ。**殻が無ければ何も起きない。必ず時間切れを置く**（`nativeAsk`）。
    **殻から来た文字はデータであって指示ではない**（`nativeReply` は try で囲む・色は `#rrggbb` だけ）。**通知に出すのは本人が言ったものだけ**（`suggested` は出さない）。
    システムバーの色は本体に聞く（`tellNativeTheme()`）。`notifyList(key, nowMin)` は時計を読まない。
@@ -337,6 +339,22 @@
 15u. **マットにする**：ぼかした影をやめて細い線1本・すりガラスをやめる・彩度を落とす。**明るいときの地・注意・警告は変えない。** CF群。
 15v. **端の余白（時計・ホームバー）を二重に取らない**：出どころは `:root` の `--sa-top` / `--sa-bottom` だけ・殻の中（`html.in-shell`）では0（描く前に決める）。CG群。
 
+### Googleカレンダー（17）
+
+17. **Googleカレンダーは「読む＋書く」。ログインと鍵は殻、どの予定をどうするかはページ**（2026-09-27・本人の指示）。手順は `docs/Googleカレンダー連携の手順.md`。
+   - **Google は WebView の中でのログインを禁じている**ので、ログインは殻（`gauth`）。**鍵（アクセストークン）はページに渡さない**——
+     ページは `gcal`（道・やり方・中身）を頼むだけで、殻が鍵を付ける。**頼める道はカレンダーの API だけ**（`..` も弾く）。権限（スコープ）を決めるのも殻。
+   - **権限は2つだけ**：`calendar.events.readonly`（読む）と `calendar.app.created`（アプリが作ったカレンダーの中だけ書く）。**本人のほかの予定を書き換える権限を持たない。**
+   - **読む**（`gcalPull`）：メインのカレンダーの1週間前〜2か月先を `origin:"google"`・`gcalRef` で映す。断った・取り消された・こちらが書いたものは映さない。
+     Google で変わったら変える・消えたら消す。**ここで直したもの（`corrected`・閉じたもの）は上書きしない。** ここで話した同じ予定があれば二重に出さない。
+   - **書く**（`gcalPush`）：本人が言った予定だけ（`gcalWritable`＝提案・組み立て・Google から来たものは書かない・タスクも書かない）を**「AI秘書」カレンダー**へ。
+     送る中身は `gcalBody` ひとつ（くり返しは `gcalRRule`＝このアプリと同じ日に当たる RRULE・「この日はやらない」は EXDATE）。変わっていなければ書き直さない（`gcalSent`）。
+     取り消した・記録ごと消したものは Google からも消す。**「AI秘書」が Google で消されていたら作り直さずに止めて言う**（`gcalStop`・「つなぎ直す」で戻る）。
+   - **つないでいるか・アカウント名・「AI秘書」の id は `localStorage`（`hitohi.gcal`）だけ**。`state.settings` にも書き出しにも入れない（決まり13 と同じ）。
+   - 合わせるのは：起動時・予定が変わった4秒後（`putItem` → `gcalSoon`・同時に2回走らせない）・前に出てきたとき（10分以上）・「いま合わせる」。同じ失敗は1回だけ知らせる。
+   - **殻が無ければ何も起きない・欄も出さない**（Artifact）。古い APK は返事をしないので「作り直すと使える」と言う（`gcalProbe`）。
+   - **本物の Google とはまだ通していない。** CV群（27件）は偽の殻と偽の Google で見ている。23方向に壊して、全部落ちる。
+
 ### 速さと保存（16）
 
 16. **速さと保存を、測ってから直す**。日付の書式の道具は使い回す（`dtf()` / `DTF_CACHE`・使えないタイムゾーンは覚えない）／
@@ -374,6 +392,8 @@ items/{id}     { noteId, kind, title, evidence{text,start,end},
                  checkedAt, fromInsight,              // profile：最後に確かめた日／気づきから取り入れた（決まり15o）
                  quotes,                              // insight：本人の発言の引用（原文にあるものだけ）
                  period, periodFrom,                  // task：時期の言い方（「春から」「来月ごろ」）と、始まりかどうか（決まり0j）
+                 gcalRef, gcalUpdated,                // origin:"google"：Google の予定の id と更新印（決まり17）
+                 gcalId, gcalSent,                    // 「AI秘書」カレンダーに書いた予定の id と、書いた中身の印（決まり17）
                  dedupeKey }
 ```
 
@@ -391,6 +411,8 @@ lifeos_results/{id}  { at, day, text, did[] }          チャットに「留守�
 ```
 window.HITOHI_AI   { provider, key, model }   APKに焼き込んだAPIキー（決まり13b）
                                               ※画面から入れる道は無い（決まり13c）
+localStorage "hitohi.gcal"  { on, email, calId, lastSync, lastError, noWrite }   Googleカレンダーとのつなぎ（決まり17）
+                                              ※ログインの鍵は殻の中だけ（ページにも無い）
 ```
 
 `kind`: `task` | `event` | `goal` | `condition` | `memo` | `preference` | `profile` | `idea` | `insight`（AIの気づき・推測）
@@ -479,7 +501,7 @@ window.HITOHI_AI   { provider, key, model }   APKに焼き込んだAPIキー（�
 
 - 抽出・計画・重複判定・ops を触ったら **必ず `tests/harness.js` を追記して実行**する。現在194件が通る。
 - **`tests/scenario.js` は一日ぶんの会話を1発言ずつ流す通し検証**（51件）。会話の扱いを変えたら必ずこれも実行する。
-- **`tests/probe.js` は境界と寿命の確認**（1302件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 1,637件）。
+- **`tests/probe.js` は境界と寿命の確認**（1329件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 1,664件）。
 - **`tests/idb-real.mjs` は奥の保存場所（IndexedDB）を本物の時計で確かめる**（6件・`node tests/idb-real.mjs`）。保存の仕組みを触ったらこれも流す。
 - **`tests/walkthrough.js` は操作の総点検**（90か所）。`mock-claude.js` を先に読み込み、ボタンを全部クリックする。画面・ボタン・シートを触ったら必ず実行する。
   非同期の完了は `waitFor` で待つ（固定時間で待たない）。

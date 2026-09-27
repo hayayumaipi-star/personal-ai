@@ -717,6 +717,13 @@ try { if (window.ReactNativeWebView) document.documentElement.classList.add("in-
       <span id="setMsg" class="hint"></span>
     </div>
 
+    <!-- Googleカレンダー（2026-09-27・決まり17）。**Android アプリの中でだけ出す**——
+         Google のログインは殻にしかできない（WebView の中のログインを Google が禁じている）。 -->
+    <div class="card stack" id="gcalCard" hidden>
+      <h3 class="cardttl">Googleカレンダー</h3>
+      <div id="gcalOut"></div>
+    </div>
+
     <!-- 「データ」の1枚に操作が8つ並んでいたのを、性質で3つに割った
          （2026-09-20・本人の指示「わちゃわちゃしているのでシンプルに」）。
          **さがす**（毎日の操作）を上へ、**持ち出す・持ち込む**を次へ、
@@ -2959,6 +2966,301 @@ async function aiPost(url, headers, payload, signal) {
   return { ok: r.ok, status: r.status, data };
 }
 
+/* =======================================================================
+   Googleカレンダー（2026-09-27・本人の指示「Googleカレンダーとの連携を取り入れたい」「読む＋書く」・決まり17）
+   - **読む**：本人の Google カレンダー（メイン）の予定を、1週間前〜2か月先ぶん、予定表に出す（`origin:"google"`）。
+     こちらからは書き換えない（権限を持たない）。Google で消えた予定は、ここからも消える。
+   - **書く**：ここで話した予定を、本人の Google アカウントに作る**「AI秘書」カレンダー**へ書く。
+     メインのカレンダーには触らない。**アプリの提案（`suggested`）・組み立ての枠（`built`）・Google から来た予定は書かない**（決まり2）。
+   - **ログインと鍵は殻が持つ**（決まり14）。ページは「この道にこう頼んで」と言うだけで、鍵を見ない。
+   - **記録は端末の中**。つないでいるかどうか・アカウント名・「AI秘書」の id は `localStorage` だけに置き、
+     **共有の `db` にも書き出しにも入れない**（`state.settings` に入れない・決まり13 と同じ）。
+   - **つないでいなければ、何も起きない**（決まり7「任意」）。Artifact では殻が無いので、欄ごと出さない。
+   ======================================================================= */
+const GCAL_LS = "hitohi.gcal";
+const GCAL_BACK = 7, GCAL_AHEAD = 62;          // 読む範囲（日）
+const GCAL_MAX = 1000;                          // 1回に読む予定の上限（4ページ）
+const GCAL_NAME = "AI秘書";
+let gcalCap = null;                             // 殻が Google を扱えるか（null＝まだ聞いていない）
+let gcalBusy = false, gcalTimer = null, gcalAgain = false;
+function gcalGet() { try { return JSON.parse(localStorage.getItem(GCAL_LS) || "null") || {}; } catch { return {}; } }
+function gcalPut(o) { try { localStorage.setItem(GCAL_LS, JSON.stringify(o)); } catch {} }
+const gcalOn = () => nativeOn() && !!gcalGet().on;
+/* 殻に1回頼む。返事は {status, data}。**鍵はここに来ない。** */
+async function gcalReq(method, path, query, body) {
+  const m = await nativeAsk("gcal", { method, path, query: query || "", body: body ? JSON.stringify(body) : "" }, 45000);
+  let data = null; try { data = m.body ? JSON.parse(String(m.body)) : null; } catch {}
+  return { status: m.status, data };
+}
+const gcalQS = o => Object.keys(o).filter(k => o[k] != null && o[k] !== "").map(k => k + "=" + encodeURIComponent(o[k])).join("&");
+const gcalYmd = k => k.replace(/-/g, "");
+/* Google の予定1件 → この予定表の項目（`importICS` の `mk` と同じ形・決まり4g の終日も同じ扱い）。 */
+function gcalToItem(ev, tz) {
+  const s = ev.start || {}, e = ev.end || {};
+  const allDay = !!s.date;
+  const start = allDay ? zoned(...s.date.split("-").map(Number), 0, 0, tz).toISOString() : s.dateTime;
+  if (!validISO(start)) return null;
+  const it = {
+    kind: "event", title: String(ev.summary || "（名前のない予定）").slice(0, 80), fixed: true,
+    start, dayKey: dayKey(new Date(start), tz), allDay, timeUnknown: false,
+    duePrecision: allDay ? "day" : "exact"
+  };
+  if (allDay) {
+    const last = e.date ? addKey(e.date, -1) : it.dayKey;          // Google の終日の終わりは「次の日」を指す
+    if (last > it.dayKey) it.spanEndKey = last;
+    it.end = zoned(...(last > it.dayKey ? last : it.dayKey).split("-").map(Number), 23, 59, tz).toISOString();
+  } else {
+    it.end = validISO(e.dateTime) && new Date(e.dateTime) > new Date(start) ? e.dateTime
+      : new Date(new Date(start).getTime() + 3600000).toISOString();
+  }
+  return it;
+}
+/* この項目のくり返しを、Google の RRULE に写す（決まり4f・0p と同じ日に当たるように）。 */
+function gcalRRule(it, tz) {
+  const r = it.repeat; if (!r) return null;
+  const BY = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+  const f = parts(new Date(it.start), tz);
+  // 「毎月31日」は、31日の無い月は月の終わり（決まり0p）——Google では「28〜31日のうち、その月にある最後の日」
+  const dom = d => d === -1 ? "BYMONTHDAY=-1" : d >= 29 ? `BYMONTHDAY=${[28, 29, 30, 31].filter(x => x <= d).join(",")};BYSETPOS=-1` : `BYMONTHDAY=${d}`;
+  if (r.kind === "daily") return "RRULE:FREQ=DAILY";
+  if (r.kind === "weekday") return "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR";
+  if (r.kind === "weekly") return `RRULE:FREQ=WEEKLY;BYDAY=${BY[r.dow != null ? r.dow : f.dow]}`;
+  if (r.kind === "biweekly") return `RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=${BY[f.dow]}`;
+  if (r.kind === "monthly") return r.nth != null && r.dow != null ? `RRULE:FREQ=MONTHLY;BYDAY=${r.nth}${BY[r.dow]}`
+    : `RRULE:FREQ=MONTHLY;${dom(r.dom != null ? r.dom : f.d)}`;
+  if (r.kind === "yearly") {
+    const mo = r.month != null ? r.month : f.mo, d = r.dom != null ? r.dom : f.d;
+    return `RRULE:FREQ=YEARLY;BYMONTH=${mo};` + (mo === 2 && d === 29 ? "BYMONTHDAY=28,29;BYSETPOS=-1" : `BYMONTHDAY=${d}`);
+  }
+  return null;
+}
+/* この項目を「AI秘書」カレンダーへ書くときの中身。**これだけが送る中身を決める**（決まり7e）。 */
+function gcalBody(it, tz) {
+  const b = { summary: it.title, description: "AI秘書で話した予定", extendedProperties: { private: { hitohiId: it.id } } };
+  const whole = it.allDay || it.timeUnknown;
+  if (whole) {
+    const endKey = it.spanEndKey && it.spanEndKey > it.dayKey ? it.spanEndKey : it.dayKey;
+    b.start = { date: it.dayKey }; b.end = { date: addKey(endKey, 1) };
+  } else {
+    b.start = { dateTime: it.start, timeZone: tz }; b.end = { dateTime: validISO(it.end) ? it.end : new Date(new Date(it.start).getTime() + 3600000).toISOString(), timeZone: tz };
+  }
+  const rr = gcalRRule(it, tz);
+  if (rr) {
+    b.recurrence = [rr];
+    const skip = (it.skipDays || []).filter(isDate);
+    if (skip.length) {
+      const hms = whole ? "" : (() => { const p = parts(new Date(it.start), tz); return "T" + pad2(p.h) + pad2(p.mi) + "00"; })();
+      b.recurrence.push(whole ? "EXDATE;VALUE=DATE:" + skip.map(gcalYmd).join(",") : `EXDATE;TZID=${tz}:` + skip.map(k => gcalYmd(k) + hms).join(","));
+    }
+  }
+  return b;
+}
+/* 書いてよい項目か。**本人が言った予定だけ**（提案・組み立て・Google から来たものは書かない）。 */
+const gcalWritable = it => it && it.kind === "event" && it.origin !== "google" && !it.suggested && !it.built
+  && validISO(it.start) && isDate(it.dayKey);
+/* 読む：メインのカレンダーの予定を、予定表へ映す。 */
+async function gcalPull(tz) {
+  const today = dayKey(new Date(), tz);
+  const from = keyToDate(addKey(today, -GCAL_BACK), tz).toISOString(), to = keyToDate(addKey(today, GCAL_AHEAD), tz).toISOString();
+  const evs = []; let page = "";
+  for (let i = 0; i < GCAL_MAX / 250; i++) {
+    const r = await gcalReq("GET", "calendars/primary/events",
+      gcalQS({ singleEvents: "true", orderBy: "startTime", timeMin: from, timeMax: to, maxResults: 250, pageToken: page }));
+    if (r.status !== 200 || !r.data) throw gcalErr(r, "予定を読めませんでした");
+    for (const ev of r.data.items || []) evs.push(ev);
+    page = r.data.nextPageToken || ""; if (!page) break;
+  }
+  let added = 0, changed = 0, removed = 0;
+  const seen = new Set();
+  for (const ev of evs) {
+    if (!ev || !ev.id || ev.status === "cancelled") continue;
+    if (ev.extendedProperties && ev.extendedProperties.private && ev.extendedProperties.private.hitohiId) continue;   // こちらが書いたもの
+    if ((ev.attendees || []).some(a => a.self && a.responseStatus === "declined")) continue;                          // 断った予定
+    seen.add(ev.id);
+    const m = gcalToItem(ev, tz); if (!m) continue;
+    const cur = state.items.find(x => x.origin === "google" && x.gcalRef === ev.id);
+    if (cur) {
+      /* ここで直したもの（訂正・取り消し・完了）は、Google 側の変化で上書きしない（本人がここで決めたこと・決まり6） */
+      if (cur.corrected || cur.status !== "open" || cur.gcalUpdated === ev.updated) continue;
+      Object.assign(cur, m, { gcalUpdated: ev.updated });
+      if (!m.spanEndKey) delete cur.spanEndKey;
+      cur.dedupeKey = dedupeKey(cur);
+      cur.history = (cur.history || []).concat({ at: new Date().toISOString(), by: "user", what: "Googleカレンダーで変わった" });
+      await putItem(cur); changed++;
+      continue;
+    }
+    const it = Object.assign({ id: uid(), noteId: null, origin: "google", confirmed: true, corrected: false, status: "open",
+      evidence: { text: "（Googleカレンダーから）" }, gcalRef: ev.id, gcalUpdated: ev.updated,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      history: [{ at: new Date().toISOString(), by: "user", what: "Googleカレンダーから" }] }, m);
+    it.dedupeKey = dedupeKey(it);
+    if (state.items.some(x => x.dedupeKey === it.dedupeKey && x.origin !== "google")) continue;   // ここで話した同じ予定がある（二重に出さない）
+    await putItem(it); added++;
+  }
+  /* **Google で消えた予定は、ここからも消す**（映しなので）。読んだ範囲の中の、まだ開いているものだけ。 */
+  const lo = addKey(today, -GCAL_BACK), hi = addKey(today, GCAL_AHEAD);
+  for (const it of state.items.filter(x => x.origin === "google" && x.status === "open" && !x.corrected
+       && x.dayKey >= lo && x.dayKey < hi && !seen.has(x.gcalRef))) {
+    if (await deleteFromStore("items/" + it.id)) { state.items = state.items.filter(x => x.id !== it.id); lsSave(); removed++; }
+  }
+  return { added, changed, removed };
+}
+/* 書く：ここで話した予定を「AI秘書」カレンダーへ。作る・変える・消す（消えた項目のぶんも）。 */
+async function gcalPush(tz) {
+  const g = gcalGet();
+  if (g.noWrite) return { wrote: 0, deleted: 0 };
+  if (!g.calId) {
+    const r = await gcalReq("POST", "calendars", "", { summary: GCAL_NAME, timeZone: tz, description: "AI秘書で話した予定" });
+    if (r.status !== 200 || !r.data || !r.data.id) throw gcalErr(r, "「" + GCAL_NAME + "」カレンダーを作れませんでした");
+    g.calId = String(r.data.id); gcalPut(g);
+  }
+  const cal = "calendars/" + encodeURIComponent(g.calId) + "/events";
+  let wrote = 0, deleted = 0;
+  for (const it of state.items.filter(x => x.gcalId || (gcalWritable(x) && x.status !== "dropped"))) {
+    const keep = gcalWritable(it) && it.status !== "dropped";
+    if (!keep) {                                                   // 取り消した・書かないものになった → 消す
+      const r = await gcalReq("DELETE", cal + "/" + encodeURIComponent(it.gcalId));
+      if ([200, 204, 404, 410].includes(r.status)) { delete it.gcalId; delete it.gcalSent; await putItem(it); deleted++; }
+      continue;
+    }
+    const body = gcalBody(it, tz), sig = hash(JSON.stringify(body));
+    if (it.gcalId && it.gcalSent === sig) continue;               // 変わっていない
+    let r = it.gcalId ? await gcalReq("PUT", cal + "/" + encodeURIComponent(it.gcalId), "", body) : null;
+    // Google 側で予定だけ消されていたら作り直す。**作ろうとして 404 なら、カレンダーごと無い**
+    if (!r || r.status === 404 || r.status === 410) r = await gcalReq("POST", cal, "", body);
+    if (r.status === 404) return gcalStop(g);
+    if (r.status !== 200 || !r.data || !r.data.id) throw gcalErr(r, "「" + it.title + "」を書き込めませんでした");
+    it.gcalId = String(r.data.id); it.gcalSent = sig; await putItem(it); wrote++;
+  }
+  /* こちらで記録ごと消した項目のぶん（完全に消す・全部消す）。「AI秘書」の中で、持ち主の居ない予定を消す。 */
+  const r = await gcalReq("GET", cal, gcalQS({ maxResults: 2500, showDeleted: "false" }));
+  if (r.status === 404) return gcalStop(g);
+  if (r.status === 200 && r.data) {
+    const ids = new Set(state.items.map(x => x.id));
+    for (const ev of r.data.items || []) {
+      const hid = ev.extendedProperties && ev.extendedProperties.private && ev.extendedProperties.private.hitohiId;
+      if (hid && !ids.has(hid)) { const d = await gcalReq("DELETE", cal + "/" + encodeURIComponent(ev.id)); if ([200, 204, 404, 410].includes(d.status)) deleted++; }
+    }
+  }
+  return { wrote, deleted };
+}
+/* 「AI秘書」カレンダーが Google 側で消されていた。**作り直さない**——本人が消したのかもしれない（決まり2）。 */
+function gcalStop(g) {
+  g.noWrite = true; delete g.calId; gcalPut(g);
+  for (const it of state.items.filter(x => x.gcalId)) { delete it.gcalId; delete it.gcalSent; }
+  lsSave();
+  throw new Error("「" + GCAL_NAME + "」カレンダーが Google に見つからないので、書き込みを止めました。設定の「つなぎ直す」で作り直せます。");
+}
+function gcalErr(r, what) {
+  const msg = r && r.data && r.data.error && r.data.error.message ? String(r.data.error.message).slice(0, 160) : "";
+  const e = new Error(`${what}（Google ${r ? r.status : "?"}${msg ? "：" + msg : ""}）`);
+  e.gstatus = r && r.status; return e;
+}
+/* 合わせる（読む→書く）。**同時に2回走らせない**。走っている間に頼まれたら、終わってからもう1回。 */
+async function gcalSync(opts = {}) {
+  if (!gcalOn()) return null;
+  if (gcalBusy) { gcalAgain = true; return null; }
+  gcalBusy = true;
+  const tz = state.settings.timezone, g0 = gcalGet();
+  let res = null;
+  try {
+    const a = await gcalPull(tz), b = await gcalPush(tz);
+    res = Object.assign({}, a, b);
+    const g = gcalGet(); g.lastSync = new Date().toISOString(); delete g.lastError; gcalPut(g);
+    if (a.added || a.changed || a.removed) renderAll();
+    if (opts.loud) toast(`Googleカレンダーと合わせました（読んだ予定 +${a.added}・変わった ${a.changed}・消えた ${a.removed}／書いた ${b.wrote}）`);
+  } catch (e) {
+    const g = gcalGet(); const msg = e && e.message ? String(e.message) : "Googleカレンダーと合わせられませんでした";
+    const first = g.lastError !== msg;
+    g.lastError = msg; gcalPut(g); lastError = msg;
+    /* 同じ失敗を、合わせるたびに知らせない（決まり「知らせるのは変わった1回だけ」と同じ理屈） */
+    if (opts.loud || first) toast(msg);
+  } finally {
+    gcalBusy = false;
+    try { if (view && view.tab === "p-set") renderGcal(); } catch {}
+    if (gcalAgain) { gcalAgain = false; gcalSoon(); }
+  }
+  return res;
+}
+/* 項目が変わったら、少し待ってからまとめて書く（話すたびに何十回も呼ばない）。 */
+function gcalSoon(ms) {
+  if (!gcalOn()) return;
+  if (gcalBusy) { gcalAgain = true; return; }
+  clearTimeout(gcalTimer); gcalTimer = setTimeout(() => gcalSync(), ms == null ? 4000 : ms);
+}
+/* 殻が Google を扱えるか、1回だけ聞く（古い APK は返事をしない＝扱えない）。 */
+async function gcalProbe() {
+  if (!nativeOn()) { gcalCap = false; return false; }
+  if (gcalCap != null) return gcalCap;
+  try {
+    const m = await nativeAsk("gauth", { action: "status" }, 6000);
+    gcalCap = true;
+    const g = gcalGet();
+    if (g.on && !m.ok) { g.lastError = "Google のログインが切れています。「つなぎ直す」を押してください。"; gcalPut(g); }
+    if (m.ok && m.email) { g.email = m.email; gcalPut(g); }
+  } catch (e) { gcalCap = !/nosupport|返事がありません/.test(String(e && e.message)); }
+  return gcalCap;
+}
+async function gcalConnect() {
+  let m;
+  try { m = await nativeAsk("gauth", { action: "signin" }, 300000); }
+  catch (e) { toast("Google につなげませんでした：" + (e && e.message ? e.message : e)); lastError = "Googleのログイン：" + (e && e.message); renderGcal(); return; }
+  if (!m.ok) { toast(m.cancelled ? "Google へのログインをやめました" : "Google につなげませんでした"); return; }
+  const g = gcalGet(); g.on = true; g.email = m.email || ""; delete g.noWrite; delete g.lastError;
+  /* 前につないでいたときの「AI秘書」がまだあれば、それを使う（2つ作らない）。無ければ次に書くとき作る。 */
+  if (!g.calId && g.calIdWas) {
+    try { const r = await gcalReq("GET", "calendars/" + encodeURIComponent(g.calIdWas)); if (r.status === 200) g.calId = g.calIdWas; } catch {}
+    delete g.calIdWas;
+  }
+  gcalPut(g);
+  gcalCap = true; renderGcal();
+  toast("Google につなぎました。予定を合わせています…");
+  await gcalSync({ loud: true });
+}
+async function gcalDisconnect() {
+  const g = gcalGet();
+  const yes = await askConfirm({
+    title: "Googleカレンダーとのつなぎを外しますか？",
+    body: `この予定表から、<strong>Googleカレンダーから来た予定</strong>を外します（Google の中の予定はそのまま）。<br>
+      Google に作った「${GCAL_NAME}」カレンダーは残ります。要らなければ Google カレンダーの設定から消してください。`,
+    yes: "外す"
+  });
+  if (!yes) return;
+  try { await nativeAsk("gauth", { action: "signout" }, 20000); } catch {}
+  for (const it of state.items.filter(x => x.origin === "google")) {
+    if (await deleteFromStore("items/" + it.id)) state.items = state.items.filter(x => x.id !== it.id);
+  }
+  for (const it of state.items.filter(x => x.gcalId)) { delete it.gcalId; delete it.gcalSent; }
+  lsWrite();
+  gcalPut({ calIdWas: g.calId || g.calIdWas || null });
+  renderAll(); toast("Googleカレンダーとのつなぎを外しました");
+}
+/* 設定の欄。**送るもの・読むもの・送り先・費用を先に書く**（新しい外部送信の決まり）。 */
+function renderGcal() {
+  const card = $("#gcalCard"), out = $("#gcalOut"); if (!card || !out) return;
+  card.hidden = !nativeOn();
+  if (card.hidden) return;
+  const g = gcalGet(), tz = state.settings.timezone;
+  const sends = `<p class="hint">読むもの：Googleカレンダーの予定（1週間前〜2か月先）。<br>
+    送るもの：ここで話した予定の名前と日時を、Google に作る「${GCAL_NAME}」カレンダーへ（アプリの提案は送りません）。費用はかかりません。</p>`;
+  if (gcalCap === false) { out.innerHTML = `<p class="hint">このアプリの版では使えません。APK を作り直すと使えるようになります。</p>`; return; }
+  if (!g.on) {
+    out.innerHTML = `<p>Googleカレンダーの予定をこの予定表に出し、ここで話した予定を Google にも書き込みます。</p>${sends}
+      <button class="btn pri" id="btnGcalOn">Google でつなぐ</button>`;
+    $("#btnGcalOn").addEventListener("click", gcalConnect);
+    return;
+  }
+  out.innerHTML = `<div class="kv"><span>アカウント</span><span>${esc(g.email || "（ログイン中）")}</span></div>
+    <div class="kv"><span>最後に合わせた</span><span>${g.lastSync ? esc(fmtDT(g.lastSync, tz)) : "まだ"}</span></div>
+    ${g.lastError ? `<div class="note bad">${esc(g.lastError)}</div>` : ""}${sends}
+    <div class="row"><button class="btn" id="btnGcalSync">いま合わせる</button>
+    <button class="btn" id="btnGcalRe">つなぎ直す</button>
+    <button class="btn danger" id="btnGcalOff">つなぎを外す</button></div>`;
+  $("#btnGcalSync").addEventListener("click", () => gcalSync({ loud: true }));
+  $("#btnGcalRe").addEventListener("click", gcalConnect);
+  $("#btnGcalOff").addEventListener("click", gcalDisconnect);
+}
+
 /* 何を知らせるかを決める。**時計を読まない**（`nowMin` を渡してもらう）ので、
    テストが「日付が変わった翌日に落ちる」という記録済みの穴を踏まない。
    **こちらが提案したものは知らせない**（決まり2）。本人が言ったものだけ。 */
@@ -3439,6 +3741,7 @@ async function putItem(it) {
   it.updatedAt = new Date().toISOString();
   state.items = state.items.filter(x => x.id !== it.id).concat(it);
   lsSave();
+  if (!gcalBusy && (it.kind === "event" || it.gcalId)) gcalSoon();   // Googleカレンダーへ、少し待ってまとめて書く（決まり17）
   if (DB) { try { await DB.doc("items/" + it.id).set(it); } catch (e) { dbTrouble(e); } }
 }
 async function putSettings(raw) {
@@ -4564,6 +4867,7 @@ function nextAction(plan, nowOverride) {
 /* どこから来た情報かを、必ず見えるようにする。
    「本人が決めたこと」と「読み取ったままのこと」を混ぜないための唯一の手掛かり。 */
 function srcChip(it) {
+  if (it.origin === "google" && !it.corrected) return `<span class="chip src-user">Googleカレンダー</span>`;
   /* **アプリが提案して入れたものは、そう言う**（v6.5）。本人が言ったものと混ぜない。
      訂正すれば「本人が訂正」に変わる——そのときはもう提案ではない。 */
   if (it.suggested && !it.corrected && it.origin !== "user") return `<span class="chip src-ai">アプリの提案</span>`;
@@ -5616,6 +5920,7 @@ function renderSettings() {
   $("#revHour") && ($("#revHour").value = String(s.reviewHour));
   if ($("#revHour")) $("#revHour").disabled = s.reviewDow < 0;
   renderWhere();
+  renderGcal();
   /* **件数と置き場所の行は外した**（2026-09-26・本人の指示「この端末のみという表示はいらない」）。
      会話・原文・項目の件数は作る側の目安で、使う人が読んで打つ手が無い。
      **作業に使える時間帯**は、決まり6n が「理由文が名指しする数字を画面に出す」と決めているが、
@@ -5862,7 +6167,11 @@ document.addEventListener("keydown", e => {
    原文は先に保存してあるので失われないが、読み取りと返事は途中で消える。 */
 /* 閉じる・裏へ回る前に、予約してある保存を書き切る（lsSave）。Android では裏へ回ったまま終わることがある。 */
 window.addEventListener("pagehide", () => lsFlush());
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") lsFlush(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") lsFlush();
+  // 前に出てきたら、10分以上たっていれば Googleカレンダーと合わせ直す（決まり17）
+  else if (gcalOn()) { const t = Date.parse(gcalGet().lastSync || 0) || 0; if (Date.now() - t > 600000) gcalSoon(500); }
+});
 window.addEventListener("beforeunload", e => {
   lsFlush();
   if (!sending) return;
@@ -8973,6 +9282,8 @@ function soonWarn() {
 showTab("p-chat");
 boot().then(() => {
   startClock();
+  // Android アプリなら、Google を扱えるかを聞いて、つないでいれば合わせる（決まり17・殻が無ければ何もしない）
+  if (nativeOn()) gcalProbe().then(ok => { try { renderGcal(); } catch {} if (ok && gcalGet().on) gcalSync(); });
   try { const d = localStorage.getItem(DRAFT); if (d) { $("#say").value = d; } } catch {}
   saveDraft();
 });

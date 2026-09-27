@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "dependencies": {
+    "@react-native-google-signin/google-signin": "16.1.5",
     "expo": "~57.0.24",
     "expo-notifications": "~57.0.20",
     "expo-status-bar": "~57.0.1",

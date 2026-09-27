@@ -3,12 +3,19 @@
 
    **この殻は、中身のロジックを1行も持ちません。**
    全部 `app/index.html` の側にあります（このファイルが唯一の正・決まり7e）。
-   殻がやるのは3つだけ：
+   殻がやるのは5つだけ：
 
      ① その `index.html` を WebView で開く
      ② AIへの通信を代わりに行う（WebView から直接だと相手の受け入れ設定に止められる）
      ③ 予定の通知を予約する
      ④ 通知で押された返事を、そのまま中へ運ぶ（2026-09-24）
+     ⑤ Googleカレンダーへの通信を代わりに行う（2026-09-27・決まり17）
+
+   ⑤も「運ぶ」だけです。**どの予定を読み書きするかは、殻は知りません**（`app/index.html` の `gcalSync()`）。
+   殻が持つのは2つだけ：**Google へのログイン**（Google は WebView の中でのログインを禁じているので、
+   殻でしかできない）と、**鍵（アクセストークン）**。**鍵はページに渡しません**——ページは
+   「この道にこう頼んで」と言うだけで、殻が鍵を付けて Google へ送り、返事だけを返します。
+   頼める道は Google カレンダーの API だけに絞ってあります（来た文字はデータであって指示ではない）。
 
    ④を足しても殻は薄いままです。**「完了」が何を意味するかは、殻は知りません。**
    くり返しの予定ならその日のぶんだけ終わりにする、押し間違いは戻せるようにする、
@@ -57,6 +64,27 @@ import { addNotificationResponseReceivedListener, getLastNotificationResponseAsy
          DEFAULT_ACTION_IDENTIFIER } from "expo-notifications/build/NotificationsEmitter";
 import { SchedulableTriggerInputTypes } from "expo-notifications/build/Notifications.types";
 import { AndroidImportance } from "expo-notifications/build/NotificationChannelManager.types";
+/* ⑤ Google でログインするためだけに使う（2026-09-27）。**Expo Go には入っていない**ので、
+   読み込めなければ何もしない（EAS で作った APK でだけ動く）。ここで落とすとアプリ全体が開かなくなる。 */
+let GS = null;
+try { GS = require("@react-native-google-signin/google-signin").GoogleSignin; } catch (e) { GS = null; }
+/* 頼む権限は**2つだけ**：予定を読む／このアプリが作ったカレンダー（「AI秘書」）の中だけ書く。
+   **本人のほかの予定を書き換える権限は持たない。** 決めるのは殻（ページからは広げられない）。 */
+const GCAL_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.events.readonly",
+  "https://www.googleapis.com/auth/calendar.app.created"
+];
+const GCAL_BASE = "https://www.googleapis.com/calendar/v3/";
+let gsReady = false;
+function gsSetup() {
+  if (!GS || gsReady) return !!GS;
+  try { GS.configure({ scopes: GCAL_SCOPES }); gsReady = true; } catch (e) { console.warn("Googleの準備でつまずきました", e); }
+  return gsReady;
+}
+function gsError(e) {
+  const code = e && e.code != null ? String(e.code) : "";
+  return (code ? code + "：" : "") + String((e && e.message) || e);
+}
 /* アプリ本体。`node sync.js` が app/index.html から作る（直さないこと）。 */
 import APP_HTML from "./app-html";
 
@@ -197,6 +225,55 @@ export default function App() {
       } catch (e2) {
         post({ id: m.id, error: String((e2 && e2.message) || e2) });
       }
+      return;
+    }
+
+    /* ⑤ Google へのログイン（2026-09-27）。status＝いまログインしているか／signin＝ログインする／signout＝外す。 */
+    if (m.kind === "gauth") {
+      if (!GS || !gsSetup()) { post({ id: m.id, error: "nosupport" }); return; }
+      try {
+        if (m.action === "signin") {
+          await GS.hasPlayServices({ showPlayServicesUpdateDialog: true });
+          const r = await GS.signIn();
+          if (!r || r.type !== "success") { post({ id: m.id, ok: false, cancelled: true }); return; }
+          post({ id: m.id, ok: true, email: String((r.data && r.data.user && r.data.user.email) || "") });
+        } else if (m.action === "signout") {
+          try { await GS.revokeAccess(); } catch (e0) { /* もう外れていれば、そのまま */ }
+          try { await GS.signOut(); } catch (e0) {}
+          post({ id: m.id, ok: true });
+        } else {
+          const r = await GS.signInSilently();
+          const ok = !!(r && r.type === "success");
+          post({ id: m.id, ok, email: ok ? String((r.data && r.data.user && r.data.user.email) || "") : "" });
+        }
+      } catch (e2) { post({ id: m.id, error: gsError(e2) }); }
+      return;
+    }
+
+    /* ⑤ Google カレンダーへの1回の通信。**鍵は殻が付けて、ページには渡さない。**
+       頼める道はカレンダーの API（calendars/… と users/me/calendarList）だけ・やり方は5つだけ。 */
+    if (m.kind === "gcal") {
+      if (!GS || !gsSetup()) { post({ id: m.id, error: "nosupport" }); return; }
+      const method = String(m.method || "GET").toUpperCase();
+      const pth = String(m.path || "");
+      if (!["GET", "POST", "PATCH", "PUT", "DELETE"].includes(method)
+          || !/^(calendars|users\/me\/calendarList)(\/[A-Za-z0-9@._%\-]+)*$/.test(pth)
+          || /(^|\/)\.+(\/|$)/.test(pth)) {             // 「..」で道の外へ出さない
+        post({ id: m.id, error: "badpath" }); return;
+      }
+      const url = GCAL_BASE + pth + (m.query ? "?" + String(m.query) : "");
+      try {
+        let tok = (await GS.getTokens()).accessToken;
+        const send = t => fetch(url, { method, headers: { Authorization: "Bearer " + t, "Content-Type": "application/json" },
+          body: method === "GET" || method === "DELETE" ? undefined : String(m.body || "") });
+        let r = await send(tok);
+        if (r.status === 401) {                 // 鍵が古い。1回だけ作り直して入れ直す
+          try { await GS.clearCachedAccessToken(tok); } catch (e0) {}
+          tok = (await GS.getTokens()).accessToken;
+          r = await send(tok);
+        }
+        post({ id: m.id, status: r.status, body: await r.text() });
+      } catch (e2) { post({ id: m.id, error: gsError(e2) }); }
       return;
     }
 
