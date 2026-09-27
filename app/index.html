@@ -2691,6 +2691,8 @@ function rangeSpans(text) {
   for (let m; (m = RE_RANGE_AT.exec(text));) { out.push({ i: m.index, len: m[0].length }); if (m.index === RE_RANGE_AT.lastIndex) RE_RANGE_AT.lastIndex++; }
   return out;
 }
+/* 「今から午後6時ぐらいまで」「これから18:00まで」。始まりは言っていない（＝いま）。 */
+const RE_NOW_UNTIL = /(今から|いまから|これから|今すぐ|いますぐ)[、,\s]*(?:(午前|午後|朝|昼|夕方|夜|晩)\s*)?(\d{1,2})\s*(?:時\s*(半|\d{1,2}\s*分)?|[:：](\d{2}))\s*(?:ぐらい|くらい|頃|ごろ|前後)?\s*まで/;
 const RE_DUR_TIMES = /(\d{1,3})\s*分\s*(?:かける|×|x|X|\*|＊)\s*(\d{1,2})\s*回?/;
 const RE_TIMES = /(\d{1,2})\s*回/;
 const RE_DAY_RANGE = new RegExp(
@@ -2787,6 +2789,13 @@ function wantsIn(sentence, atISO, tz) {
   if (m) { min = +m[1]; count = +m[2]; s = s.replace(m[0], " "); }
   else {
     min = parseDuration(s);
+    /* **「4時間以上したい」の4時間を落とさない**（2026-09-27・実機で報告）。
+       `parseDuration` は「以上」を長さとして読まない（「3時間以上かかる」を所要時間にしないため）。
+       組み立てでは「少なくともこれだけ」なので、言われた長さをそのまま置く（伸ばさない・決まり10）。 */
+    if (min == null) {
+      const lo = s.match(/(\d{1,2})\s*時間\s*(半)?\s*以上/) || s.match(/(\d{1,3})\s*分\s*以上/);
+      if (lo) min = clamp(/時間/.test(lo[0]) ? +lo[1] * 60 + (lo[2] ? 30 : 0) : +lo[1], 5, 1440);
+    }
     const c = s.match(RE_TIMES);
     if (c) { count = clamp(+c[1], 1, 8); s = s.replace(c[0], " "); }
     s = s.replace(/\d{1,3}\s*分\s*(くらい|ほど|程度)?/g, " ").replace(/\d{1,2}\s*時間\s*半?/g, " ");
@@ -2849,8 +2858,10 @@ function parseDayRequest(note, tz) {
   for (const l of splitLines(text)) for (const st of l.sentences) sents.push(st.text);
   /* **長さが2つ以上ある文は、読点で切ってから読む**（v6.8）。
      「読書を20分、散歩を30分」を1つとして読むと、**先に出た20分が両方に付く**（実測）。 */
-  const pieces = t => ((t.match(/\d{1,3}\s*分/g) || []).length >= 2
-    ? t.split(/[、,]|\s+|(?=その\s*(間|あいだ)に)/).filter(Boolean) : [t]);
+  /* 「散歩30分と勉強1時間」のように、**分と時間が混ざっても**数える。そして長さの直後の「と」でも切る
+     （2026-09-27・実測で散歩にも1時間が付いた。前は「分」を2つ数えたときしか切っていなかった）。 */
+  const pieces = t => ((t.match(/\d{1,3}\s*(?:分|時間)/g) || []).length >= 2
+    ? t.split(/[、,]|\s+|(?<=(?:分|時間|時間半))\s*と|(?=その\s*(間|あいだ)に)/).filter(Boolean) : [t]);
   for (const st of sents) {
     if (!w) { const x = parseWhen(st, note.capturedAt, tz); if (x && x.between) w = x; }
     if (RE_BUILD_DAY.test(st)) continue;                // 「提案して」の文からは活動を拾わない
@@ -2899,6 +2910,35 @@ function parseDayRequest(note, tz) {
           wants.length = 0;
           for (const pc of pieces(text.slice(at))) for (const y of wantsIn(pc, note.capturedAt, tz)) wants.push(y);
         }
+      }
+    }
+  }
+  /* **「今から◯時まで」も時間帯として読む**（2026-09-27・実機で報告）。
+     12:39 に「今から午後6時ぐらいまでの予定を組み立てて勉強は4時間以上したい」と言うと、
+     範囲の形（◯時から◯時まで）ではないので時間帯が読めず、組み立てられなかった。
+     AIが読んだ「勉強」が **18:00〜22:00** に入り、「18:00からと言っていました」と出た（実機）。
+     **始まりは、いま**（5分刻みに丸める）。終わりは言われた時刻で、午前か午後を言っていなければ
+     **これから来るほう**（決まり4b と同じ考え）。今日の話なので、日付は話した日。 */
+  if (!w) {
+    const nu = text.match(RE_NOW_UNTIL);
+    if (nu) {
+      const nowMin = minOfDay(note.capturedAt, tz);
+      let h = +nu[3];
+      const m = nu[4] === "半" ? 30 : nu[4] ? parseInt(nu[4], 10) || 0 : nu[5] ? +nu[5] : 0;
+      const word = nu[2] || "";
+      let ends;
+      if (/午後|夕方|夜|晩/.test(word)) ends = [h < 12 ? h + 12 : h];
+      else if (/昼/.test(word)) ends = [h <= 6 ? h + 12 : h];
+      else if (word) ends = [h];
+      else ends = h < 12 ? [h, h + 12] : [h];
+      const start = Math.ceil(nowMin / 5) * 5;
+      const end = ends.map(x => x * 60 + m).filter(e => e <= 1440 && e - start >= 15).sort((a, b) => a - b)[0];
+      if (end != null) {
+        const at = nu.index;
+        const ws = [];
+        for (const pc of pieces(text.slice(at))) for (const y of wantsIn(pc, note.capturedAt, tz)) ws.push(y);
+        // 時間帯より前に言ったこと（「おはよう、起きるのが遅かった」）は、ふつうの読み取りへ回す（決まり0b）
+        return { win: [start, end], wants: ws, dayKey: dayKey(new Date(note.capturedAt), tz), movedFrom: null, startedAt: null, headLen: at };
       }
     }
   }

@@ -5030,6 +5030,35 @@
       ok("CG. 取りこぼしたときの控えを boot にも置く", /in-shell/.test(String(boot)));
     }
 
+    /* ===== CH群：「今から◯時まで」を組み立ての時間帯として読む（2026-09-27・実機で報告）=====
+       12:39 に「今から午後6時ぐらいまでの予定を組み立てて勉強は4時間以上したい」と言うと、
+       時間帯が読めず、勉強が 18:00〜22:00 に入って「18:00からと言っていました」と出た。 */
+    {
+      const TZc = state.settings.timezone;
+      const req = (h, mi, text) => { const iso = zoned(2026, 9, 15, h, mi, TZc).toISOString();
+        return parseDayRequest({ id: "ch", text, hash: "h", capturedAt: iso, source: "talk", sourceName: null, createdAt: iso }, TZc); };
+      const win = r => r ? r.dayKey + " " + hhmm(r.win[0]) + "-" + hhmm(r.win[1]) : "null";
+      const REAL = "おはよう今日は起きるのが遅かった今から午後6時ぐらいまでの予定を組み立てて勉強は4時間以上したい";
+      const r1 = req(12, 39, REAL);
+      ok("CH. 「今から午後6時ぐらいまで」は、いまから18時までの時間帯", win(r1) === "2026-09-15 12:40-18:00", win(r1));
+      const study = r1 && r1.wants.find(x => /勉強/.test(x.title));
+      ok("CH. 「勉強は4時間以上」は、勉強を4時間（伸ばさず、落とさず）", !!study && study.min === 240, study ? study.title + " " + study.min : "勉強が無い");
+      ok("CH. 時間帯より前の「おはよう、起きるのが遅かった」は、ふつうの読み取りへ回す",
+         !!r1 && r1.headLen === REAL.indexOf("今から"), r1 ? String(r1.headLen) : "null");
+      const r2 = req(12, 39, "今から6時まで予定を組み立てて");
+      ok("CH. 午前か午後を言っていなければ、これから来るほう（12時半の「6時」は18時）", win(r2) === "2026-09-15 12:40-18:00", win(r2));
+      const r3 = req(7, 0, "今から10時まで予定を埋めて。読書30分");
+      ok("CH. 朝の「今から10時まで」は、その朝（夜へ飛ばさない）", win(r3) === "2026-09-15 07:00-10:00", win(r3));
+      const r4 = req(14, 10, "これから18:00まで予定を組み立てて、散歩30分と勉強1時間");
+      const mins = r4 ? r4.wants.map(x => x.title + x.min).join(" ") : "null";
+      ok("CH. 「散歩30分と勉強1時間」は、それぞれの長さ（先に出た長さを両方に付けない）",
+         !!r4 && /散歩する30/.test(mins) && /勉強をする60/.test(mins), mins);
+      ok("CH. 残りが15分を切るなら組み立てない", req(17, 50, "今から6時まで予定を組み立てて") === null);
+      ok("CH. 組み立てを頼んでいなければ、時間帯として読まない", req(12, 39, "今から6時まで勉強する") === null);
+      ok("CH. 「◯時から◯時まで」の読み方は変えていない", win(req(9, 0, "13時から17時までの間で勉強を30分かける2回。予定を組み立てて")) === "2026-09-15 13:00-17:00",
+         win(req(9, 0, "13時から17時までの間で勉強を30分かける2回。予定を組み立てて")));
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;
