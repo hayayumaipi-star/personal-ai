@@ -5425,6 +5425,60 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== CL. まだ読めていなかった4つ（2026-09-27・本人の指示「まだ読めてないものも直して」） =====
+       ①「来月」だけ（日にちなし）②曜日が2つ ③「〜から…水曜に帰る」の何日も続く予定 ④朝の用事（起きる・家を出る）を夜と読む */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const at = (h, m) => zoned(2026, 9, 15, h, m, TZ).toISOString();     // 火曜
+      const read = (text, h = 10, m = 0) => {
+        reset();
+        const note = { id: uid(), text, hash: "cl" + text + h, capturedAt: at(h, m), source: "talk", sourceName: null, createdAt: at(h, m) };
+        return ruleOps(note).filter(o => o.op === "add" && o._built).map(o => o._built);
+      };
+      const hm = iso => hhmm(minOfDay(iso, TZ));
+      const bad = (label, cond, got) => cond ? null : label + "→" + got;
+      const show = its => its.map(i => i.kind + "「" + i.title + "」" + (i.dayKey || "") + (i.spanEndKey ? "〜" + i.spanEndKey : "") + "/" + (i.duePrecision || "")).join(" ｜ ");
+      // ① 日にちの無い月・年
+      const month = [["来月引っ越したい", "引っ越す", "2026-10-31", "week"], ["今月中に歯医者", "歯医者", "2026-09-30", "week"],
+                     ["再来月に旅行", "旅行", "2026-11-30", "week"], ["来月末までに書類を出す", "書類を出す", "2026-10-31", "day"],
+                     ["来年は資格を取る", "資格を取る", "2027-12-31", "week"]];
+      const m1 = month.map(([t, title, dk, prec]) => { const its = read(t); const it = its[0];
+        return bad(t, its.length === 1 && it.kind === "task" && it.title === title && it.dayKey === dk && it.duePrecision === prec, show(its)); }).filter(Boolean);
+      const d3 = read("来月の3日は母の誕生日")[0];
+      if (!d3 || d3.dayKey !== "2026-10-03" || d3.kind !== "event") m1.push("来月の3日→" + (d3 ? show([d3]) : "なし"));
+      ok("CL. 「来月」「今月中」「来年」は、その月・年の終わりまでのあいまいな用事（最後の日の予定にしない・見出しに残さない）", m1.length === 0, m1.join(" ／ "));
+      // ② 曜日が2つ
+      const y = read("月曜と木曜の19時からヨガ");
+      ok("CL. 「月曜と木曜の19時からヨガ」は、月曜と木曜の2件",
+         y.length === 2 && y.every(i => i.kind === "event" && i.title === "ヨガ" && hm(i.start) === "19:00") && y.map(i => i.dayKey).sort().join() === "2026-09-17,2026-09-21", show(y));
+      const g = read("毎週火曜と金曜の7時にジム");
+      ok("CL. 「毎週火曜と金曜の7時にジム」は、毎週の2件（火曜・金曜の朝7時）",
+         g.length === 2 && g.every(i => i.repeat && i.repeat.kind === "weekly" && hm(i.start) === "07:00") && g.map(i => i.repeat.dow).sort().join() === "2,5", show(g) + " " + g.map(i => i.start && hm(i.start)).join());
+      // 同じ発言の2件を、1件にまとめない（ほんとうに足して確かめる）
+      reset();
+      { const note = { id: uid(), text: "月曜と木曜の19時からヨガ", hash: "cly", capturedAt: at(10, 0), source: "talk", sourceName: null, createdAt: at(10, 0) };
+        await putNote(note); await applyOps(ruleOps(note), note); }
+      ok("CL. 足しても2件のまま（同じ発言だからと1件にまとめない）", state.items.filter(i => i.title === "ヨガ").length === 2, state.items.map(i => i.title + i.dayKey).join("/"));
+      // ③ 何日も続く
+      const span = [["来週月曜から出張で水曜に帰る", "出張", "2026-09-21", "2026-09-23"], ["14日から旅行で16日に戻る", "旅行", "2026-10-14", "2026-10-16"],
+                    ["月曜から水曜まで研修", "研修", "2026-09-21", "2026-09-23"], ["14日から16日まで旅行", "旅行", "2026-10-14", "2026-10-16"]];
+      const m3 = span.map(([t, title, a, b]) => { const it = read(t)[0];
+        return bad(t, !!it && it.kind === "event" && it.title === title && it.allDay && it.dayKey === a && it.spanEndKey === b, it ? show([it]) : "なし"); }).filter(Boolean);
+      ok("CL. 「〜から…水曜に帰る」「月曜から水曜まで」は、その日から終わりの日まで続く予定", m3.length === 0, m3.join(" ／ "));
+      // ④ 朝の用事は、午前が過ぎていれば翌朝（夜を持って聞き返す）
+      const w = read("8時に起きて9時に家を出る");
+      ok("CL. 10時の「8時に起きて9時に家を出る」は翌朝の8時・9時（夜ではない）",
+         w.length === 2 && w[0].dayKey === "2026-09-16" && hm(w[0].due) === "08:00" && hm(w[1].due) === "09:00" && !!w[0].whenAlt, show(w) + " " + w.map(i => i.due && hm(i.due)).join());
+      const early = read("7時に起きる", 6, 0)[0];
+      ok("CL. 朝6時の「7時に起きる」はその朝のまま（聞き返さない）", !!early && early.dayKey === "2026-09-15" && hm(early.due) === "07:00" && !early.whenAlt, early ? show([early]) : "なし");
+      const mtg = read("9時に会議")[0];
+      ok("CL. 朝の用事でなければ今までどおり（10時の「9時に会議」は夜）", !!mtg && hm(mtg.start) === "21:00", mtg ? hm(mtg.start) : "なし");
+      const wk = read("毎週火曜の7時にジム")[0];
+      ok("CL. 「今日」と言っていない曜日の時刻は、過ぎていても午後にしない（毎週火曜の7時＝朝）", !!wk && hm(wk.start) === "07:00", wk ? hm(wk.start) : "なし");
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
