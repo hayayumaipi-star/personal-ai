@@ -4897,7 +4897,8 @@
       const f = cs(".blk.fixed"), x = cs(".blk.flex");
       ok("CD. 予定と作業の枠は同じ見た目（地・左の帯の線・色）", !!f && !!x
          && f.backgroundColor === x.backgroundColor && f.borderLeftStyle === x.borderLeftStyle
-         && f.borderLeftColor === x.borderLeftColor && f.borderTopColor === x.borderTopColor,
+         && f.borderLeftColor === x.borderLeftColor && f.borderTopColor === x.borderTopColor
+         && getComputedStyle($("#p-day .blk.fixed"), "::before").backgroundColor === getComputedStyle($("#p-day .blk.flex"), "::before").backgroundColor,
          f && x ? [f.backgroundColor, x.backgroundColor, f.borderLeftStyle, x.borderLeftStyle].join(" / ") : "枠が無い");
       const rows = [...document.querySelectorAll("#p-day .tlrow.b:not(.d-thin)")];
       const dots = new Set(rows.map(r => getComputedStyle(r, "::before").backgroundColor));
@@ -4912,6 +4913,52 @@
       const mk = ($("#mK") || {}).textContent || "";
       ok("CD. 手で足すときの選択肢にも区分の説明を書かない", /予定/.test(mk) && !/固定|動かさない|動かせる|作業枠/.test(mk), mk);
       closeSheet(); showTab(keepTab);
+    }
+
+    /* ===== CE群：予定の枠の見た目（2026-09-27・本人の指示「スケジュールの予定の枠の見た目をもっと吟味して」・決まり15t）=====
+       見るのは性質：帯はまっすぐな内側の棒／枠は白い面で枠線なし／文字は帯と重ならない／空きに破線なし／
+       いまの枠は帯も赤／時刻は等幅の字（コードの字）にしない。 */
+    {
+      const keepN = state.notes, keepTab = view.tab;
+      state.notes = []; showTab("p-day");                 // 見本の日：予定と作業が並ぶ
+      const b = $("#p-day .blk.fixed"), cs = b && getComputedStyle(b), bar = b && getComputedStyle(b, "::before");
+      ok("CE. 左の帯は枠の内側のまっすぐな棒（角丸に沿って曲がる太い左の線にしない）",
+         !!cs && cs.borderLeftWidth === cs.borderTopWidth && parseFloat(bar.width) >= 2 && bar.backgroundColor !== "rgba(0, 0, 0, 0)",
+         cs ? cs.borderLeftWidth + " / " + cs.borderTopWidth + " / 棒 " + bar.width : "枠が無い");
+      const card = document.createElement("div"); card.className = "card"; $("#p-day").appendChild(card);
+      const light = document.documentElement.getAttribute("data-theme");
+      document.documentElement.setAttribute("data-theme", "light");
+      ok("CE. 枠はほかのカードと同じ面で、枠線を引かない（明るいとき）",
+         getComputedStyle(b).backgroundColor === getComputedStyle(card).backgroundColor && getComputedStyle(b).borderTopColor === "rgba(0, 0, 0, 0)",
+         getComputedStyle(b).backgroundColor + " / " + getComputedStyle(b).borderTopColor);
+      if (light) document.documentElement.setAttribute("data-theme", light); else document.documentElement.removeAttribute("data-theme");
+      card.remove();
+      const t = b && b.querySelector(".bttl"), gap = b && t ? t.getBoundingClientRect().left - b.getBoundingClientRect().left : 0;
+      ok("CE. 見出しの文字は帯と重ならない", gap >= parseFloat(bar.left) + parseFloat(bar.width) + 4, Math.round(gap) + "px");
+      /* テストの窓は広いので、**スマホ幅（430px以下）の指定は描かれない**。そこで .blk の左の余白を
+         狭めると、実機でだけ文字が帯に重なる（壊して確かめたら、上の1件はすり抜けた）。指定そのものを読む。 */
+      const narrow = [];
+      for (const sh of document.styleSheets) { let rs; try { rs = sh.cssRules; } catch { continue; }
+        for (const r of rs) if (r.media && /max-width:\s*430px/.test(r.media.mediaText))
+          for (const x of r.cssRules) if (x.selectorText === ".blk" || x.selectorText === ".blk.thin") narrow.push(x); }
+      const need = parseFloat(bar.left) + parseFloat(bar.width) + 4;
+      ok("CE. スマホ幅でも、見出しの文字は帯と重ならない（左の余白）",
+         narrow.length >= 1 && narrow.every(x => !x.style.paddingLeft || parseFloat(x.style.paddingLeft) >= need),
+         narrow.map(x => x.selectorText + " " + (x.style.paddingLeft || "（指定なし）")).join(" / ") || "指定が見つからない");
+      const gl = $("#p-day .gapline");
+      ok("CE. 空き時間を破線で囲まない", !!gl && getComputedStyle(gl).borderTopStyle === "none" && getComputedStyle(gl).borderBottomStyle === "none", gl ? getComputedStyle(gl).borderTopStyle : "空きが無い");
+      const tt = $("#p-day .tltime");
+      ok("CE. 時刻と長さを等幅の字（コードの字）にしない", !!tt && !/mono/i.test(getComputedStyle(tt).fontFamily)
+         && !/mono/i.test(getComputedStyle($("#p-day .bdur")).fontFamily), tt ? getComputedStyle(tt).fontFamily.slice(0, 40) : "");
+      state.notes = keepN;
+      // いまの枠：帯も赤
+      const box = document.createElement("div"); $("#p-day").appendChild(box);
+      const dp = demoPlan(); dp.nowMin = 700;             // 11:40＝ゼミ（11:00〜12:30）の最中
+      box.innerHTML = timelineHTML(dp, null, true);
+      const run = box.querySelector(".blk.running");
+      ok("CE. いまの枠は、帯も赤（枠の色と帯の色を合わせる）", !!run
+         && getComputedStyle(run, "::before").backgroundColor === getComputedStyle(run).borderTopColor, run ? getComputedStyle(run, "::before").backgroundColor : "いまの枠が無い");
+      box.remove(); showTab(keepTab);
     }
 
     const fails = R.filter(x => x.startsWith("FAIL"));

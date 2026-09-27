@@ -203,17 +203,23 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
 .tl::before{content:"";position:absolute;left:58px;top:8px;bottom:8px;width:1px;
   background:var(--line);pointer-events:none}
 .tlrow{display:grid;grid-template-columns:54px 1fr;gap:10px;align-items:stretch}
-.tltime{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:var(--fs-2);color:var(--ink-2);
+.tltime{font-family:var(--f-body);font-variant-numeric:tabular-nums;font-size:var(--fs-2);color:var(--ink-2);
   padding-top:11px;text-align:right;white-space:nowrap}
-.blk{border-radius:12px;padding:10px 12px;margin-bottom:5px;display:flex;flex-direction:column;gap:6px;
+.blk{position:relative;border-radius:12px;padding:10px 12px 10px 18px;margin-bottom:5px;display:flex;flex-direction:column;gap:6px;
   min-height:max(calc(var(--min,30) * var(--tlscale)), 42px)}
 /* **予定と作業を、見た目で分けない**（2026-09-26・本人の指示「動かさない予定／動かせる作業と
    区分して表記しなくていい」）。前は固定＝色つき・実線、作業＝白・破線で描き分け、凡例で説明していた。
    区分は予定づくりの内側（`planFor`）だけに残し、画面ではどちらも同じ枠にする（決まり15s）。 */
-.blk.fixed,.blk.flex{background:var(--accent-soft);border:1px solid var(--accent-line);border-left:4px solid var(--accent)}
+/* **枠の見た目を吟味した**（2026-09-27・本人の指示「スケジュールの予定の枠の見た目をもっと吟味して」・決まり15t）。
+   ① 左の帯を `border-left` で描くと、角丸に沿って**三日月のように曲がっていた**（拡大して見つけた）。
+      帯は枠の内側に置いた細い棒（`::before`）にして、まっすぐにする。
+   ② 地と同じ青緑の塗り＋青緑の枠線で、**予定表がひとかたまりの青緑の箱**に見えていた。
+      ほかのカードと同じく**白い面・枠線なし**にして、色は左の帯だけに絞る（地との明暗差で浮かせる・決まり15）。 */
+.blk.fixed,.blk.flex,.blk.allday{background:var(--surface);border:1px solid var(--edge)}
+.blk::before{content:"";position:absolute;left:7px;top:7px;bottom:7px;width:3px;border-radius:2px;background:var(--accent)}
 .blk.now{box-shadow:0 0 0 2px var(--accent)}
 /* 休憩・予備は枠にしない。細い帯にして、短さがそのまま見えるようにする */
-.blk.thin{border-radius:10px;padding:0 11px;justify-content:center;gap:0;
+.blk.thin{border-radius:10px;padding:0 11px 0 16px;justify-content:center;gap:0;
   min-height:max(calc(var(--min,10) * var(--tlscale)), 22px)}
 .blk.thin .bhead{gap:8px}
 .blk.thin .bttl{font-size:var(--fs-3);font-weight:400;color:var(--ink-2)}
@@ -221,12 +227,13 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
 /* 空き時間。長さのぶんだけ本当に空ける */
 .tlrow.gaprow{align-items:stretch}
 .tlrow.gaprow .tltime{padding-top:0;align-self:center}
-.gapline{display:flex;align-items:center;margin:4px 0 5px;padding-left:2px;
-  border-top:1px dashed var(--line);border-bottom:1px dashed var(--line);
+/* 空き時間は**線で囲まない**（2026-09-27・決まり15t）。上下の破線が枠のすぐ上下に重なり、
+   枠の数だけ線が2本ずつ増えていた。時間軸のレールが続きを受け持つ。高さは今までどおり長さぶん取る。 */
+.gapline{display:flex;align-items:center;margin:4px 0 5px;padding-left:4px;
   min-height:max(calc(var(--min,20) * var(--tlscale)), 26px)}
-.gapline span{font-family:var(--f-mono);font-size:var(--fs-1);color:var(--ink-3)}
-.blk .bttl{font-family:var(--f-disp);font-weight:500;font-size:var(--fs-4);line-height:1.45}
-.blk .brange{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:var(--fs-2);color:var(--ink-2)}
+.gapline span{font-family:var(--f-body);font-variant-numeric:tabular-nums;font-size:var(--fs-1);color:var(--ink-3)}
+.blk .bttl{font-family:var(--f-disp);font-weight:600;font-size:var(--fs-4);line-height:1.45}
+.blk .brange{font-family:var(--f-body);font-variant-numeric:tabular-nums;font-size:var(--fs-2);color:var(--ink-2)}
 
 /* 見出しの行だけを常に見せ、理由と操作はたたんでおく */
 .bhead{display:flex;align-items:baseline;gap:10px;width:100%;text-align:left;padding:0;
@@ -234,7 +241,7 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
 .blk.thin .bhead{cursor:default}
 .bhead .bttl{flex:1;min-width:0}
 /* 「どれくらいかかるか」は枠の高さで感じ取るものだが、数字も読めるようにしておく */
-.bhead .bdur{font-family:var(--f-mono);font-variant-numeric:tabular-nums;font-size:var(--fs-2);
+.bhead .bdur{font-family:var(--f-body);font-variant-numeric:tabular-nums;font-size:var(--fs-2);
   font-weight:500;color:var(--ink-2);white-space:nowrap}
 .bdetail{display:none;flex-direction:column;gap:6px;margin-top:7px;
   padding-top:7px;border-top:1px solid var(--line)}
@@ -250,6 +257,7 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
 /* いまの枠は、囲みを**足さずに**枠そのものの色を変える。
    外側に輪を重ねると、予定の枠の上に赤い枠が乗って二重に見える（本人からの報告）。 */
 .blk.running{border-color:var(--alert);box-shadow:none}
+.blk.running::before{background:var(--alert)}
 .blk.running.past{opacity:1}
 /* いまの位置（空いている時間にいるときだけ引く） */
 /* **D：アイコンと同じ「時間軸の上の丸」**（2026-09-26・本人の指示「全て取り入れて」）。
@@ -438,7 +446,8 @@ body.sheetopen{overflow:hidden}
   .tltime{font-size:var(--fs-1)}
   /* 縮尺だけを下げる。比例は崩さない（1時間 ≈ 78px） */
   :root{--tlscale:1.3px}
-  .blk{padding:9px 11px}
+  .blk{padding:9px 11px 9px 18px}   /* 左は帯（::before）のぶん空ける */
+  .blk.thin{padding:0 10px 0 16px}
   /* 横は詰めて1行に収め、縦は指で押せる高さを確保する */
   /* **押しどころは44px**（2026-09-24・本人の指示・案E）。
      iOS は44pt、Android は48dp を最小にしている。ここは36pxで**8px足りなかった**。
@@ -545,9 +554,12 @@ body.talking .wrap{padding-bottom:calc(var(--saybar, 100px) + 58px + env(safe-ar
 }
 
 /* 移動・準備・休憩・予備。どれも灰色で、主役にしない */
-.blk.travel,.blk.prep{background:var(--surface-2);border:1px solid var(--line);border-left:4px solid var(--ink-3)}
-.blk.brk{background:var(--surface-2);border:1px solid var(--line);border-left:4px solid var(--line-strong)}
-.blk.buf{background:transparent;border:1px dashed var(--line);border-left:4px dashed var(--line-strong)}
+.blk.travel,.blk.prep{background:var(--surface-2);border:1px solid transparent}
+.blk.brk{background:var(--surface-2);border:1px solid transparent}
+.blk.buf{background:transparent;border:1px dashed var(--line)}
+.blk.thin::before{top:5px;bottom:5px}
+.blk.travel::before,.blk.prep::before{background:var(--ink-3)}
+.blk.brk::before,.blk.buf::before{background:var(--line-strong)}
 .blk.brk .bttl,.blk.buf .bttl{color:var(--ink-2);font-weight:500}
 /* 折りたたみは**カードと同じ顔**にする（2026-09-26）。前は細い枠線・角丸8px・高さ32pxで、
    カード（枠線なし・12px）と並ぶと別の部品に見えた。高さ32pxは**押しどころの44pxを割っていた**。
