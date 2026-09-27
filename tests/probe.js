@@ -6165,6 +6165,56 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== CU. 状態を変える処理は1か所（2026-09-27・本人の指示「１と３を実行して」） =====
+       完了・未完了・取り消し・取り消しを戻す・延期・その日はやらない は `setItemState` だけが変える。
+       ボタン（act）と会話（applyOps）で同じ結果になること・どちらも自分で書き換えていないことを見る。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      reset();
+      const tk = dayKey(new Date(), TZ);
+      const mk = (extra) => { const it = Object.assign({ id: uid(), noteId: "x", kind: "task", title: "資料を作る", origin: "rule", status: "open", confirmed: false,
+        dayKey: tk, due: zoned(...tk.split("-").map(Number), 23, 59, TZ).toISOString(), duePrecision: "day", history: [], evidence: { text: "資料", start: 0, end: 2 } }, extra || {});
+        state.items.push(it); return it; };
+      const talkNote = { id: uid(), text: "話した", hash: "cu" + Math.random(), capturedAt: new Date().toISOString(), source: "talk", createdAt: new Date().toISOString() };
+      const pick = i => JSON.stringify({ status: i.status, confirmed: !!i.confirmed, done: !!i.completedAt, dayKey: i.dayKey, targetDay: i.targetDay || null,
+        period: i.period || null, doneDays: i.doneDays || [], skipDays: i.skipDays || [], due: i.due });
+      // ① 構造：ボタンと会話は、自分で状態を書き換えない
+      const actSrc = String(act), opsSrc = String(applyOps);
+      ok("CU. ボタン（act）も会話（applyOps）も、状態を変えるのは setItemState だけ",
+        /setItemState\(it, a,/.test(actSrc) && /setItemState\(target, o\.op,/.test(opsSrc)
+        && !/it\.status = "(done|dropped|open)"|it\[f\] =|it\.dayKey = nxt/.test(actSrc)
+        && !/target\.status = |target\.doneDays =|target\.skipDays =|target\.dayKey = to/.test(opsSrc));
+      // ② 同じ操作は、ボタンでも会話でも同じ結果になる
+      const pairs = [];
+      for (const [a, extra] of [["done", {}], ["drop", {}], ["defer", { targetDay: tk, period: "来月ごろ" }]]) {
+        const x = mk(extra), y = mk(extra);
+        await act(a, x.id, null);
+        await applyOps([{ op: a, id: y.id }], talkNote);
+        if (pick(x) !== pick(y)) pairs.push(a + "：ボタン " + pick(x) + " ／ 会話 " + pick(y));
+      }
+      ok("CU. 完了・取り消し・延期は、ボタンでも会話でも同じ状態になる", pairs.length === 0, pairs.join(" ｜ "));
+      const dx = state.items.filter(i => i.title === "資料を作る" && i.dayKey === addKey(tk, 1));
+      ok("CU. 延期は、ボタンでも「この日にやる」と時期の言い方を外す（前はボタンだけ残していた）", dx.length === 2 && dx.every(i => !i.targetDay && !i.period), dx.map(pick).join(" ／ "));
+      ok("CU. 完了は、ボタンでも確認済みになる（前は会話だけだった）", state.items.filter(i => i.status === "done").every(i => i.confirmed));
+      // ③ くり返し：その回だけ・どちらからでも同じ
+      const past = addKey(tk, -2), dom = +past.slice(8);
+      const rx = mk({ repeat: { kind: "monthly", dom }, dayKey: past }), ry = mk({ repeat: { kind: "monthly", dom }, dayKey: past });
+      await act("done", rx.id, { dataset: { day: tk } });
+      await applyOps([{ op: "done", id: ry.id }], talkNote);
+      ok("CU. くり返しの完了は、ボタンでも会話でもその回だけ（シリーズは開いたまま）", pick(rx) === pick(ry) && rx.status === "open" && (rx.doneDays || []).join() === past, pick(rx) + " ／ " + pick(ry));
+      const wk = mk({ repeat: { kind: "daily" }, dayKey: tk, title: "日記を書く" });
+      await applyOps([{ op: "skipday", id: wk.id, day: addKey(tk, 1) }], talkNote);
+      await act("skipday", wk.id, { dataset: { day: addKey(tk, 2) } });
+      ok("CU. その日はやらない：会話もボタンも、その日だけ外す", (wk.skipDays || []).join() === [addKey(tk, 1), addKey(tk, 2)].join() && wk.status === "open", (wk.skipDays || []).join());
+      // ④ 戻す：未完了・取り消しを戻す
+      const u = mk(); await act("done", u.id, null); await act("undone", u.id, null);
+      const v = mk(); await act("drop", v.id, null); await act("undrop", v.id, null);
+      ok("CU. 未完了に戻す・取り消しを戻すで open に戻り、履歴に両方残る", u.status === "open" && !u.completedAt && v.status === "open"
+        && u.history.some(h => h.what === "完了にした") && u.history.some(h => h.what === "未完了に戻した") && v.history.some(h => h.what === "取り消しを戻した"));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
