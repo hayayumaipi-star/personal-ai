@@ -819,8 +819,24 @@ const halfWidth = s => String(s == null ? "" : s)
 /* ---------- timezone-aware clock ----------
    All "今日/明日/来週" resolution happens in the configured zone,
    relative to the note's own capture time — never the render time. */
+/* **書式の道具は、タイムゾーンごとに1つだけ作って使い回す**（2026-09-27・測って見つけた）。
+   `new Intl.DateTimeFormat` は作るのが重く、日付を1回読むたびに作り直していたので、
+   3か月ぶんの記録で予定表の計算が1回140ミリ秒かかっていた。
+   使えないタイムゾーンは作るときに例外を投げる——**失敗は覚えない**（今までどおり呼ぶたびに投げる）。 */
+const DTF_CACHE = new Map();
+function dtf(kind, tz) {
+  const k = kind + "|" + tz;
+  let f = DTF_CACHE.get(k);
+  if (!f) {
+    f = kind === "off"
+      ? new Intl.DateTimeFormat("en-US", { timeZone: tz, hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      : new Intl.DateTimeFormat("en-US", { timeZone: tz, hour12: false, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    DTF_CACHE.set(k, f);
+  }
+  return f;
+}
 function tzOffMin(d, tz) {
-  const f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const f = dtf("off", tz);
   const p = {}; for (const x of f.formatToParts(d)) p[x.type] = x.value;
   const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, (+p.hour) % 24, +p.minute, +p.second);
   return (asUTC - d.getTime()) / 60000;
@@ -837,7 +853,7 @@ function zoned(y, mo, d, h, mi, tz) {
 const validISO = s => { if (!s) return false; const t = new Date(s).getTime(); return !Number.isNaN(t); };
 function parts(dt, tz) {
   if (!dt || Number.isNaN(new Date(dt).getTime())) dt = new Date();   // 壊れた値は「いま」として扱う
-  const f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour12: false, weekday: "short", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const f = dtf("parts", tz);
   const p = {}; for (const x of f.formatToParts(dt)) p[x.type] = x.value;
   const dowMap = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
   return { y:+p.year, mo:+p.month, d:+p.day, h:(+p.hour)%24, mi:+p.minute, dow: dowMap[p.weekday] };
@@ -871,7 +887,22 @@ function durJa(m) { if (m == null) return ""; const h = Math.floor(m / 60), r = 
    ======================================================================= */
 const WD = { "日":0,"月":1,"火":2,"水":3,"木":4,"金":5,"土":6 };
 
+/* 「30分後に電話する」「1時間半後に出る」（2026-09-27・時刻として読めていなかった）。
+   話した時刻から数えて、その日時を言ったのと同じに読む。ほかに時刻を言っていれば、そちらが先。 */
+const RE_REL_TIME = /(\d{1,3})\s*分\s*後|(\d{1,2})\s*時間\s*(半)?\s*後/;
 function parseWhen(rawText, baseISO, tz) {
+  {
+    const t0 = halfWidth(rawText), rel = RE_REL_TIME.exec(t0);
+    if (rel && !/\d{1,2}\s*[:：時](?!間)/.test(t0.replace(rel[0], ""))) {
+      const mins = rel[1] != null ? +rel[1] : (+rel[2] * 60 + (rel[3] ? 30 : 0));
+      if (mins > 0 && mins <= 24 * 60) {
+        const p = parts(new Date(new Date(baseISO).getTime() + mins * 60000), tz);
+        const said = `${p.y}年${p.mo}月${p.d}日${p.h >= 1 && p.h <= 11 ? "午前" : ""}${p.h}時${p.mi}分`;
+        const r = parseWhen(t0.slice(0, rel.index) + said + t0.slice(rel.index + rel[0].length), baseISO, tz);
+        if (r) return Object.assign(r, { span: [rel.index, rel.index + rel[0].length], relative: true, altStart: null, altEnd: null });
+      }
+    }
+  }
   const text = halfWidth(rawText);
   const base = new Date(baseISO), bp = parts(base, tz);
   // --- time of day ---
@@ -1024,7 +1055,7 @@ function parseWhen(rawText, baseISO, tz) {
   const hasTime = tH != null;
   const when = zoned(ky, km, kd, hasTime ? tH : 23, hasTime ? tM : 59, tz).toISOString();
 
-  const isDeadline = /まで(に)?|締切|〆切|提出|期限/.test(text);
+  const isDeadline = /まで(に)?|締切|締め切り|しめきり|〆切|提出|期限/.test(text);
   const res = {
     iso: when, dayKey: key,
     precision: out.prec === "week" ? "week" : (hasTime ? "exact" : "day"),
@@ -1159,7 +1190,7 @@ function parseDuration(rawText) {
 /* =======================================================================
    文 → 項目（ルール抽出）
    ======================================================================= */
-const RE_TASK  = /(ないといけない|なければならない|なきゃいけない|しなきゃ|しないと|ないとまずい|ねばならない|必要がある|todo|やること|タスク|忘れてた|忘れずに|忘れないように)/i;
+const RE_TASK  = /(ないといけない|なければならない|なきゃいけない|しなきゃ|しないと|なきゃ|なくちゃ|なくては|ないとまずい|ねばならない|必要がある|todo|やること|タスク|忘れてた|忘れずに|忘れないように)/i;
 /* 意志形（送ろう・やろう）も動詞として拾う。話し言葉ではこちらの方が多い。 */
 const RE_VERB  = /(する|しよ|やる|やら|やり|やろ|作る|作ら|作り|作ろ|書く|書か|書き|書け|書こ|送る|送ら|送り|送ろ|送信|出す|出さ|出し|出そ|提出|買う|買わ|買い|買お|予約|準備|連絡|返信|読む|読ま|読み|読も|確認|申し込|片付け|まとめ|調べ|練習|掃除|洗濯|支払|登録|予習|復習|行く|行か|行こ|会う|会い|会お|電話|メール)/;
 const RE_EVENT = /(解散|会議|ミーティング|打ち合わせ|打合せ|面談|商談|授業|講義|ゼミ|アポ|診察|受診|通院|歯医者|歯科|病院|クリニック|健診|検診|予防接種|整体|接骨|整骨|リハビリ|カウンセリング|美容院|美容室|床屋|理容|面接|試験|ライブ|試合|出発|集合|飲み会|説明会|発表|銀行|役所|郵便局|ジム|レッスン|教習|面会|デート|内見|引っ越し|納品|搬入|出社|登校|健康診断|人間ドック|定期健診|説明|授与|式)/;
@@ -1172,6 +1203,7 @@ const RE_DAY_WHOLE = /(在宅勤務|在宅|テレワーク|リモートワーク
 const RE_FROM_NOUN = /\d\s*(?:時(?!間)|:\d{2})\s*(?:半|\d{1,2}\s*分)?\s*から[、，,]?\s*[^\s。！!?？]*[一-鿿々ァ-ヴー]{2,}[。！!、，,]*$/;
 const RE_FROM_NOUN_CUT = /(午前|午後|朝|昼|夕方|夜|晩|深夜|夜中)?\s*\d{1,2}\s*(?:時(?!間)|:\d{2})\s*(?:半|\d{1,2}\s*分)?\s*から/;
 const RE_WEATHER = /(雨|雪|晴れ|曇り|くもり|台風|雷|強風)/;
+const RE_BOOKING = /予約\s*(を|は)?\s*(取る|取り|とる|とっ|取っ|入れる|入れ|する|しておく|しとく|しよう|したい|しないと|しなきゃ|取らないと|取らなきゃ|入れないと)/;
 const RE_GOTO  = /([にへ])\s*(行く|行き|いく|向かう|向かい|寄る|寄り|入る|集合|到着)|(予約(が|を|は|し)|アポ|待ち合わせ)/;
 /* 食事は言い方がばらばらで（ご飯・昼飯・ランチ…）、ひらがなが多いので語句として拾えない。
    専用に見て、スケジュールには「昼食を食べる」のように揃えた名前で入れる。
@@ -1259,7 +1291,7 @@ function parseTravel(s) {
 /* 「自分がこれをやらないといけない」という言い方。予定か自分のタスクかを分けるのに使う。 */
 /* 「やること」は入れない。「次にやることが一つ分かる方が楽」のような、
    タスクではない文まで自分の用事として拾ってしまうため。 */
-const RE_SELFTASK = /[さかがらわばまなたちりえけせてねへめれ]ないと|ないといけない|なきゃ|なければ|ねばならない|必要がある|忘れ(ないよう|ずに|てた)|todo|とらないと|取らないと/i;
+const RE_SELFTASK = /[さかがらわばまなたちりえけせてねへめれ]ないと|ないといけない|なきゃ|なくちゃ|なくては|なければ|ねばならない|必要がある|忘れ(ないよう|ずに|てた)|todo|とらないと|取らないと/i;
 
 /* 「ずっと変わらないこと」だけを拾う。その日の状態は拾わない。
    ルールは自信のあるものだけに絞る。文章の資料からの抽出はAIの仕事。 */
@@ -1361,8 +1393,10 @@ const MODAL_STEM = { "さ":"す", "か":"く", "が":"ぐ", "ら":"る", "わ":"
 function deModal(t) {
   return t
     .replace(/(しなきゃいけない|しなければならない|しないといけない|しなきゃ|しないと)/g, "する")
-    .replace(/([さかがらわばまなたちり])ないと(いけない|ダメ|まずい)?/g, (m, c) => MODAL_STEM[c] || "")
-    .replace(/([えけせてねへめれべげぜでじび])ないと(いけない|ダメ|まずい)?/g, "$1る")   // まとめないと → まとめる
+    .replace(/([さかがらわばまなたちり])(?:ないと|なきゃ|なくちゃ|なければ)(いけない|ならない|ダメ|まずい)?/g, (m, c) => MODAL_STEM[c] || "")
+    .replace(/([えけせてねへめれべげぜでじび])(?:ないと|なきゃ|なくちゃ|なければ)(いけない|ならない|ダメ|まずい)?/g, "$1る")   // まとめないと・出かけなきゃ → まとめる・出かける
+    /* 「企画書を出さなきゃ」が「企画書を出さ」になっていた（2026-09-27・ふだんの言い方50文で見つけた）。
+       「ないと」には言い切りへ戻す道があったのに、**「なきゃ」「なくちゃ」には無く、落とすだけ**だった（決まり7e）。 */
     .replace(/(なきゃいけない|なければならない|ないといけない|なきゃ|ないと)/g, "")
     .replace(/(忘れてた|忘れずに|忘れないように|のを忘れてた)/g, "");
 }
@@ -1383,12 +1417,12 @@ const RE_REPEAT_WORD = /(毎週\s*(?:の)?\s*[日月火水木金土]曜?日?|毎
 /* 時間帯の言い方は1か所にまとめる（決まり7e）。
    **読み取る側（`parseIntent`）と、見出しから落とす側（`cleanTitle`）で同じものを使う。**
    長い言い方から並べること——「午前中」より先に「午前」を試すと「中」が取り残される。 */
-const RE_WIN_MORNING   = /(午前中|午前|朝のうち|朝に)/;
+const RE_WIN_MORNING   = /(午前中|午前|朝のうち|朝一番|朝一|朝イチ|朝に)/;
 const RE_WIN_AFTERNOON = /(午後|昼過ぎ|昼から)/;
 const RE_WIN_EVENING   = /(夕方以降|夕方|夜に|晩に)/;
 const RE_CUT_WINDOW = new RegExp(
   "(?:" + [RE_WIN_MORNING, RE_WIN_AFTERNOON, RE_WIN_EVENING]
-    .map(r => r.source.replace(/^\(|\)$/g, "")).join("|") + ")(?:には|には|に|は|から)?", "g");
+    .map(r => r.source.replace(/^\(|\)$/g, "")).join("|") + ")(?:には|には|に|は|から|で)?", "g");
 
 /* `opts.keepHabit`＝目標の見出し（2026-09-26・本人の指示）。「毎日30分は歩きたい」の
    **「毎日」「30分」は目標の中身そのもの**で、予定の飾りではない。予定なら「毎日」は
@@ -1397,7 +1431,19 @@ const RE_CUT_WINDOW = new RegExp(
 function cleanTitle(s, when, opts) {
   const keepHabit = !!(opts && opts.keepHabit);
   let t = s;
-  if (when && when.span) t = t.slice(0, when.span[0]) + CUT + t.slice(when.span[1]);
+  if (when && when.span) {
+    /* 日付・時刻の跡に1文字だけ取り残される形（2026-09-27・実測）：
+       「毎朝7時に」の「毎」（日付の読み取りが「朝7時」だけを取る）→「毎ジョギングする」、
+       「、今週中」の「中」（「今週」だけを取る）→「本を返す、中」。 */
+    let a = when.span[0], b = when.span[1];
+    if (t[a - 1] === "毎") a--;
+    else {                                                           // 「次の土曜は友達と映画」→「次友達と映画」だった
+      const pre = /(次の?|今度の?|この|その|こ|そ)$/.exec(t.slice(0, a));
+      if (pre && (pre[0].endsWith("の") || t[a] === "の")) a -= pre[0].length;
+    }
+    if (t[b] === "中" && !/[一-鿿]/.test(t[b + 1] || "")) b++;
+    t = t.slice(0, a) + CUT + t.slice(b);
+  }
   if (!keepHabit) t = t.replace(RE_REPEAT_WORD, CUT);
   /* 時間帯の希望も見出しから落とす（v4.4）。項目には「午前中に」の印が別に出るので、
      見出しに残すと「午前中に研究計画書を書く」と二度書くことになる。
@@ -1445,11 +1491,16 @@ function cleanTitle(s, when, opts) {
      い段（起きたい／書きたい）は、起きる・書く のどちらか決められないので触らない（決まり7cb）。
      続けたいことでは「〜たい」が中身なので触らない（決まり3d）。 */
   t = t.replace(/^(そのあと|その後|それから|あとは|次に|終わったら)[、，,\s]*/, "");
-  t = t.replace(/(に|へ)(変更|移動)(して|する|で|です)?$/, "").trim();
+  t = t.replace(/[、,，\s]*(に|へ)?(変更|移動)(して|する|で|です)?$/, "").trim();   // 「会議、10時から11時に変更」の「、変更」も
+  t = t.replace(/(が|も)(ある|あります)$/, "").trim();                                  // 「面接がある」→「面接」
+  t = t.replace(/^(どこかで|どっかで|今から|いまから|これから)[、,，\s]*/, "");       // 置き場所・時刻の話であって中身ではない
   t = t.replace(/(だけど|けれども|けれど|けど|だが)$/, "").trim();     // 「在宅だけど、10時から会議」の前半
   // 話題を分けた前半の終わり（「会議で、そのあと…」「7時に起きて、…」）
   t = t.replace(/^(\S*[一-鿿々ァ-ヴー])で$/, (m, x) => x.length >= 2 ? x : m).replace(/(起き|寝)て$/, "$1る").replace(/家を出て$/, "家を出る");
-  if (!keepHabit) t = t.replace(/したい$/, "する").replace(/([えけげせぜてでねへべめれ]|寝|見|出|着|得)たい$/, "$1る");
+  /* 「引っ越したい」が「引っ越する」になっていた（2026-09-27・実測）。**すぐ前が漢字1文字**（その前は漢字でない・お／ご でない）
+     なら「話す」「返す」「引っ越す」の形なので「す」。2文字以上（勉強したい）やお茶したい は今までどおり「する」。 */
+  if (!keepHabit) t = t.replace(/(^|[^一-鿿々ァ-ヴーおご])([一-鿿])したい$/, "$1$2す")
+    .replace(/したい$/, "する").replace(/([えけげせぜてでねへべめれ]|寝|見|出|着|得)たい$/, "$1る");
   t = normalizeEnding(t);
   if (t.length > 60) t = t.slice(0, 58) + "…";
   return t || s.replace(/[。！？!?]+$/, "").slice(0, 40);
@@ -1514,7 +1565,8 @@ const RE_DECIDED = new RegExp([
 /* 語彙に無い動詞の言い切り。「〜そう」「〜よう」「〜だろう」は推量なので外す。
    さらに、中身のある語（漢字・カタカナ2文字以上）があるときだけ有効にする。
    そうしないと「2時間半くらいかかる。」までタスクになる。 */
-const RE_VERB_END = /[^そよろっ](く|ぐ|す|つ|ぬ|ぶ|む|る)[。、]?$|(買う|会う|使う|払う|手伝う|洗う|もらう|向かう|行う|通う)[。、]?$/;
+/* 「不在です」「会議です」の「です」「ます」は動詞の言い切りではない（2026-09-27・「明日は部長が不在です」が用事になっていた） */
+const RE_VERB_END = /[^そよろっ](く|ぐ|つ|ぬ|ぶ|む|る)[。、]?$|[^そよろっでま]す[。、]?$|(買う|会う|使う|払う|手伝う|洗う|もらう|向かう|行う|通う)[。、]?$/;
 const looksDecided = s => RE_DECIDED.test(s) || (RE_VERB_END.test(s) && contentWords(s).length > 0);
 /* 「明日プレゼンの準備。」のような名詞止め */
 const RE_NOUN_TASK = /(準備|予約|掃除|洗濯|買い物|連絡|提出|申請|登録|練習|片付け|支払い|振込|手続き|返却|予習|復習|会計|入金)[。、]?$/;
@@ -1582,6 +1634,9 @@ function classify(rawS, lineWhen) {
      動詞が無い（2026-09-26・何も記録されていなかった）。日付を言っているときだけ予定にする。
      時刻が無ければ、在宅・休みのような一日の話は終日（extractByRule）、2限のようなものは時刻未定。 */
   if (RE_DAY_STATE.test(s) && lineWhen && lineWhen.dayKey && !lineWhen.timeOnly && !RE_SELFTASK.test(s)) return "event";
+  /* 「歯医者の予約を取る」「美容院の予約を入れる」は**予約するという用事**で、歯医者に行く予定ではない
+     （2026-09-27・時刻未定の予定「歯医者の予約を取る」になっていた）。「14時に歯医者の予約」（名詞止め）は予定のまま。 */
+  if (RE_BOOKING.test(s) && !RE_DONE.test(s)) return "task";
   if (isEvent && lineWhen && lineWhen.hasTime) return "event";
   /* 「13時から散歩」「夜9時からテレビ」——**始まりの時刻＋名詞**で終わる（動詞が無い）。
      これも何も記録されていなかった。始まりを言っているので予定にする（終わりは仮置き・決まり6f）。
@@ -1629,7 +1684,38 @@ function classify(rawS, lineWhen) {
   // 「牛乳を買っておく」のように語彙リストに無い言い方も、言い切りなら拾う
   if ((isTask || looksDecided(s)) && taskStrength(s) >= 2) return "task";
   if (isEvent) return "event";
-  return null;
+  return datedLeftover(s, lineWhen);
+}
+/* **受け皿：日付か時刻を言ったのに、どの種類にも当たらなかった文**（2026-09-27・本人の指示「ほかにも最適化できないか模索して」）。
+   ふだんの言い方50文を流すと、「来月の3日は母の誕生日」「次の土曜は友達と映画」「3時にお茶の約束」
+   「レポートの締め切りは明後日」「お昼は12時から」が**何も記録されず**、返事は「予定はそのままにしてある」だった
+   （決まり5「捨てるなら、言う」に反する）。1つずつ語彙を足しても、次の言い方でまた漏れる。
+   **日付・時刻は、それが予定の話だといういちばん強い印**なので、ここで受ける。入れないもの：
+   過ぎた日の話（昨日・先週・〜た）／天気／問いかけ／気持ち・様子の言葉で終わる文（来週は忙しい）／中身の語が無い文。
+   締め切りの話は用事（締切つき）、ほかは予定（時刻が無ければ時刻未定）。 */
+const RE_SAID_WHEN = /(\d{1,2}\s*(時(?!間)|[:：]\d{2}|日(?!間)|月)|今日|明日|明後日|あさって|今夜|今晩|今週|来週|再来週|今月|来月|週末|土日|[月火水木金土日]曜)/;
+const RE_PAST_TALK = /(昨日|きのう|一昨日|おととい|先週|先月|去年|昨年|さっき|この前)/;
+const RE_STATE_END = /(い|たい|ない|そう|よう|らしい|みたい|だ|です|ます|でした|だった|ね|よ|な|か|かも|けど|のに|[たっ]た)[。！!？?]*$/;
+const RE_DEADLINE_WORD = /(締め切り|締切|〆切|しめきり|期限|提出日|納期)/;
+function datedLeftover(s, lineWhen) {
+  if (!lineWhen || !RE_SAID_WHEN.test(s)) return null;
+  if (RE_PAST_TALK.test(s) || RE_WEATHER.test(s) || RE_QUESTION_END.test(s) || RE_ASK.test(s)) return null;
+  if (RE_NARRATIVE.test(s) || RE_SOFT.test(s) || RE_MAYBE.test(s) || RE_NEGATED.test(s) || RE_CANCELLED.test(s)) return null;
+  // 言い直し（「明日の予定、15時じゃなくて14時だった」）は新しい予定ではない。照合は ruleOps／AI の仕事（決まり6h）
+  if (RE_RESTATE.test(s)) return null;
+  const body = s.replace(/[。！!？?\s]+$/, "");
+  // 頼みの形（「18時以降は予定を入れないで」「空けておいて」）は要望で、予定ではない（要望は ruleOps が拾う）
+  if (/(ないで|ないでね|ないでください|てください|でください|ておいて|といて|てほしい|てね)$/.test(body)) return null;
+  /* 日付つきの「〜したい」（「明日勉強したい」「明日先生と話したい」）は、その日にやりたいこと＝用事。
+     前から**何も記録されていなかった**（「部屋を片付けたい」は語彙で拾えるのに、「勉強したい」は拾えなかった）。
+     休みたい・寝たいは用事ではない（体の話・その日を空けたい話）。 */
+  const wish = /[しきぎみびりちにえけべめれてでねせ見出着]たい$/.test(body) && !/(休みたい|寝たい|眠りたい|行きたい気)/.test(body);
+  if (RE_STATE_END.test(body) && !wish && !RE_DEADLINE_WORD.test(body) && !/(から|まで)$/.test(body)) return null;
+  const rest = body.replace(RE_SAID_WHEN, "");
+  // 「予定」「用事」「スケジュール」しか中身が無い文は、何の話か分からない（名前を作らない）
+  const words = contentWords(rest).filter(w => !/^(予定|用事|スケジュール|時間|日程)$/.test(w));
+  if (!words.length && !RE_MEAL.test(rest)) return null;
+  return (RE_DEADLINE_WORD.test(s) || wish) ? "task" : "event";
 }
 
 /* **同じ行の時刻は、言った順に並ぶように読む**（2026-09-26・本人の指示「まだ読めていないものも直して」）。
@@ -2407,19 +2493,96 @@ function markTip(k) {
   } catch { return false; }
 }
 let lsFailed = null;
+/* **端末への保存は、まとめて1回にする**（2026-09-27・測って見つけた）。
+   `lsWrite` は記録を**まるごと**書き直す（3か月で約50万文字）。項目を1つ足すたびに呼んでいたので、
+   1回の発言で何度も同じ全体を書き直し、記録が増えるほど1発言が重くなっていた（2ミリ秒→19ミリ秒）。
+   よく呼ばれる道（項目・会話・資料）は `lsSave()` で**予約だけ**して、手が空いたときに1回書く。
+   **原文（`putNote`）は今までどおりすぐ書く**——原文の保存はAIより先（決まり7）。
+   閉じる・裏へ回るときは、予約が残っていれば**待たずに書く**（`lsFlush`）。
+   `lsWrite()` は「いますぐ書く」のまま（テストと、まれにしか通らない道が呼ぶ）。 */
+let lsTimer = null;
+function lsSave() { if (!lsTimer) lsTimer = setTimeout(() => { lsTimer = null; lsWrite(); }, 0); }
+function lsFlush() { if (lsTimer) lsWrite(); }
+/* ── 端末の奥の保存場所（IndexedDB）──（2026-09-27・測って見つけた）
+   localStorage は**約524万文字で一杯**になる（この Chromium で実測）。1発言で約1,100文字増えるので、
+   1日10回話すと**1年3か月ほどで一杯**になり、それ以降は**何も残らない**（記録をまるごと書き直す形なので、
+   1文字も入らなくなる）。APK には `db` が無く、ここが唯一の保存先。
+   だから**同じ中身を IndexedDB にも書き**（容量が桁違いに大きい）、起動したら**新しいほうを読む**（`savedAt`）。
+   一杯になるまでは何も変わらない。**localStorage の中身は消さない**（一杯になっても、控えとして残る）。
+   IndexedDB が使えない場所・開けない場所では何もしない（今までどおり）。 */
+const IDB_NAME = "hitohi", IDB_STORE = "kv", IDB_KEY = "state";
+let idbP = null;
+let idbOk = null;          // 最後に IndexedDB へ書けたか（null＝まだ書いていない）
+let lsSnapLen = 0;         // 最後に書いた記録の大きさ（文字数）。一杯に近いかを見る
+const LS_CAP = 5000000;    // localStorage の上限（実測 5,242,240 文字）より少し手前
+/* **開けないまま待たない**。開く返事が来ない場所（テストの仮想時計の下では実際にそうなった）で待ち続けると、
+   保存のたびに記録の写し（数MB）が待ち行列に残り、**メモリが増え続ける**。3秒で見切り、次の保存でまた試す。 */
+function idbOpen() {
+  if (!idbP) {
+    const p = new Promise(res => {
+      const give = setTimeout(() => { if (idbP === p) idbP = null; res(null); }, 3000);
+      try {
+        const r = indexedDB.open(IDB_NAME, 1);
+        r.onupgradeneeded = () => { try { r.result.createObjectStore(IDB_STORE); } catch {} };
+        r.onsuccess = () => { clearTimeout(give); res(r.result); };
+        r.onerror = r.onblocked = () => { clearTimeout(give); res(null); };
+      } catch { clearTimeout(give); res(null); }
+    });
+    idbP = p;
+  }
+  return idbP;
+}
+function idbReq(mode, f) {
+  return idbOpen().then(db => db ? new Promise(res => {
+    try {
+      const tx = db.transaction(IDB_STORE, mode), r = f(tx.objectStore(IDB_STORE));
+      let v; if (r) r.onsuccess = () => { v = r.result; };
+      tx.oncomplete = () => res({ ok: true, v }); tx.onerror = tx.onabort = () => res({ ok: false });
+    } catch { res({ ok: false }); }
+  }) : { ok: false });
+}
+const idbPut = json => idbReq("readwrite", st => st.put(json, IDB_KEY));
+/* 読むときは待ちすぎない（開けないまま止まる端末があっても、起動を止めない） */
+const idbGet = () => Promise.race([idbReq("readonly", st => st.get(IDB_KEY)),
+  new Promise(res => setTimeout(() => res({ ok: false }), 1500))]);
+/* 読んだ記録を state に入れる（localStorage・IndexedDB の両方がここを通る＝決まり7e） */
+function applySnapshot(v) {
+  state.settings = migrateWindow(safeSettings((v && v.settings) || {}));
+  state.notes = (v && v.notes) || [];
+  state.items = rekey((v && v.items) || []);
+  state.turns = (v && v.turns) || {};
+  state.docs = (v && v.docs) || [];
+}
+const LS_FAIL_MSG = n => "この端末に保存できません（" + n + "）。記録が残りません。";
 function lsWrite() {
+  if (lsTimer) { clearTimeout(lsTimer); lsTimer = null; }
+  let snap;
+  try { snap = JSON.stringify({ savedAt: Date.now(), notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings }); }
+  catch (e) { lsFailed = (e && e.name) || "保存できません"; return; }
+  lsSnapLen = snap.length;
   try {
-    localStorage.setItem(LS, JSON.stringify({ notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings }));
+    localStorage.setItem(LS, snap);
     lsFailed = null;
   } catch (e) {
     lsFailed = (e && e.name) || "保存できません";
-    if (state.backend !== "db") lastError = "この端末に保存できません（" + lsFailed + "）。claude.ai にも繋がっていないので、記録が残りません。";
+    if (state.backend !== "db") lastError = LS_FAIL_MSG(lsFailed);
   }
+  /* 同じ中身を奥の保存場所にも書く。書けたら、localStorage が一杯でも記録は残っている——
+     **そのときは騒がない**（打つ手が無い知らせは出さない・決まり15l）。 */
+  const failedNow = lsFailed;
+  return idbPut(snap).then(r => {
+    idbOk = !!r.ok;
+    if (r.ok && failedNow && lsFailed === failedNow) {
+      lsFailed = null;
+      if (lastError === LS_FAIL_MSG(failedNow)) lastError = null;
+      if (view.tab === "p-set") renderSettings();
+    }
+  });
 }
 
 async function putDoc(d) {
   state.docs = state.docs.filter(x => x.id !== d.id).concat(d);
-  lsWrite();
+  lsSave();
   if (DB) { try { await DB.doc("docs/" + d.id).set(d); } catch (e) { dbTrouble(e); } }
 }
 /* 資料を消す。**消せたときだけ true**（v5.7）。ここにも同じ穴が残っていた——
@@ -2456,7 +2619,7 @@ async function pushTurn(t) {
   for (let i = 0; i < list.length && size() > 180000; i++) if (list[i].plan) list[i] = Object.assign({}, list[i], { plan: null });
   while (list.length > 8 && size() > 180000) list = list.slice(1);
   state.turns[k] = list;
-  lsWrite();
+  lsSave();
   if (DB) { try { await DB.doc("turns/" + k).set({ day: k, list }); } catch (e) { dbTrouble(e); } }
   return t;
 }
@@ -2470,7 +2633,7 @@ async function putNote(n) {
 async function putItem(it) {
   it.updatedAt = new Date().toISOString();
   state.items = state.items.filter(x => x.id !== it.id).concat(it);
-  lsWrite();
+  lsSave();
   if (DB) { try { await DB.doc("items/" + it.id).set(it); } catch (e) { dbTrouble(e); } }
 }
 async function putSettings(raw) {
@@ -2607,14 +2770,19 @@ function migrateWindow(s) {
 async function boot() {
   if (nativeOn()) document.documentElement.classList.add("in-shell");   // 先頭の1行が取りこぼしたときの控え（端の余白は殻に任せる）
   const cached = lsRead();
-  state.settings = migrateWindow(safeSettings((cached && cached.settings) || {}));
+  applySnapshot(cached);
   applyTheme(state.settings.theme);      // 端末の控えから、まず即座に当てる（ちらつかせない）
-  state.notes = (cached && cached.notes) || [];
-  state.items = rekey((cached && cached.items) || []);
-  state.turns = (cached && cached.turns) || {};
-  state.docs = (cached && cached.docs) || [];
   state.ready = true;
   renderAll();
+  /* 奥の保存場所（IndexedDB）に**新しいもの**があれば、そちらを読む。
+     localStorage が一杯になって書けなかった日から先は、ここにしか無い。 */
+  try {
+    const r = await idbGet();
+    const v = r.ok && typeof r.v === "string" ? JSON.parse(r.v) : null;
+    if (v && (v.savedAt || 0) > ((cached && cached.savedAt) || 0)) {
+      applySnapshot(v); applyTheme(state.settings.theme); renderAll();
+    }
+  } catch {}
 
   /* **自分のキーを先に効かせる**（v8.2）。`window.claude` が無い場所
      （独立したサイト・アプリの中）では、この下の行で早々に抜けてしまうので、
@@ -4652,15 +4820,22 @@ function renderSettings() {
   }
   /* 1回に読み込める上限は1000件。近づいたら黙って欠け始める前に知らせる。
      消すのは本人の判断。勝手に古い記録を捨てない。 */
+  /* **どの上限が効くかは、つながっている先で違う**（2026-09-27・画面の文を片方の前提で固定しない）。
+     1000件は claude.ai の保存先から**1回に読み込める**上限で、APK（端末の中だけ）には無い。
+     APK で効くのは端末の保存場所の大きさ——ただし奥の保存場所（IndexedDB）に書けていれば、実質の上限は無い。 */
   const near = $("#dataWarn");
   if (near) {
     const n = Math.max(state.notes.length, state.items.length);
-    near.hidden = n < READ_WARN && !lsFailed;
+    const countNear = !!DB && n >= READ_WARN;
+    const fullNear = !DB && idbOk === false && lsSnapLen >= LS_CAP * 0.7;
+    near.hidden = !countNear && !fullNear && !lsFailed;
     if (lsFailed) near.innerHTML = `<strong>この端末に控えを保存できませんでした（${esc(lsFailed)}）。</strong>` +
       (state.backend === "db"
         ? "記録は claude.ai 側に保存されているので消えていませんが、この端末の控えは古いままです。「全部消す」の前に必ず書き出してください。"
-        : "<strong>claude.ai にも繋がっていないので、いま話したことは残りません。</strong>ページを開き直すか、書き出して退避してください。");
-    else if (n >= READ_WARN) near.innerHTML = `<strong>記録が ${n.toLocaleString()} 件になりました。</strong>
+        : "<strong>いま話したことは残りません。</strong>「記録を書き出す」で退避してください。");
+    else if (fullNear) near.innerHTML = `<strong>この端末の保存場所を ${Math.min(99, Math.round(lsSnapLen / LS_CAP * 100))}% 使っています。</strong>
+      一杯になると、それ以降の記録が残りません。<strong>「記録を書き出す」で控えを取ってから</strong>、古い記録の整理を考えてください。`;
+    else if (countNear) near.innerHTML = `<strong>記録が ${n.toLocaleString()} 件になりました。</strong>
       1回に読み込めるのは<strong>${READ_LIMIT.toLocaleString()}件まで</strong>です。超えたぶんは保存されていますが、画面には出なくなります。
       <strong>「記録を書き出す」で控えを取ってから</strong>、古い記録の整理を考えてください。`;
   }
@@ -4863,7 +5038,11 @@ document.addEventListener("keydown", e => {
 });
 /* 送っている途中でページを閉じようとしたら、一度止める（v4.3）。
    原文は先に保存してあるので失われないが、読み取りと返事は途中で消える。 */
+/* 閉じる・裏へ回る前に、予約してある保存を書き切る（lsSave）。Android では裏へ回ったまま終わることがある。 */
+window.addEventListener("pagehide", () => lsFlush());
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") lsFlush(); });
 window.addEventListener("beforeunload", e => {
+  lsFlush();
   if (!sending) return;
   e.preventDefault(); e.returnValue = "";
 });
@@ -5498,7 +5677,10 @@ function restScope(sx, note) {
   if (to && to > add(from, 31)) to = add(from, 31);
   return { from, to: to && to > from ? to : null };
 }
-const RE_NOEVENING = /(夜まで.{0,6}(したくない|やりたくない|作業)|早めに寝|早く寝|夜は.{0,6}(やらない|入れない)|寝る前に.{0,8}始めないように)/;
+const RE_NOEVENING = /(夜まで.{0,6}(したくない|やりたくない|作業)|早めに寝|早く寝|夜は.{0,6}(やらない|入れない|空けて|空けと)|寝る前に.{0,8}始めないように)/;
+/* 「18時以降は予定を入れないで」——**何時からか**を言った夜の希望（2026-09-27・何も記録されていなかった）。
+   午前か午後かを言っていない1〜11時は、夜の話なので午後（「9時以降は」＝21時）。 */
+const RE_NOEVENING_AT = /(午後|夜|夕方)?\s*(\d{1,2})\s*時\s*(半)?\s*(以降|以後|から後|より後|過ぎ)(は|に|には)?.{0,8}(入れない|やらない|空けて|空けと|作業しない|何もしない|何もしたくない)/;
 const RE_KEEP = /(見返せる|見返し|残しておき|残しておいて|あとで読|後で読|メモしておいて)/;
 /* 家にあるもの・食材の話。あとで「何を食べよう」と聞かれたときに参照する。 */
 const RE_PANTRY = /(冷蔵庫|家にある|うちにある|家にあった|残ってる|残っている|ストック|買っておいた|買ってある)/;
@@ -5671,11 +5853,18 @@ function ruleOps(note) {
   /* 「明日の夜は予定を入れないで」は**明日の夜だけ**（2026-09-26・休みの日の希望を足したときに見つけた）。
      前は「今日」と言わない限り**ずっと**の希望になり、毎晩が使えなくなっていた。
      その文で日付を言っていて、「から／以降／しばらく」が無いときだけ、その日に限る。 */
-  if (RE_NOEVENING.test(text)) {
-    const sx = sents.find(x => RE_NOEVENING.test(x)) || text;
-    const dw = parseWhen(sx, note.capturedAt, state.settings.timezone);
-    const dated = !scope && dw && !dw.timeOnly && dw.precision === "day" && !/(から|以降|しばらく|これから|ずっと|いつも|今後|毎日|基本的に)/.test(sx);
-    ops.push({ op: "prefer", key: "noEveningWork", value: EVENING_DEFAULT_MIN, scopeDay: dated ? dw.dayKey : scope, text: "夜は作業を入れないでほしい", quote: q });
+  if (RE_NOEVENING.test(text) || RE_NOEVENING_AT.test(halfWidth(text))) {
+    const hit = x => RE_NOEVENING.test(x) || RE_NOEVENING_AT.test(halfWidth(x));
+    const sx = sents.find(hit) || text;
+    const at = RE_NOEVENING_AT.exec(halfWidth(sx));
+    let value = EVENING_DEFAULT_MIN;
+    if (at) { const h = +at[2]; value = ((h < 12 ? h + 12 : h) * 60) + (at[3] ? 30 : 0); }
+    // 「18時以降は」の「以降」は時刻のことで、「ずっと」の意味ではない。日付の読み取りからは時刻の言葉を外して見る
+    const sd = at ? sx.replace(at[0], "") : sx;
+    const dw = parseWhen(sd, note.capturedAt, state.settings.timezone);
+    const dated = !scope && dw && !dw.timeOnly && dw.precision === "day" && !/(から|以降|しばらく|これから|ずっと|いつも|今後|毎日|基本的に)/.test(sd);
+    ops.push({ op: "prefer", key: "noEveningWork", value, scopeDay: dated ? dw.dayKey : scope,
+      text: at ? `${hhmm(value)}以降は作業を入れないでほしい` : "夜は作業を入れないでほしい", quote: q });
   }
   // 「週末は何もしたくない」「明日は予定を入れないで」——その日（日々）を空けておきたい（2026-09-26）
   for (const sx of sents) {
@@ -7509,7 +7698,7 @@ async function importICS(text, name) {
   const yearKey = dayKey(zoned(tp.y + 1, tp.mo, tp.d, 0, 0, tz), tz);
   const near = cand.filter(it => it.dayKey >= todayKey && it.dayKey <= yearKey);
   const have = Math.max(state.notes.length, state.items.length);
-  const over = have + cand.length > READ_LIMIT;
+  const over = !!DB && have + cand.length > READ_LIMIT;   // 1000件は claude.ai の保存先だけの上限
   const canNarrow = near.length > 0 && near.length < cand.length;
   const yes = await askConfirm({
     title: "カレンダーの予定を足しますか？",

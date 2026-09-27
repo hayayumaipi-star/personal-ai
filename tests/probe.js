@@ -1945,12 +1945,19 @@
       state.items = [];
       for (let i = 0; i < 820; i++) state.items.push({ id: "x" + i, kind: "task", title: "t" + i,
         status: "open", origin: "rule", confirmed: false, corrected: false, createdAt: T(9, 0), history: [] });
+      /* 1000件は claude.ai の保存先から1回に読める上限。**保存先につながっているときだけ**の話（2026-09-27） */
+      const keepDBx = DB;
+      DB = DB || {};
       showTab("p-set"); renderSettings();
       const warn = document.querySelector("#dataWarn");
       ok("X. 800件を超えたら、上限が近いと知らせる",
          !!warn && !warn.hidden && /1,?000件まで/.test(warn.textContent), warn ? warn.textContent.slice(0, 40) : "欄が無い");
       ok("X. 勝手に消さず、書き出しを促す",
          !!warn && /書き出す/.test(warn.textContent) && state.items.length === 820, state.items.length + "件");
+      DB = null; renderSettings();
+      ok("X. 端末の中だけ（APK）では、1000件の知らせを出さない（その上限は無い）",
+         !!warn && (warn.hidden || !/1,?000件まで/.test(warn.textContent)), warn ? warn.textContent.slice(0, 40) : "欄が無い");
+      DB = keepDBx;
 
       state.items = savedI; renderSettings();
       ok("X. 少ないうちは知らせを出さない", !!warn && warn.hidden);
@@ -5317,6 +5324,238 @@
       }
 
       state.notes = keepS.notes; state.items = keepS.items; state.turns = keepS.turns; state.docs = keepS.docs; state.settings = keepS.settings;
+    }
+
+    /* ===== CK. ふだんの言い方を、黙って捨てない・壊さない（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
+       ふだんの言い方50文をAIなしで流すと、7文が**何も記録されず**、6文の見出しが壊れていた
+       （「来月の3日は母の誕生日」→なし、「企画書を出さなきゃ」→「企画書を出さ」、「毎朝7時に」→「毎ジョギングする」）。
+       **日付・時刻を言った文は、どの種類にも当たらなくても予定として受ける**（datedLeftover）。1文ずつではなく組み合わせで見る。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const fmtFail = (arr) => arr.length ? arr.length + "件 例：" + arr.slice(0, 3).join(" ／ ") : "全部守られた";
+      state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const at = (h, m) => zoned(2026, 9, 15, h, m, TZ).toISOString();     // 火曜
+      const read = (text, h = 10, m = 0) => {
+        reset();
+        const note = { id: uid(), text, hash: "ck" + text, capturedAt: at(h, m), source: "talk", sourceName: null, createdAt: at(h, m) };
+        const ops = ruleOps(note);
+        return { items: ops.filter(o => o.op === "add" && o._built).map(o => o._built), ops };
+      };
+      // ① 日付＋名詞は、どの組み合わせでも記録する（日付は言ったとおり・見出しに日付のかけらを残さない）
+      const dates = [["明日", "2026-09-16"], ["明後日", "2026-09-17"], ["来週の水曜", "2026-09-23"], ["次の土曜", "2026-09-19"],
+                     ["今度の日曜", "2026-09-20"], ["この土曜", "2026-09-19"], ["来月の3日", "2026-10-03"], ["10月5日", "2026-10-05"]];
+      const nouns = ["母の誕生日", "友達と映画", "お茶の約束", "花火大会", "同窓会", "保護者会"];
+      const seps = ["は", "に", "、"];
+      let n = 0; const lost = [], badDay = [], badTitle = [];
+      for (const [d, dk] of dates) for (const nn of nouns) for (const sp of seps) {
+        const text = d + sp + nn; n++;
+        const r = read(text);
+        const it = r.items.find(i => i.kind === "event" || i.kind === "task");
+        if (!it) { lost.push(text); continue; }
+        if (it.dayKey !== dk) badDay.push(text + "→" + it.dayKey);
+        if (it.title !== nn) badTitle.push(text + "→「" + it.title + "」");
+      }
+      ok("CK. 日付＋名詞は、どの言い方でも記録する（" + n + "通り）", lost.length === 0, fmtFail(lost));
+      ok("CK. 日付は言ったとおり", badDay.length === 0, fmtFail(badDay));
+      ok("CK. 見出しに日付のかけら（次・こ・毎・中）を残さない", badTitle.length === 0, fmtFail(badTitle));
+      // 時刻つきも同じ
+      const clocks = [["3時に", 900], ["15時から", 900], ["午後3時に", 900], ["15:00に", 900]];
+      const lostT = [];
+      for (const [c, m] of clocks) for (const nn of nouns) {
+        const r = read(c + nn);
+        const it = r.items.find(i => i.kind === "event");
+        if (!it || it.timeUnknown || minOfDay(it.start, TZ) !== m) lostT.push(c + nn + "→" + (it ? (it.timeUnknown ? "時刻未定" : hhmm(minOfDay(it.start, TZ))) : "なし"));
+      }
+      ok("CK. 時刻＋名詞も、その時刻の予定にする（" + clocks.length * nouns.length + "通り）", lostT.length === 0, fmtFail(lostT));
+      // 締め切りは用事（締切つき）
+      const dl = read("レポートの締め切りは明後日").items[0];
+      ok("CK. 「◯◯の締め切りは明後日」は、締切つきの用事", !!dl && dl.kind === "task" && dl.dayKey === "2026-09-17" && dl.dueIsDeadline, dl ? dl.kind + " " + dl.dayKey : "なし");
+
+      // ② 拾いすぎない：気持ち・様子・過去・天気・問いかけ・頼み・言い直しは、予定にしない
+      const not = ["明日は忙しい", "来週は楽しみ", "明日は休みたいなあ", "昨日は母の誕生日だった", "先週の土曜は友達と映画",
+                   "明日は雨", "たぶん明日は晴れ", "明日の予定どうしよう", "来週の水曜は空いてる？", "明日は予定を入れないで",
+                   "金曜の夜は空けておいて", "明日の予定、15時じゃなくて14時だった", "明日は同窓会かもしれない", "明日の予定", "明日はゆっくり休みたい", "今夜は早く寝たい",
+                   "来週の旅行が楽しみだ", "明日は部長が不在です", "明日の同窓会、15時じゃなくて16時だった"];
+      const over = [];
+      for (const text of not) {
+        const r = read(text);
+        const it = r.items.find(i => i.kind === "event" || i.kind === "task");
+        if (it) over.push(text + "→" + it.kind + "「" + it.title + "」");
+      }
+      ok("CK. 気持ち・過去・天気・問いかけ・頼み・言い直しを、予定にしない（" + not.length + "通り）", over.length === 0, fmtFail(over));
+
+      // ③ 見出しの言い切り
+      const titles = [["金曜までに企画書を出さなきゃ", "企画書を出す"], ["明日までに銀行に行かなきゃ", "銀行に行く"],
+                      ["レポートを書かなくちゃ", "レポートを書く"], ["明日は早く出かけなきゃ", "早く出かける"],
+                      ["明日引っ越したい", "引っ越す"], ["明日英語を勉強したい", "英語を勉強する"], ["明日先生と話したい", "先生と話す"], ["明日勉強したい", "勉強する"],
+                      ["毎朝7時にジョギングしたい", "ジョギングする"], ["図書館で本を返す、今週中", "図書館で本を返す"],
+                      ["来週の水曜に面接がある", "面接"], ["今から買い物に行く", "買い物に行く"], ["来週のどこかで部屋を片付ける", "部屋を片付ける"],
+                      ["明日の朝一でメールを返す", "メールを返す"]];
+      const badT = [];
+      for (const [text, want] of titles) {
+        const it = read(text).items.find(i => i.kind === "event" || i.kind === "task");
+        if (!it || it.title !== want) badT.push(text + "→「" + (it ? it.title : "なし") + "」");
+      }
+      ok("CK. 見出しは言い切り・日時のかけらを残さない（" + titles.length + "通り）", badT.length === 0, fmtFail(badT));
+
+      // ④ 予約を「取る」は用事、名詞止めは予定
+      const bk = [["今週中に歯医者の予約を取る", "task"], ["美容院の予約を入れないと", "task"], ["明日病院の予約をする", "task"], ["14時に歯医者の予約", "event"]];
+      const badB = bk.filter(([t, k]) => { const it = read(t).items[0]; return !it || it.kind !== k; }).map(([t, k]) => t + "→" + k + "でない");
+      ok("CK. 「予約を取る」は予約するという用事・「14時に歯医者の予約」は予定", badB.length === 0, fmtFail(badB));
+
+      // ⑤ 「30分後に」は、話した時刻から数える
+      const rel = [["30分後に電話する", 10, 0, 630], ["1時間後に家を出る", 10, 0, 660], ["1時間半後に出発", 10, 0, 690], ["30分後に電話する", 23, 50, 20], ["30分後に電話する", 0, 30, 60]];
+      const badR = [];
+      for (const [t, h, m, want] of rel) {
+        const it = read(t, h, m).items.find(i => i.kind === "event" || i.kind === "task");
+        const got = it ? minOfDay(it.kind === "event" ? it.start : it.due, TZ) : null;
+        if (got !== want || (it && it.whenAlt)) badR.push(t + "（" + h + ":" + m + "）→" + (got == null ? "なし" : hhmm(got)) + (it && it.whenAlt ? "・聞き返す" : ""));
+      }
+      const wrap = read("30分後に電話する", 23, 50).items[0];
+      ok("CK. 「30分後」「1時間半後」は話した時刻から数える（日をまたいでも・午前午後を聞き返さない）", badR.length === 0 && !!wrap && wrap.dayKey === "2026-09-16", fmtFail(badR) + (wrap ? " " + wrap.dayKey : ""));
+
+      // ⑥ 夜の希望：「◯時以降は」「夜は空けておいて」
+      const pf = t => (read(t).ops.find(o => o.op === "prefer" && o.key === "noEveningWork") || null);
+      const p1 = pf("18時以降は予定を入れないで"), p2 = pf("9時以降は作業しない"), p3 = pf("水曜の夜は空けておいて"), p4 = pf("午後8時半以降は何もしたくない");
+      ok("CK. 「18時以降は予定を入れないで」は、18:00からの夜の希望（予定は作らない）",
+         !!p1 && p1.value === 1080 && !read("18時以降は予定を入れないで").items.some(i => i.kind === "event" || i.kind === "task"), p1 ? String(p1.value) : "なし");
+      ok("CK. 午前午後を言っていない「9時以降は」は夜の21時・「午後8時半以降」は20:30", !!p2 && p2.value === 1260 && !!p4 && p4.value === 1230, (p2 ? p2.value : "なし") + " / " + (p4 ? p4.value : "なし"));
+      ok("CK. 「水曜の夜は空けておいて」は、その水曜の夜だけ", !!p3 && p3.scopeDay === "2026-09-16", p3 ? String(p3.scopeDay) : "なし");
+
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
+    /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
+       3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
+       原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
+       そして APK の唯一の保存先（localStorage）は約524万文字で一杯になり、そこから先は何も残らなかった。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      // ① 書式の道具は使い回す。使えないタイムゾーンは、今までどおり毎回例外を投げる（失敗を覚えない）
+      ok("CJ. 日付の書式の道具を、タイムゾーンごとに使い回す",
+         dtf("parts", "Asia/Tokyo") === dtf("parts", "Asia/Tokyo") && dtf("off", "Asia/Tokyo") !== dtf("parts", "Asia/Tokyo"));
+      let thrown = 0;
+      for (let i = 0; i < 2; i++) { try { parts(new Date(), "Not/AZone"); } catch { thrown++; } }
+      ok("CJ. 使えないタイムゾーンは、使い回さず毎回知らせる（安全の決まりを変えない）", thrown === 2, thrown + "回");
+      ok("CJ. 使い回しても、タイムゾーンごとの答えは変わらない",
+         dayKey(new Date("2026-09-27T20:00:00Z"), "Asia/Tokyo") === "2026-09-28"
+         && dayKey(new Date("2026-09-27T20:00:00Z"), "America/New_York") === "2026-09-27"
+         && dayKey(new Date("2026-09-27T20:00:00Z"), "Asia/Tokyo") === "2026-09-28");
+      // 速さ：200件の項目で予定表を20回作る
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      for (let i = 0; i < 200; i++) state.items.push({ id: "cj" + i, kind: i % 3 ? "task" : "event", title: "用事" + i, status: "open",
+        origin: "rule", confirmed: false, corrected: false, history: [], createdAt: T(9, 0),
+        dayKey: KEY, duePrecision: i % 3 ? "day" : "exact", due: T(23, 59), start: T(9 + (i % 10), 0), end: T(10 + (i % 10), 0), fixed: !(i % 3), estimateMin: 30 });
+      /* 時間では測らない（テストの時計は仮想で、計算の重さでは進まない）。**作り直した回数**を数える。 */
+      planFor(KEY);
+      const RealDTF = Intl.DateTimeFormat; let made = 0;
+      Intl.DateTimeFormat = function (...a) { made++; return new RealDTF(...a); };
+      Intl.DateTimeFormat.prototype = RealDTF.prototype;
+      try { for (let i = 0; i < 5; i++) planFor(KEY); } finally { Intl.DateTimeFormat = RealDTF; }
+      ok("CJ. 200件の記録で予定表を作っても、書式の道具を1つも作り直さない", made === 0, made + "回");
+
+      // ② 保存はまとめて1回。原文だけはすぐ書く
+      const realSet = localStorage.setItem.bind(localStorage);
+      let writes = 0;
+      localStorage.setItem = (k, v) => { if (k === "hitohi.v1") writes++; return realSet(k, v); };
+      try {
+        reset();
+        const nn = { id: uid(), text: "牛乳を買う\n郵便局に行く\n資料を作る\n部屋を片付ける", hash: "cj", capturedAt: T(9, 0), source: "talk", sourceName: null, createdAt: T(9, 0) };
+        writes = 0;
+        await putNote(nn);
+        ok("CJ. 原文は、その場で端末に書く（AIより先・決まり7）", writes === 1 && (lsRead().notes || []).some(n => n.id === nn.id), writes + "回");
+        writes = 0;
+        const r = await applyOps(ruleOps(nn), nn);
+        const added = r.changes.length;
+        await new Promise(res => setTimeout(res, 30));
+        ok("CJ. 項目を何件足しても、端末への書き込みは1回にまとまる", added >= 3 && writes === 1, added + "件で" + writes + "回");
+        ok("CJ. まとめた書き込みにも、足した項目が全部入っている", (lsRead().items || []).length === state.items.length);
+        // 閉じる前に書き切る
+        writes = 0;
+        await putItem(Object.assign({}, state.items[0], { title: "閉じる直前に直した" }));
+        lsFlush();
+        ok("CJ. 閉じる・裏へ回るときは、予約した保存を待たずに書く", writes === 1 && (lsRead().items || []).some(i => i.title === "閉じる直前に直した"), writes + "回");
+        await new Promise(res => setTimeout(res, 30));
+        ok("CJ. 書き切ったあとに、同じものをもう一度書かない", writes === 1, writes + "回");
+        // 本当に「閉じる」「裏へ回る」の合図で書くか（関数があるだけでは足りない）
+        await putItem(Object.assign({}, state.items[0], { title: "閉じる合図の直前" }));
+        window.dispatchEvent(new Event("pagehide"));
+        ok("CJ. 閉じる合図（pagehide）で書き切る", (lsRead().items || []).some(i => i.title === "閉じる合図の直前"));
+        await putItem(Object.assign({}, state.items[0], { title: "裏へ回る直前" }));
+        Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+        document.dispatchEvent(new Event("visibilitychange"));
+        delete document.visibilityState;
+        ok("CJ. 裏へ回る合図（visibilitychange）で書き切る", (lsRead().items || []).some(i => i.title === "裏へ回る直前"));
+      } finally { localStorage.setItem = realSet; }
+
+      /* ③ 奥の保存場所（IndexedDB）。**テストの仮想時計の下では本物が開かない**（開く返事が来ない・実測）ので、
+         ここでは同じ形の偽物を差し込んで仕組みを見る。本物は tests/idb-real.mjs（本物の時計の Playwright）で確かめる。 */
+      const store = new Map();
+      const fakeDb = { transaction() {
+        const tx = {};
+        const later = (r, f) => { setTimeout(() => { f(); if (r.onsuccess) r.onsuccess(); if (tx.oncomplete) tx.oncomplete(); }, 0); return r; };
+        tx.objectStore = () => ({ put: (v, k) => { const r = {}; return later(r, () => store.set(k, v)); },
+                                  get: k => { const r = {}; return later(r, () => { r.result = store.get(k); }); } });
+        return tx;
+      } };
+      const keepIdbP = idbP;
+      idbP = Promise.resolve(fakeDb);
+      {
+        reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+        state.items.push({ id: "cj-a", kind: "task", title: "奥に書いた", status: "open", origin: "rule", confirmed: false, corrected: false, history: [], createdAt: T(9, 0) });
+        await lsWrite();          // 仮想の時計では待たない。書き終わりそのものを待つ（決まり15i）
+        let got = await idbGet();
+        let v = got.ok && got.v ? JSON.parse(got.v) : null;
+        ok("CJ. 端末に書くとき、同じ中身を奥の保存場所にも書く", !!v && v.items.length === 1 && v.items[0].title === "奥に書いた" && v.savedAt > 0);
+
+        // localStorage が一杯でも、奥に残る。残っていれば騒がない
+        const keepBackend = state.backend; state.backend = "local"; lastError = null;
+        localStorage.setItem = () => { const e = new Error("quota"); e.name = "QuotaExceededError"; throw e; };
+        state.items.push({ id: "cj-b", kind: "task", title: "一杯のあとに足した", status: "open", origin: "rule", confirmed: false, corrected: false, history: [], createdAt: T(9, 0) });
+        let pw;
+        try { pw = lsWrite(); } finally { localStorage.setItem = realSet; }
+        await pw;
+        got = await idbGet(); v = got.ok && got.v ? JSON.parse(got.v) : null;
+        ok("CJ. localStorage が一杯でも、記録は奥の保存場所に残る", !!v && v.items.some(i => i.title === "一杯のあとに足した"));
+        ok("CJ. 奥に残っているなら「残りません」と騒がない", !lsFailed && !lastError, String(lsFailed) + " / " + String(lastError));
+
+        // 起動したら、新しいほうを読む
+        realSet("hitohi.v1", JSON.stringify({ savedAt: 1, notes: [], items: [{ id: "cj-a", kind: "task", title: "奥に書いた", status: "open", history: [] }], turns: {}, docs: [], settings: state.settings }));
+        state.items = []; state.notes = [];
+        await boot();
+        ok("CJ. 起動したら、新しいほう（奥の保存場所）を読む", state.items.some(i => i.title === "一杯のあとに足した"), state.items.map(i => i.title).join("/"));
+        // 古いほうが奥にあるときは、localStorage を採る
+        realSet("hitohi.v1", JSON.stringify({ savedAt: Date.now() + 60000, notes: [], items: [{ id: "cj-c", kind: "task", title: "手前が新しい", status: "open", history: [] }], turns: {}, docs: [], settings: state.settings }));
+        await boot();
+        ok("CJ. 手前（localStorage）のほうが新しければ、そちらを読む", state.items.length === 1 && state.items[0].title === "手前が新しい", state.items.map(i => i.title).join("/"));
+        state.backend = keepBackend;
+
+        // 設定タブの知らせ：APK で奥に書けないときだけ、大きさで知らせる
+        const keepDB = DB, keepOk = idbOk, keepLen = lsSnapLen;
+        DB = null; idbOk = false; lsSnapLen = Math.round(LS_CAP * 0.8); lsFailed = null;
+        showTab("p-set"); renderSettings();
+        const w = document.querySelector("#dataWarn");
+        ok("CJ. 端末の中だけで奥に書けず、一杯に近ければ知らせる", !!w && !w.hidden && /保存場所を 80% 使っています/.test(w.textContent), w ? w.textContent.slice(0, 40) : "");
+        idbOk = true; renderSettings();
+        ok("CJ. 奥に書けていれば、大きさの知らせは出さない（実質の上限が無い）", !!w && w.hidden);
+        DB = keepDB; idbOk = keepOk; lsSnapLen = keepLen;
+      }
+      // 開く返事が来ない場所で、待ち続けない（保存のたびに写しが残ってメモリが増えないように）
+      {
+        idbP = null;
+        const pending = { open: () => ({}) };
+        let replaced = false;
+        try { Object.defineProperty(window, "indexedDB", { value: pending, configurable: true }); replaced = true; } catch {}
+        const r = await Promise.race([idbPut("x").then(v => "返った:" + v.ok), new Promise(res => setTimeout(() => res("待ち続けた"), 8000))]);
+        ok("CJ. 開く返事が来なければ3秒で見切って、保存を待たせない", replaced && r === "返った:false", replaced ? r : "差し替えられない");
+        ok("CJ. 見切ったあとは、次の保存でもう一度開きにいく", idbP === null);
+        if (replaced) delete window.indexedDB;
+      }
+      idbP = keepIdbP;
+      ok("CJ. カレンダーの取り込みの1000件の知らせは、claude.ai の保存先があるときだけ",
+         /const over = !!DB && /.test(String(importICS)));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+      lsWrite();
     }
 
     const fails = R.filter(x => x.startsWith("FAIL"));
