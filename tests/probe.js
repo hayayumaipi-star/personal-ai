@@ -5530,6 +5530,63 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== CN. 時期の言い方（2026-09-27・本人の指示「まだ読めてないものも直して」） =====
+       ①「春から新しい仕事」が 5/31 までの用事になっていた（始まりなのに締切）②「今年の冬は北海道」が「2/28 ごろ」と出て、冬の話だと読めなかった
+       ③「4月に旅行」「12月に引っ越す」「6月までにレポート」「3か月後に試験」が何も記録されない・日付が付かない。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const at = (h, m) => zoned(2026, 9, 15, h, m, TZ).toISOString();     // 火曜
+      const mkNote = (text, h = 10) => ({ id: uid(), text, hash: "cn" + text + h, capturedAt: at(h, 0), source: "talk", sourceName: null, createdAt: at(h, 0) });
+      const read = text => { reset(); return ruleOps(mkNote(text)).filter(o => o.op === "add" && o._built).map(o => o._built); };
+      const show = its => its.map(i => i.kind + "「" + i.title + "」" + (i.dayKey || "") + "/" + (i.duePrecision || "") + (i.dueIsDeadline ? "まで" : "") + describeWhen(i, TZ)).join(" ｜ ");
+      const chk = (rows, f) => rows.map(r => { const its = read(r[0]); return its.length === 1 && f(its[0], r) ? null : r[0] + "→" + (show(its) || "なし"); }).filter(Boolean);
+      // ① 「〜から」は始まり
+      const from = [["春から新しい仕事", "新しい仕事", "2027-03-01", "（春から）"], ["来月から新しい仕事", "新しい仕事", "2026-10-01", "（来月から）"],
+                    ["4月から新しい部署", "新しい部署", "2027-04-01", "（4月から）"], ["来年から英語を勉強する", "英語を勉強する", "2027-01-01", "（来年から）"],
+                    ["来月からジムに通う", "ジムに通う", "2026-10-01", "（来月から）"]];
+      const f1 = chk(from, (it, r) => it.kind === "task" && it.title === r[1] && it.dayKey === r[2] && it.duePrecision === "week" && !it.dueIsDeadline && it.periodFrom && describeWhen(it, TZ) === r[3]);
+      ok("CN. 「春から」「来月から」「4月から」は、その時期の始まり（締切にしない・「春から」と出す）", f1.length === 0, f1.join(" ／ "));
+      const now = parseWhen("今月から走る", at(10, 0), TZ);
+      ok("CN. 「今月から」の始まりは、過ぎた月初めではなく今日", !!now && now.dayKey === "2026-09-15" && now.periodFrom, now ? now.dayKey : "なし");
+      // ② 時期の言い方をそのまま出す
+      const per = [["今年の冬は北海道", "北海道", "2027-02-28", "（今年の冬ごろ）"], ["来月引っ越したい", "引っ越す", "2026-10-31", "（来月ごろ）"],
+                   ["夏に旅行したい", "旅行する", "2027-08-31", "（夏ごろ）"], ["来年の春に引っ越したい", "引っ越す", "2027-05-31", "（来年の春ごろ）"]];
+      const f2 = chk(per, (it, r) => it.title === r[1] && it.dayKey === r[2] && it.duePrecision === "week" && !it.periodFrom && describeWhen(it, TZ) === r[3]);
+      ok("CN. 「今年の冬は北海道」は「今年の冬ごろ」と出す（「2/28 ごろ」では冬の話と読めない）", f2.length === 0, f2.join(" ／ "));
+      // ③ 月だけ・◯か月後
+      const mon = [["4月に旅行", "旅行", "2027-04-30", "week"], ["12月に引っ越す", "引っ越す", "2026-12-31", "week"],
+                   ["6月までにレポートを出す", "レポートを出す", "2027-06-30", "day"], ["3か月後に試験", "試験", "2026-12-15", "week"],
+                   ["春ごろ引っ越す", "引っ越す", "2027-05-31", "week"]];
+      const f3 = chk(mon, (it, r) => it.title === r[1] && it.dayKey === r[2] && it.duePrecision === r[3]);
+      ok("CN. 「4月に」「12月に引っ越す」「6月までに」「3か月後に」を読む（日付を付け、見出しに残さない）", f3.length === 0, f3.join(" ／ "));
+      const dl = read("6月までにレポートを出す")[0];
+      ok("CN. 「6月までに」はその月末が締切（あいまいにしない）", !!dl && dl.dueIsDeadline && !dl.period, dl ? show([dl]) : "なし");
+      const neg = ["4月は忙しい", "3か月かかる"].map(t => { const its = read(t); return its.some(i => i.dayKey) ? t + "→" + show(its) : null; }).filter(Boolean);
+      const keepD = [["12月25日にパーティー", "2026-12-25"], ["来月末までに書類を出す", "2026-10-31"]].map(([t, dk]) => { const i = read(t)[0]; return i && i.dayKey === dk && !i.period ? null : t + "→" + (i ? show([i]) : "なし"); }).filter(Boolean);
+      ok("CN. 拾いすぎない（「4月は忙しい」「3か月かかる」）・日付を言ったものは日付のまま", neg.length === 0 && keepD.length === 0, neg.concat(keepD).join(" ／ "));
+      // 画面：時期の言い方と「時期があいまい」の印
+      const it0 = read("春から新しい仕事")[0];
+      const h0 = it0 ? itemHTML(it0) : "";
+      ok("CN. 一覧の行に「春から」と「時期があいまい」が出る（「期限があいまい」と言わない）", /春から/.test(h0) && /時期があいまい/.test(h0) && !/期限があいまい/.test(h0), h0.replace(/\s+/g, " ").slice(0, 160));
+      const it1 = read("来月引っ越したい")[0];
+      ok("CN. 日付を直したら、時期の言い方ではなく日付を出す", !!it1 && (() => { const x = Object.assign({}, it1, { duePrecision: "day" }); return !periodText(x) && periodText(it1) === "来月ごろ"; })(), it1 ? periodText(it1) : "なし");
+      reset();
+      { const note = mkNote("来月から新しい仕事"); await putNote(note); await applyOps(ruleOps(note), note);
+        const it = state.items.find(i => i.noteId === note.id);
+        if (it) await act("defer", it.id, null);
+        ok("CN. 「明日へ」で日を動かしたら、「来月から」とは出さない", !!it && !it.period && !periodText(it) && it.dayKey === "2026-10-02", it ? show([it]) : "なし"); }
+      // AIの道も同じに読む（時期しか言っていないとき）
+      reset();
+      { const note = mkNote("春から新しい仕事"); await putNote(note);
+        await applyOps([{ op: "add", kind: "event", title: "新しい仕事", dueDate: "2027-05-31", dueTime: null, duePrecision: "day", quote: "春から新しい仕事" }], note);
+        const it = state.items.find(i => i.noteId === note.id);
+        ok("CN. AIが「5/31 の予定」と返しても、ルールと同じく「春から」の用事にそろえる", !!it && it.kind === "task" && it.dayKey === "2027-03-01" && it.periodFrom && !it.dueIsDeadline && it.period === "春から", it ? show([it]) : "なし");
+        const cx = contextForAI(note), row = (cx.open || []).find(b => b.内容 === "新しい仕事");
+        ok("CN. AIに渡す一覧でも、締切ではなく「始まる時期」と書く", !!row && /春から/.test(row.始まる時期 || "") && !row.期限, JSON.stringify(row)); }
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
