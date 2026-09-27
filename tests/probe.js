@@ -6075,6 +6075,96 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== CT. 用事のくり返し（2026-09-27・本人の指示「毎月25日に家賃を払う」のような、用事のくり返しを作れるようにしたい） =====
+       読み取り（毎月末・毎月第2水曜・毎年・誕生日）／払い忘れた回を翌日に消さない／会話の「払った」はその回だけ／
+       くり返しの日付を「明日へ」で動かさない／AIの道でもくり返しを付ける／日にちが無ければ黙らない。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const at = (h, m = 0, d = 15, mo = 9) => zoned(2026, mo, d, h, m, TZ).toISOString();
+      const mkNote = (text, h = 10, d = 15, mo = 9) => ({ id: uid(), text, hash: "ct" + text + h + d + mo + Math.random(), capturedAt: at(h, 0, d, mo), source: "talk", sourceName: null, createdAt: at(h, 0, d, mo) });
+      const read = (text) => { reset(); return ruleOps(mkNote(text)).filter(o => o.op === "add" && o._built).map(o => o._built); };
+      const one = t => { const a = read(t); return a.length === 1 ? a[0] : null; };
+      const rj = i => i ? i.kind + "「" + i.title + "」" + (i.dayKey || "") + "［" + repeatJa(i.repeat) + "］" : "なし";
+      // ① 読み取り
+      { const want = [["毎月25日に家賃を払う", "task", "家賃を払う", "毎月25日", "2026-09-25"], ["毎月末に家賃を払う", "task", "家賃を払う", "毎月末", "2026-09-30"],
+                      ["毎月第2水曜に燃えないゴミ", null, "燃えないゴミ", "毎月第2水曜", "2026-10-14"], ["毎月最終金曜に飲み会", null, "飲み会", "毎月最終金曜", "2026-09-25"],
+                      ["毎年10月3日は母の誕生日", null, "母の誕生日", "毎年10月3日", "2026-10-03"], ["10月3日は母の誕生日", null, "母の誕生日", "毎年", "2026-10-03"],
+                      ["母の誕生日は10月3日", null, "母の誕生日", "毎年", "2026-10-03"], ["平日は毎朝7時に起きる", null, "起きる", "平日", null],
+                      ["毎月31日に積立を確認する", "task", "積立を確認する", "毎月31日", "2026-09-30"], ["毎月二十五日に家賃を払う", "task", "家賃を払う", "毎月25日", "2026-09-25"]]
+          .map(([t, k, ttl, rp, dk]) => { const x = one(t); return x && (!k || x.kind === k) && x.title === ttl && repeatJa(x.repeat) === rp && (!dk || x.dayKey === dk) ? null : t + "→" + rj(x); }).filter(Boolean);
+        ok("CT. 毎月・毎月末・毎月第2水曜・毎月最終金曜・毎年・誕生日・平日の朝・31日の無い月・漢数字を、くり返しとして読む（10通り）", want.length === 0, want.join(" ／ "));
+        const no = ["10月3日は母の誕生日会", "2027年10月3日は母の誕生日", "来月25日に家賃を払う"].map(t => [t, one(t)]).filter(([, x]) => !x || x.repeat).map(([t, x]) => t + "→" + rj(x));
+        ok("CT. 誕生日会・年を言った誕生日・1回きりの日付は、くり返しにしない", no.length === 0, no.join(" ／ ")); }
+      // ② くり返しの形（暦の境目）
+      { const H = (r, k, dk) => repeatHits({ repeat: r, dayKey: dk || "2026-01-01" }, k, TZ);
+        const cases = [[{ kind: "monthly", dom: 31 }, "2026-11-30", true], [{ kind: "monthly", dom: 31 }, "2026-11-29", false], [{ kind: "monthly", dom: -1 }, "2027-02-28", true],
+                       [{ kind: "monthly", nth: 2, dow: 3 }, "2026-10-14", true], [{ kind: "monthly", nth: 2, dow: 3 }, "2026-10-07", false],
+                       [{ kind: "monthly", nth: -1, dow: 5 }, "2026-10-30", true], [{ kind: "monthly", nth: -1, dow: 5 }, "2026-10-23", false],
+                       [{ kind: "yearly", month: 2, dom: 29 }, "2027-02-28", true], [{ kind: "yearly", month: 2, dom: 29 }, "2028-02-28", false], [{ kind: "yearly", month: 2, dom: 29 }, "2028-02-29", true],
+                       [{ kind: "yearly", month: 10, dom: 3 }, "2027-10-03", true]]
+          .filter(([r, k, want]) => H(r, k) !== want).map(([r, k, want]) => repeatJa(r) + " " + k + " は " + want + " のはず");
+        ok("CT. 31日の無い月は月の終わり・第2水曜・最終金曜・うるう年の2/29を、正しい日に当てる（11通り）", cases.length === 0, cases.join(" ／ ")); }
+      // ③ 払い忘れた回を翌日に消さない（毎月・毎年だけ）
+      { const rent = { id: "ct-rent", kind: "task", title: "家賃を払う", status: "open", repeat: { kind: "monthly", dom: 25 }, dayKey: "2026-09-25", doneDays: [] };
+        const trash = { id: "ct-trash", kind: "task", title: "ゴミを出す", status: "open", repeat: { kind: "weekly", dow: 1 }, dayKey: "2026-09-21", doneDays: [] };
+        ok("CT. 25日の家賃を払っていなければ、26日にも「まだの回」として残る（10/2 でも）", owedDay(rent, "2026-09-26", TZ) === "2026-09-25" && owedDay(rent, "2026-10-02", TZ) === "2026-09-25", owedDay(rent, "2026-09-26", TZ) + " / " + owedDay(rent, "2026-10-02", TZ));
+        ok("CT. 払った回・始まる前は残らない。毎週のゴミは翌日へ持ち越さない", owedDay(Object.assign({}, rent, { doneDays: ["2026-09-25"] }), "2026-09-26", TZ) === null
+          && owedDay(rent, "2026-09-20", TZ) === null && owedDay(trash, "2026-09-22", TZ) === null);
+        ok("CT. 「払った」がどの回か：今日の回→払い忘れた回→2週間以内の次の回（先に払った）", occurFor(rent, "2026-09-25", TZ) === "2026-09-25" && occurFor(rent, "2026-10-02", TZ) === "2026-09-25"
+          && occurFor(rent, "2026-09-23", TZ) === "2026-09-25" && occurFor(Object.assign({}, rent, { doneDays: ["2026-09-25"] }), "2026-10-02", TZ) === null,
+          [occurFor(rent, "2026-09-25", TZ), occurFor(rent, "2026-10-02", TZ), occurFor(rent, "2026-09-23", TZ)].join()); }
+      // ④ 予定表：今日は払い忘れた回を期限切れとして出す（planFor は本物の今日を見るので、今日から数える）
+      { const tk = dayKey(new Date(), TZ), past = addKey(tk, -3), dom = +past.slice(8);
+        reset();
+        const rent = { id: uid(), noteId: "x", kind: "task", title: "家賃を払う", origin: "rule", status: "open", confirmed: false, repeat: { kind: "monthly", dom }, dayKey: past,
+          due: zoned(...past.split("-").map(Number), 23, 59, TZ).toISOString(), duePrecision: "day", doneDays: [], history: [], evidence: { text: "毎月", start: 0, end: 2 } };
+        state.items.push(rent);
+        const found = pl => pl.blocks.concat(pl.loose || [], pl.unplaced || []).map(b => b.item || b).find(i => i && i.id === rent.id);
+        const p1 = planFor(tk), f1 = found(p1);
+        ok("CT. 今日の予定表に、3日前に払い忘れた家賃が「その日の回」として出る（完了を押すとその日が終わる）", !!f1 && f1.occurDay === past, f1 ? f1.occurDay : "出ていない");
+        ok("CT. 残っているものの数にも入る（「今日の予定は全部です」と言わない）", leftToday(p1) >= 1);
+        rent.doneDays = [past];
+        ok("CT. 払ったら今日の予定表から消える", !found(planFor(tk)));
+        rent.doneDays = [];
+        ok("CT. 明日の予定表には持ち越さない（持ち越すのは今日だけ）", !found(planFor(addKey(tk, 1))));
+        await putItem(rent); await act("done", rent.id, { dataset: { day: tk } });
+        ok("CT. くり返しの日でない日から「完了」を押したら、払い忘れた回を終わりにする（今日の日付にしない）", (rent.doneDays || []).join() === past && rent.status === "open", (rent.doneDays || []).join() + " " + rent.status);
+        state.items = state.items.filter(i => i.id !== rent.id); }
+      // ⑤ 会話：「家賃払った」はその回だけ・「明日にする」で日付を動かさない
+      { const seqT = async pairs => { reset(); const rs = []; for (const [t, d, mo] of pairs) { const n = mkNote(t, 10, d, mo); await putNote(n); rs.push(await applyOps(ruleOps(n), n)); } return rs; };
+        await seqT([["毎月25日に家賃を払う", 15], ["家賃払った", 2, 10]]);
+        const r = state.items.find(i => i.title === "家賃を払う");
+        ok("CT. 10/2 の「家賃払った」は 9/25 の回だけ終わりにする（くり返しごと完了にしない）", !!r && r.status === "open" && (r.doneDays || []).join() === "2026-09-25", r ? r.status + " " + (r.doneDays || []).join() : "なし");
+        await seqT([["毎月25日に家賃を払う", 15], ["家賃払った", 23]]);
+        const r2 = state.items.find(i => i.title === "家賃を払う");
+        ok("CT. 9/23 に先に払ったら、9/25 の回を終わりにする", !!r2 && (r2.doneDays || []).join() === "2026-09-25", r2 ? (r2.doneDays || []).join() : "なし");
+        const rs = await seqT([["毎月25日に家賃を払う", 15]]);
+        const r3 = state.items.find(i => i.title === "家賃を払う"); const n = mkNote("家賃は明日にする", 10, 25);
+        const out = await applyOps([{ op: "defer", id: r3.id }], n);
+        ok("CT. くり返しの用事は「明日へ」で日付を動かさず、そう言う", r3.dayKey === "2026-09-25" && out.asks.some(a => /くり返し/.test(a)), r3.dayKey + " " + out.asks.join("/"));
+        ok("CT. くり返しの用事には「明日へ」のボタンも左へなぞる操作も出さない", swipeActs(r3).left === null && !/data-act="defer"/.test(itemHTML(r3)) && swipeActs(Object.assign({}, r3, { repeat: null })).left === "defer"); }
+      // ⑤b 「この先の予定とタスク」には、次の回の日で出す（最初の回を過ぎても消えない）
+      { reset(); const n0 = mkNote("毎月25日に家賃を払う"); state.notes.push(n0);
+        state.items.push({ id: uid(), noteId: n0.id, kind: "task", title: "家賃を払う", origin: "rule", status: "open", confirmed: false, repeat: { kind: "monthly", dom: 25 },
+          dayKey: "2026-09-25", due: zoned(2026, 9, 25, 23, 59, TZ).toISOString(), duePrecision: "day", doneDays: ["2026-09-25"], history: [], evidence: { text: "毎月", start: 0, end: 2 } });
+        const keepDay = view.day; view.day = "2026-10-01"; renderDay();
+        const ap = [...document.querySelectorAll("#dayOut details.allplan")].find(d => /この先の予定/.test(d.textContent));
+        view.day = keepDay;
+        ok("CT. 最初の回を過ぎても「この先の予定とタスク」に次の回（10/25）で出る", !!ap && /家賃を払う/.test(ap.textContent) && /10\/25/.test(ap.textContent), ap ? ap.textContent.replace(/\s+/g, " ").slice(0, 120) : "欄が無い"); }
+      // ⑥ AIの道・日にちが無いとき・誕生日から借りる
+      { reset(); const n = mkNote("毎月25日に家賃を払う"); await putNote(n);
+        await applyOps([{ op: "add", kind: "task", title: "家賃を払う", dueDate: "2026-09-25", quote: "毎月25日に家賃を払う" }], n);
+        const a = state.items[0];
+        ok("CT. AIの道でも「毎月25日」はくり返しになる", !!a && repeatJa(a.repeat) === "毎月25日", rj(a));
+        reset(); const n2 = mkNote("毎月美容院に行く"); await putNote(n2); const out = await applyOps(ruleOps(n2), n2);
+        ok("CT. 「毎月美容院に行く」は何日か分からないと言う（黙って1回きりにしない）", out.asks.some(a => /何日か/.test(a)) && state.items.length === 1, out.asks.join("/"));
+        reset(); for (const t of ["10月3日は母の誕生日", "毎年誕生日にケーキを買う"]) { const x = mkNote(t); await putNote(x); await applyOps(ruleOps(x), x); }
+        const cake = state.items.find(i => /ケーキ/.test(i.title));
+        ok("CT. 「毎年誕生日にケーキを買う」は、毎年の誕生日の日を借りて毎年の用事になる", !!cake && cake.dayKey === "2026-10-03" && repeatJa(cake.repeat) === "毎年", rj(cake)); }
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

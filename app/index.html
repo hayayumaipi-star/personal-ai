@@ -1708,15 +1708,28 @@ function parseRepeat(rawText) {
   const t = halfWidth(rawText);
   let m;
   if ((m = t.match(/毎週\s*(?:の)?\s*([日月火水木金土])曜?/))) return { kind: "weekly", dow: DOW_IDX[m[1]] };
+  /* 毎月・毎年の用事（2026-09-27・本人の指示「毎月25日に家賃を払う」のような用事のくり返しを作れるように）。
+     「毎月末」は月の終わりの日（dom:-1）、「毎月第2水曜」「毎月最終金曜」は週の数え方（nth）。 */
+  if ((m = t.match(/毎月\s*(?:の)?\s*(?:第\s*([1-5])|最終|最後の)\s*([日月火水木金土])\s*曜/))) return { kind: "monthly", nth: m[1] ? +m[1] : -1, dow: DOW_IDX[m[2]] };
   if ((m = t.match(/毎月\s*(?:の)?\s*(\d{1,2})\s*日/))) { const d = +m[1]; return (d >= 1 && d <= 31) ? { kind: "monthly", dom: d } : null; }
+  if (/毎月\s*(?:の)?\s*月?(末|最終日|終わり)/.test(t)) return { kind: "monthly", dom: -1 };
+  if ((m = t.match(/毎年\s*(?:の)?\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/))) {
+    const mo = +m[1], d = +m[2]; return (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) ? { kind: "yearly", month: mo, dom: d } : null; }
   if (/隔週/.test(t)) return { kind: "biweekly" };
+  if (/平日(は|に|毎日|の朝|の夜)/.test(t)) return { kind: "weekday" };   // 「平日は毎朝」を毎日にしない（毎朝より先に見る）
   if (/(毎日|まいにち|毎朝|毎晩|毎夜)/.test(t)) return { kind: "daily" };
-  if (/平日(は|に|毎日|の朝|の夜)/.test(t)) return { kind: "weekday" };
   if (/毎週/.test(t)) return { kind: "weekly" };        // 曜日は最初の1回から取る
+  if (/毎月/.test(t)) return { kind: "monthly" };       // 日にちは最初の1回から取る
+  if (/毎年/.test(t)) return { kind: "yearly" };        // 月日は最初の1回から取る
   /* 「ゴミの日は火曜と金曜」「ジムの定休日は水曜」——**毎週決まっている日**の言い方（2026-09-27・今週の2日だけになっていた）。
      「毎週」と言わなくても、ゴミの日・定休日・休館日は毎週のこと。今週・来週・明日のように週を言っていれば1回きり。 */
   if ((m = t.match(/((?:ゴミ|ごみ|資源|燃える|燃えない|びん|ビン|缶|プラ|古紙)[^。、]{0,6}の日|定休日|休館日|休診日)\s*(?:は|が)?\s*([日月火水木金土])\s*曜/))
       && !/(今週|来週|再来週|次の|今度の|この|明日|明後日|あさって|今日|\d{1,2}\s*日)/.test(t)) return { kind: "weekly", dow: DOW_IDX[m[2]] };
+  /* 「10月3日は母の誕生日」「母の誕生日は10月3日」——誕生日・記念日は**毎年**のこと。年を言っていれば1回きり。
+     「誕生日会」「誕生日プレゼントを買う」は、その年の用事なので入れない（言い切りが誕生日・記念日のときだけ）。 */
+  if ((/\d{1,2}\s*月\s*\d{1,2}\s*日[^。、]{0,12}(誕生日|記念日)(だ|です|なんだ|なの)?[。!！]?\s*$/.test(t)
+       || /(誕生日|記念日)\s*(は|が)\s*\d{1,2}\s*月\s*\d{1,2}\s*日(だ|です|なんだ|なの)?[。!！]?\s*$/.test(t))
+      && !/(\d{4}\s*年|今年|来年|去年|再来年)/.test(t)) return { kind: "yearly" };
   return null;
 }
 function repeatJa(r) {
@@ -1725,25 +1738,93 @@ function repeatJa(r) {
   if (r.kind === "weekday") return "平日";
   if (r.kind === "biweekly") return "隔週";
   if (r.kind === "weekly") return "毎週" + (r.dow != null ? "日月火水木金土"[r.dow] : "");
-  if (r.kind === "monthly") return "毎月" + (r.dom != null ? r.dom + "日" : "");
+  if (r.kind === "monthly") return "毎月" + (r.nth != null && r.dow != null ? (r.nth === -1 ? "最終" : "第" + r.nth) + "日月火水木金土"[r.dow] + "曜"
+    : r.dom === -1 ? "末" : r.dom != null ? r.dom + "日" : "");
+  if (r.kind === "yearly") return "毎年" + (r.month != null && r.dom != null ? r.month + "月" + r.dom + "日" : "");
   return "";
 }
 /* その日にくり返しが当たるか。項目は増やさないので、ここだけが「その日の有無」を決める。 */
 function occursOn(it, key, tz) {
+  if (!it || !it.repeat) return false;
+  if ((it.doneDays || []).includes(key)) return false;            // その日は終わっている
+  if ((it.skipDays || []).includes(key)) return false;            // その日はやらないと言われた
+  return repeatHits(it, key, tz);
+}
+/* くり返しの形だけを見る（済んだかどうかは見ない）。過ぎた回・次の回を探すときに使う。 */
+function repeatHits(it, key, tz) {
   const r = it && it.repeat;
   if (!r) return false;
   if (it.dayKey && key < it.dayKey) return false;                 // 始まる前
-  if ((it.doneDays || []).includes(key)) return false;            // その日は終わっている
-  if ((it.skipDays || []).includes(key)) return false;            // その日はやらないと言われた
   const p = parts(keyToDate(key, tz), tz);
   const first = validISO(it.start) ? parts(new Date(it.start), tz) : (it.dayKey ? parts(keyToDate(it.dayKey, tz), tz) : null);
+  const last = new Date(Date.UTC(p.y, p.mo, 0)).getUTCDate();    // その月の終わりの日
   if (r.kind === "daily") return true;
   if (r.kind === "weekday") return p.dow >= 1 && p.dow <= 5;
   if (r.kind === "weekly") return p.dow === (r.dow != null ? r.dow : (first ? first.dow : -1));
-  if (r.kind === "monthly") return p.d === (r.dom != null ? r.dom : (first ? first.d : -1));
+  if (r.kind === "monthly") {
+    if (r.nth != null && r.dow != null) return p.dow === r.dow && (r.nth === -1 ? p.d + 7 > last : Math.ceil(p.d / 7) === r.nth);
+    const want = r.dom === -1 ? last : (r.dom != null ? r.dom : (first ? first.d : -1));
+    return want > 0 && p.d === Math.min(want, last);             // 「毎月31日」は、31日の無い月は終わりの日
+  }
+  if (r.kind === "yearly") {
+    const mo = r.month != null ? r.month : (first ? first.mo : -1), dd = r.dom != null ? r.dom : (first ? first.d : -1);
+    return p.mo === mo && dd > 0 && p.d === Math.min(dd, last);   // 2/29 は、うるう年でなければ 2/28
+  }
   if (r.kind === "biweekly") return it.dayKey
     ? Math.round((keyToDate(key, tz) - keyToDate(it.dayKey, tz)) / 86400000) % 14 === 0 : false;
   return false;
+}
+/* key から前（dir=-1）か後ろ（dir=+1）へ、いちばん近いくり返しの日を探す。max 日まで。 */
+function stepOccur(it, key, tz, dir, max) {
+  const noon = keyToDate(key, tz).getTime() + 12 * 3600000;     // 夏時間の日でも1日ずつ進むよう、昼から数える
+  for (let i = 1; i <= max; i++) {
+    const d = dayKey(new Date(noon + dir * i * 86400000), tz);
+    if (dir < 0 && it.dayKey && d < it.dayKey) return null;
+    if (repeatHits(it, d, tz)) return d;
+  }
+  return null;
+}
+const repeatDone = (it, d) => (it.doneDays || []).includes(d) || (it.skipDays || []).includes(d);
+/* **くり返しの用事の、その日に「まだ済んでいない回」**（2026-09-27）。今日の回があればそれ。
+   無ければ、**毎月・毎年の用事だけ**、いちばん近い過ぎた回が済んでいなければそれ——
+   前は25日の家賃を払い忘れると、26日には**どこにも出なくなっていた**（次に出るのは翌月の25日）。
+   毎日・毎週のものは次の回がすぐ来るので持ち越さない（ゴミの日を1週間言い続けない）。 */
+function owedDay(it, key, tz) {
+  if (occursOn(it, key, tz)) return key;
+  if (!it || it.kind !== "task" || !it.repeat || !/^(monthly|yearly)$/.test(it.repeat.kind)) return null;
+  const p = stepOccur(it, key, tz, -1, 366);
+  return p && !repeatDone(it, p) ? p : null;
+}
+/* 「家賃払った」がどの回のことか。今日の回→済んでいない過ぎた回→（用事なら）2週間以内の次の回（先に払った）。 */
+function occurFor(it, key, tz) {
+  if (!it || !it.repeat) return null;
+  if (repeatHits(it, key, tz) && !repeatDone(it, key)) return key;
+  const back = it.kind === "task" && /^(monthly|yearly)$/.test(it.repeat.kind) ? 366 : 6;
+  const p = stepOccur(it, key, tz, -1, back);
+  if (p && !repeatDone(it, p)) return p;
+  if (it.kind === "task") { const n = stepOccur(it, key, tz, 1, 14); if (n && !repeatDone(it, n)) return n; }
+  return null;
+}
+/* 「毎月31日」を9/15に言うと、日付の読み取りは31日のある10月へ送る。くり返しでは9月の終わりの日（9/30）が最初の回。
+   **くり返しの最初の回が、読んだ日付より前にあれば、そちらへ寄せる**（毎月の日にちを言ったときだけ）。 */
+function firstOccur(base, fromKey, tz) {
+  const r = base.repeat;
+  if (!r || r.kind !== "monthly" || r.dom == null || !base.dayKey || !isDate(fromKey)) return;
+  const probe = { repeat: r };
+  const f = repeatHits(probe, fromKey, tz) ? fromKey : stepOccur(probe, fromKey, tz, 1, 62);
+  if (f && f < base.dayKey) Object.assign(base, occurCopy(base, f, tz), { occurDay: undefined, duePrecision: base.duePrecision });
+  delete base.occurDay;
+}
+/* くり返しの、その日のぶんの写し（表示と予定表のため・id は元のまま）。 */
+function occurCopy(i, key, tz) {
+  const [ky, km, kd] = key.split("-").map(Number);
+  if (i.kind === "event" && validISO(i.start)) {
+    const p = parts(new Date(i.start), tz);
+    const dur = validISO(i.end) ? (new Date(i.end) - new Date(i.start)) : 3600000;
+    const st = zoned(ky, km, kd, p.h, p.mi, tz);
+    return Object.assign({}, i, { start: st.toISOString(), end: new Date(st.getTime() + dur).toISOString(), dayKey: key, occurDay: key });
+  }
+  return Object.assign({}, i, { dayKey: key, occurDay: key, duePrecision: "day", due: zoned(ky, km, kd, 23, 59, tz).toISOString() });
 }
 function parseTravel(s) {
   const m = halfWidth(s).match(RE_TRAVEL);
@@ -1889,7 +1970,7 @@ const RE_CUT_PARTICLE = new RegExp(
   CUT + "[\\s、,]*(?:あたり|ごろ|頃)?[\\s、,]*(?:のうちに|うちに|までの間に|までのあいだに|までの間で|の間に|の間で|のあいだに|間に|中までに|中まで|中に|までには|までに|まで|からは|から|より|には|では|にも|は|が|に|を|で|の|と|も)?の?", "g");
 /* くり返しの言い方（v4.3）。これを落とさないと、見出しが「毎週 ゼミ」のまま残り、
    1回きりの予定なのか毎週なのか、画面から読み取れなくなる。 */
-const RE_REPEAT_WORD = /(毎週\s*(?:の)?\s*[日月火水木金土]曜?日?|毎月\s*(?:の)?\s*\d{1,2}\s*日|隔週(?:で)?|毎週|毎月|毎日|まいにち|毎朝|毎晩|毎夜|平日(?:は|に|毎日)?)/g;
+const RE_REPEAT_WORD = /(毎週\s*(?:の)?\s*[日月火水木金土]曜?日?|毎月\s*(?:の)?\s*(?:第\s*[1-5]|最終|最後の)\s*[日月火水木金土]\s*曜日?|毎月\s*(?:の)?\s*\d{1,2}\s*日|毎月\s*(?:の)?\s*月?(?:末|最終日|終わり)|毎年\s*(?:の)?\s*\d{1,2}\s*月\s*\d{1,2}\s*日|隔週(?:で)?|毎週|毎月|毎年|毎日|まいにち|毎朝|毎晩|毎夜|平日(?:は|に|毎日)?)/g;
 /* 時間帯の言い方は1か所にまとめる（決まり7e）。
    **読み取る側（`parseIntent`）と、見出しから落とす側（`cleanTitle`）で同じものを使う。**
    長い言い方から並べること——「午前中」より先に「午前」を試すと「中」が取り残される。 */
@@ -2379,9 +2460,14 @@ function anchorWhen(s, noteDayKey, extra, tz) {
   const t = halfWidth(s);
   if (!/(前日|前に|前まで|までに|まで|当日|日に|日は|[日式会]に|[日式会]は)/.test(t)) return null;
   // 借りる先は予定だけ（用事どうしで借りると、さっき借りた用事からまた借りて1日ずれる）
+  /* くり返しの予定（毎年の「母の誕生日」）は、**次の回**の日で借りる（2026-09-27・誕生日を毎年にしたので） */
   const pool = state.items.concat(extra || []).filter(i => i.status === "open" && i.kind === "event"
-      && isDate(i.dayKey) && i.dayKey >= noteDayKey && !i.suggested && !i.built && !i.repeat
+      && isDate(i.dayKey) && !i.suggested && !i.built
       && i.duePrecision !== "week" && i.duePrecision !== "none")
+    .map(i => { if (!i.repeat) return i.dayKey >= noteDayKey ? i : null;
+      const n = repeatHits(i, noteDayKey, tz) && !repeatDone(i, noteDayKey) ? noteDayKey : stepOccur(i, noteDayKey, tz, 1, 400);
+      return n ? occurCopy(i, n, tz) : null; })
+    .filter(Boolean)
     .sort((a, b) => (a.dayKey < b.dayKey ? -1 : a.dayKey > b.dayKey ? 1 : 0));
   for (const it of pool) {
     const ht = halfWidth(it.title || "");
@@ -2585,6 +2671,7 @@ function extractByRule(note, settings) {
       base.due = null; base.dayKey = null; base.duePrecision = "none";
       base.dueIsDeadline = false; base.estimateMin = d;
       base.preferWindow = parseIntent(line.text).window;
+      if (base.kind === "task") { const rep = parseRepeat(s) || parseRepeat(line.text); if (rep) base._repeatNoDay = repeatJa(rep); }   // 「毎月美容院に行く」も黙らない
       const mtF = base.kind === "task" ? mealTitle(s, note.capturedAt, tz) : null;   // 「ご飯食べに行く」がここへ来た場合も揃える
       if (mtF) {
         base.title = mtF; base.isMeal = true;
@@ -2604,7 +2691,7 @@ function extractByRule(note, settings) {
       if (travelMin != null) base.travelMin = travelMin;
       // 午前とも午後とも読める時刻だった。もう一方を持っておいて、本人に選んでもらう
       if (w.altStart) base.whenAlt = { start: w.altStart, end: w.altEnd || null, dayKey: w.altDayKey, dateOnly: !!w.altDateOnly || undefined };
-      { const rep = parseRepeat(s) || parseRepeat(line.text); if (rep) base.repeat = rep; }
+      { const rep = parseRepeat(s) || parseRepeat(line.text); if (rep) { base.repeat = rep; firstOccur(base, noteDayKey, tz); } }
       /* 何日も続く予定（v4.3）。時刻を言われていなければ「終日」にする。
          終日の枠は**作業時間をふさがない**（旅行中でも読書はできる）。
          ふさいでほしいときは「その日は予定を入れないで」と言えば止まる。 */
@@ -2640,7 +2727,10 @@ function extractByRule(note, settings) {
       base.estimateMin = d;
       if (w && w.routine) base.dayImplied = true;          // 日付は言っていない（決まり0l）。理由の文で「言っていました」と書かない
       if (w && w.altStart) base.whenAlt = { start: w.altStart, end: w.altEnd || null, dayKey: w.altDayKey, dateOnly: !!w.altDateOnly || undefined };
-      { const rep = parseRepeat(s) || parseRepeat(line.text); if (rep && base.dayKey) base.repeat = rep; }
+      { const rep = parseRepeat(s) || parseRepeat(line.text);
+        if (rep && base.dayKey) { base.repeat = rep; firstOccur(base, noteDayKey, tz); }
+        else if (rep) base._repeatNoDay = repeatJa(rep);   // 「毎月美容院に行く」——何日か分からない。黙って1回きりにしない（決まり5）
+      }
       // 食事は揃えた名前にして、その日の予定として置く
       const mt = mealTitle(s, note.capturedAt, tz);
       if (mt) {
@@ -4118,16 +4208,7 @@ function planFor(key, opts) {
      組み立てたものは表示用の写しで、id は元のまま。操作は `findItem` が本体に届く。 */
   const repeatOn = liveItems().filter(i => i.kind === "event" && i.status === "open"
       && i.repeat && validISO(i.start) && occursOn(i, key, tz))
-    .map(i => {
-      const p = parts(new Date(i.start), tz);
-      const [ky, km, kd] = key.split("-").map(Number);
-      const dur = validISO(i.end) ? (new Date(i.end) - new Date(i.start)) : 3600000;
-      const st = zoned(ky, km, kd, p.h, p.mi, tz);
-      return Object.assign({}, i, {
-        start: st.toISOString(), end: new Date(st.getTime() + dur).toISOString(),
-        dayKey: key, occurDay: key
-      });
-    });
+    .map(i => occurCopy(i, key, tz));
   const onDay = liveItems().filter(i => i.kind === "event" && i.status !== "done" && validISO(i.start)
     && !i.repeat
     && (i.timeUnknown ? dayKey(new Date(i.start), tz) === key
@@ -4215,9 +4296,10 @@ function planFor(key, opts) {
   const forFuture = key > todayKey;
   const tasks = liveItems().filter(i => i.kind === "task" && i.status !== "done" && !i.repeat
     && (!forFuture || (i.dayKey && i.dayKey <= key) || i.targetDay === key))
-    // くり返しの用事（毎月1日の家賃）は、当たる日にだけ出す
-    .concat(liveItems().filter(i => i.kind === "task" && i.status === "open" && i.repeat && occursOn(i, key, tz))
-      .map(i => Object.assign({}, i, { dayKey: key, occurDay: key, duePrecision: "day" })));
+    // くり返しの用事（毎月25日の家賃）は、当たる日にだけ出す。**今日は、払い忘れた回も期限切れとして出す**（owedDay）
+    .concat(liveItems().filter(i => i.kind === "task" && i.status === "open" && i.repeat)
+      .map(i => { const d = key === todayKey ? owedDay(i, key, tz) : (occursOn(i, key, tz) ? key : null); return d ? occurCopy(i, d, tz) : null; })
+      .filter(Boolean));
   const scored = tasks.map(t => {
     let bucket, why;
     const days = t.dayKey ? Math.round((keyToDate(t.dayKey, tz) - keyToDate(key, tz)) / 86400000) : 999;
@@ -4555,7 +4637,7 @@ function itemHTML(it, opts = {}) {
   const main = [
     it.status !== "done" && (it.kind === "task" || it.kind === "event") ? `<button class="btn sm pri" data-act="done" data-id="${it.id}" data-day="${esc(it.occurDay || view.day || "")}">${it.kind === "event" ? "終わった" : "完了"}</button>` : "",
     it.status === "done" ? `<button class="btn sm" data-act="undone" data-id="${it.id}">戻す</button>` : "",
-    it.kind === "task" && it.status !== "done" ? `<button class="btn sm" data-act="defer" data-id="${it.id}">明日へ</button>` : "",
+    it.kind === "task" && it.status !== "done" && !it.repeat ? `<button class="btn sm" data-act="defer" data-id="${it.id}">明日へ</button>` : "",
     it.kind === "profile" && !it.confirmed && !it.corrected && it.status === "open" ? `<button class="btn sm" data-act="confirm" data-id="${it.id}">これで合ってる</button>` : "",
     it.whenAlt && it.status === "open" ? `<button class="btn sm" data-act="usealt" data-id="${it.id}">${esc(altLabel(it, tz))}にする</button>` : "",
     /* 続けたいことは、**いつやるかを決めると続きやすい**（実行意図・Gollwitzer & Sheeran 2006）。
@@ -4598,7 +4680,7 @@ function swipeActs(it) {
   const open = it && it.status === "open";
   return {
     right: open && (it.kind === "task" || it.kind === "event") ? "done" : null,
-    left: open && it.kind === "task" ? "defer" : null
+    left: open && it.kind === "task" && !it.repeat ? "defer" : null   // くり返しの用事は日付を動かさない（その回は「この日はやらない」）
   };
 }
 
@@ -4841,7 +4923,13 @@ function renderDay() {
   /* --- 予定そのもの以外は、ここから下に畳んでおく --- */
   if (!demo) {
     const rv = reviewFor(key);
-    const ahead = liveItems().filter(i => i.status === "open" && ["task", "event"].includes(i.kind) && i.dayKey && i.dayKey > key)
+    // くり返しは「次の回」の日で出す（最初の回を過ぎると、この一覧から消えていた）
+    const ahead = liveItems().filter(i => i.status === "open" && ["task", "event"].includes(i.kind) && i.dayKey)
+      .map(i => { if (!i.repeat) return i.dayKey > key ? i : null;
+        let n = stepOccur(i, key, state.settings.timezone, 1, 400);
+        for (let g = 0; n && repeatDone(i, n) && g < 8; g++) n = stepOccur(i, n, state.settings.timezone, 1, 400);
+        return n ? occurCopy(i, n, state.settings.timezone) : null; })
+      .filter(Boolean)
       .sort((a, b) => a.dayKey.localeCompare(b.dayKey));
     const hasReview = rv.done.length || rv.moved.length || rv.est.length || rv.dropped.length;
 
@@ -5010,7 +5098,9 @@ function leftToday(plan) {
     if ((b.item.kind === "task" || b.item.kind === "event") && b.e > plan.nowMin) ids.add(b.item.id);
   }
   for (const i of liveItems()) {
-    if (i.kind !== "task" || i.status !== "open" || i.repeat) continue;
+    if (i.kind !== "task" || i.status !== "open") continue;
+    // くり返しの用事は、その日のぶん（と払い忘れた回）が済んでいなければ残っている
+    if (i.repeat) { if (owedDay(i, plan.key, state.settings.timezone)) ids.add(i.id); continue; }
     if ((i.dayKey && i.dayKey <= plan.key && i.duePrecision !== "week" && i.duePrecision !== "none") || i.targetDay === plan.key) ids.add(i.id);
   }
   return ids.size;
@@ -5890,7 +5980,7 @@ function openMore(it) {
   ];
   if (it.repeat && it.status === "open")
     rows.push(`<button class="btn" data-act="skipday" data-id="${it.id}" data-day="${esc(it.occurDay || view.day || "")}">この日はやらない</button>`);
-  if (it.kind === "task" && it.status !== "done")
+  if (it.kind === "task" && it.status !== "done" && !it.repeat)
     rows.push(`<button class="btn" data-act="defer" data-id="${it.id}">明日へ</button>`);
   if (it.status === "done")
     rows.push(`<button class="btn" data-act="undone" data-id="${it.id}">未完了に戻す</button>`);
@@ -6177,7 +6267,9 @@ async function act(a, id, el) {
      status を done にすると**シリーズごと消える**（来週のゼミまで無くなる）。 */
   if ((a === "done" || a === "skipday") && it.repeat) {
     const snapBefore = snapItem(it);
-    const d = (el && el.dataset && el.dataset.day) || view.day || dayKey(new Date(), tz);
+    const d0 = (el && el.dataset && el.dataset.day) || view.day || dayKey(new Date(), tz);
+    // くり返しの日でない日から押されたら（一覧の行など）、どの回かを会話と同じ決め方で選ぶ（決まり7e）
+    const d = repeatHits(it, d0, tz) ? d0 : (occurFor(it, dayKey(new Date(), tz), tz) || d0);
     const f = a === "done" ? "doneDays" : "skipDays";
     if (!(it[f] || []).includes(d)) it[f] = (it[f] || []).concat(d).slice(-400);
     note(it, `${d} の分を${a === "done" ? "終わりにした" : "やらないことにした"}`);
@@ -6190,6 +6282,8 @@ async function act(a, id, el) {
     renderAll(); return;
   }
   if (a === "skipday") { toast("これはくり返しの予定ではありません"); return; }
+  // くり返しの用事は日付を動かさない。動かすと、次の回からずれてしまう（dayKey はくり返しの始まり）
+  if (a === "defer" && it.repeat) { toast("くり返しの用事なので、日付は動かしません。その回をやらないなら「…」の「この日はやらない」を押してください。"); return; }
   if (a === "more") { openMore(it); return; }
   /* **消えたように見える操作には、必ず「元に戻す」を添える**（2026-09-24）。
      触る前の姿をここで写しておく。`putItem` が成功してから知らせる（決まり6d）。 */
@@ -6962,6 +7056,7 @@ async function applyOps(rawOps0, note) {
 
     if (o.op === "add") {
       let it = o._built;
+      const repeatNoDay = it && it._repeatNoDay; if (it) delete it._repeatNoDay;
       if (!it) {
         const kind = ["task", "event", "goal"].includes(o.kind) ? o.kind : "task";
         /* AIが付けた見出しにも、**こちらと同じ掃除**を通す（v4.6）。
@@ -6979,6 +7074,12 @@ async function applyOps(rawOps0, note) {
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: []
         };
         applyFields(it, o, tz, note, { soleAdd });
+        /* **AIの道でも、くり返しを付ける**（2026-09-27）。AIは repeat を返さないので、ルールで読む（決まり7e）。
+           その項目の根拠の文から読み、1件だけのときは発言まるごとからも読む。日付の無いものには付けない（ルールの道と同じ）。 */
+        if ((it.kind === "task" || it.kind === "event") && it.dayKey && !it.repeat) {
+          const rep = parseRepeat(readText(it.evidence && it.evidence.text || "")) || (soleAdd ? parseRepeat(readText(note.text || "")) : null);
+          if (rep) it.repeat = rep;
+        }
       }
       // **本人の言葉と時刻を突き合わせる**（決まり6q）。ルールの項目もAIの項目も、ここを必ず通る
       { const said = wordCheck(it, note, tz, "add"); if (said) asks.push(said); }
@@ -7003,6 +7104,7 @@ async function applyOps(rawOps0, note) {
       touch(it.targetDay);   // 締切が明日でも、手を付けるのが今日なら今日の案を見せる
       touchId(it);
       changes.push(`${KIND_JA[it.kind]}を追加：${it.title}${it.repeat ? `（${repeatJa(it.repeat)}）` : ""}${describeWhen(it, tz)}`);
+      if (repeatNoDay) asks.push(`「${it.title}」は「${repeatNoDay}」と聞きましたが、何日かが分からなかったので、1回きりの用事にしています。「毎月25日に」「毎週月曜に」のように言うと、くり返しになります。`);
       // 午前とも午後とも読める時刻だった。選んだほうを書いて、もう一方を出して聞き返す
       if (it.whenAlt && it.whenAlt.dateOnly) {
         asks.push(`夜中に言った日付なので、「${it.title}」は ${shortDay(it.dayKey, tz)} のことと読みました。`
@@ -7031,6 +7133,20 @@ async function applyOps(rawOps0, note) {
       await putItem(target);
       touch(target.dayKey); touch(before.day); touchId(target);
       changes.push(`${target.title}：${d.join(" / ") || "変更なし"}`);
+    }
+    else if (o.op === "done" && target.repeat) {
+      /* **くり返しは、その回だけ終わりにする**（2026-09-27）。前は「家賃払った」で status を done にしていて、
+         **来月からの家賃がまるごと消えていた**（決まり4f と同じことを、会話の道にも通す）。 */
+      const nk = dayKey(new Date(note.capturedAt), tz);
+      const d = occurFor(target, nk, tz);
+      if (!d) { asks.push(`「${target.title}」はくり返し（${repeatJa(target.repeat)}）なので、どの回が終わったのか分かりませんでした。スケジュールの、その日の「完了」を押してください。`); continue; }
+      target.doneDays = (target.doneDays || []).concat(d).slice(-400);
+      note2(target, `${d} の分を終わりにした（会話で）`); await putItem(target);
+      touch(d); touchId(target);
+      changes.push(`完了：${target.title}（${d.slice(5).replace("-", "/")} の分）`);
+    }
+    else if (o.op === "defer" && target.repeat) {
+      asks.push(`「${target.title}」はくり返し（${repeatJa(target.repeat)}）なので、日付は動かしていません。その回をやらないなら、スケジュールの「…」の「この日はやらない」を押してください。`);
     }
     else if (o.op === "done") {
       target.status = "done"; target.completedAt = new Date().toISOString(); target.confirmed = true;
