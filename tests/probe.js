@@ -5000,6 +5000,36 @@
       tmp.remove();
     }
 
+    /* ===== CG群：端の余白を二重に取らない（2026-09-27・実機で報告「上に謎の空間ある」）=====
+       殻の SafeAreaView が上下の余白を取るので、殻の中ではページ側の env(safe-area-inset-*) を0にする。
+       headless では env() がいつも0なので、見た目ではなく「余白の出どころが1か所で、殻の中では0になるか」を見る。 */
+    {
+      const rules = [...document.styleSheets].flatMap(ss => { try { return [...ss.cssRules]; } catch { return []; } })
+        .flatMap(r => r.cssRules && r.cssRules.length && !r.style ? [...r.cssRules] : [r]);
+      const raw = rules.filter(r => r.style && /env\(safe-area-inset/.test(r.cssText) && r.selectorText !== ":root");
+      ok("CG. 端の余白（env）を読むのは :root の1か所だけ", raw.length === 0, raw.map(r => r.selectorText).join(" / ") || "1か所");
+      const used = rules.filter(r => r.style && /var\(--sa-(top|bottom)\)/.test(r.cssText)).length;
+      ok("CG. 上下の余白を使う指定は、変数を通している（数えられている）", used >= 5, used + "か所");
+      const root = document.documentElement, had = root.classList.contains("in-shell");
+      root.classList.add("in-shell");
+      const cs = getComputedStyle(root);
+      const inTop = cs.getPropertyValue("--sa-top").trim(), inBot = cs.getPropertyValue("--sa-bottom").trim();
+      if (!had) root.classList.remove("in-shell");
+      // 計算後の値は headless では env() も 0px になって見分けられないので、書いてある指定を読む
+      const rootDecl = rules.filter(r => r.selectorText === ":root").map(r => r.style.getPropertyValue("--sa-top")).join(" ");
+      const outTop = (had ? "殻の印が付いている " : "") + rootDecl.trim();
+      // headless では env() も 0px なので、計算後の値だけでは見分けられない。殻の中の指定そのものも読む
+      const shellRule = rules.find(r => r.selectorText === ":root.in-shell");
+      const sTop = shellRule ? shellRule.style.getPropertyValue("--sa-top").trim() : "", sBot = shellRule ? shellRule.style.getPropertyValue("--sa-bottom").trim() : "";
+      ok("CG. 殻の中では、ページ側の上下の余白は0（殻の SafeAreaView と二重にしない）",
+         inTop === "0px" && inBot === "0px" && sTop === "0px" && sBot === "0px", [inTop, inBot, sTop || "指定なし", sBot || "指定なし"].join(" / "));
+      ok("CG. ブラウザでは、今までどおり端末の余白を読む（殻の印が付いていない）", !had && /env\(safe-area-inset-top/.test(rootDecl), outTop);
+      const first = [...document.scripts].find(sc => /ReactNativeWebView/.test(sc.textContent));
+      ok("CG. 殻の中かどうかは、本体より先（描く前）に決める", !!first && /in-shell/.test(first.textContent) && first.textContent.length < 400,
+         first ? first.textContent.length + "字" : "無い");
+      ok("CG. 取りこぼしたときの控えを boot にも置く", /in-shell/.test(String(boot)));
+    }
+
     const fails = R.filter(x => x.startsWith("FAIL"));
     const pre = document.createElement("pre"); pre.id = "PROBE";
     pre.textContent = "===== バグ探し =====\n" + R.join("\n") + `\n\n合計 ${R.length} 件 / 失敗 ${fails.length} 件\n===== END =====\n`;

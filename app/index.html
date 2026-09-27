@@ -4,6 +4,12 @@
 <style>
 :root{
   color-scheme:light;
+  /* **端の余白（時計・ホームバー）は1か所で持つ**（2026-09-27・実機で報告「上に謎の空間ある」）。
+     Android アプリでは殻の `SafeAreaView` が上下の余白を取っている（決まり14）。
+     ところが新しい WebView は `env(safe-area-inset-*)` にも同じ高さを返すので、
+     ページが同じ余白をもう一度足して、見出しの上が約70px空いていた。
+     殻の中（`html.in-shell`）では0にする。ブラウザでは今までどおり端末の値。 */
+  --sa-top:env(safe-area-inset-top,0px); --sa-bottom:env(safe-area-inset-bottom,0px);
   --scrim:rgba(0,0,0,.38);
   /* **地と差し色は、アプリのアイコン（一日のタイムライン）から取る**（2026-09-26・本人の指示
      「アプリアイコンのデザインと親和性が高いものに」）。地＝アイコンの淡い青緑、
@@ -81,6 +87,7 @@
   --shadow:0 0 0 1px rgba(255,255,255,.06);
 }
 
+:root.in-shell{--sa-top:0px;--sa-bottom:0px}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:var(--fs-4);line-height:1.75;
   -webkit-text-size-adjust:100%;overscroll-behavior-y:contain}
@@ -92,7 +99,7 @@ button{cursor:pointer;background:none;border:none;padding:0;
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
-.wrap{max-width:640px;margin:0 auto;padding:calc(8px + env(safe-area-inset-top,0px)) 14px 108px}
+.wrap{max-width:640px;margin:0 auto;padding:calc(8px + var(--sa-top)) 14px 108px}
 /* **アプリの名前と接続状態を、毎画面の一番上に出さない**（2026-09-26・本人の指示
    「完成版として公開できるよう…アプリの一番上のAI秘書や、この端末のみという表示はいらない」）。
    名前は端末のアプリ一覧に出ている。接続状態は、変わったときだけトーストで知らせる（`dbTrouble`）。
@@ -332,7 +339,7 @@ details.dz summary{color:var(--alert-ink)}
    前は見出しの帯の下に貼っていたので `fitTopbar()` が帯の実寸を測っていたが、
    帯を外したので（2026-09-26）測るものが無くなった。上端の切り欠きだけ避ける。 */
 .datebar{display:flex;align-items:center;gap:4px;
-  position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--surface-up);
+  position:sticky;top:var(--sa-top);z-index:30;background:var(--surface-up);
   border-radius:16px;padding:4px;box-shadow:var(--shadow)}
 .datebar .d{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);flex:1;text-align:center}
 .datebar .btn.sm{background:transparent}
@@ -346,7 +353,7 @@ details.dz summary{color:var(--alert-ink)}
 
 /* すりガラスにしない（マット・決まり15u）。無地の面に上の線1本。 */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:50;background:var(--surface);
-  border-top:1px solid var(--line);padding:5px 6px calc(5px + env(safe-area-inset-bottom,0px));
+  border-top:1px solid var(--line);padding:5px 6px calc(5px + var(--sa-bottom));
   display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
 nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 2px;border-radius:8px;
   font-family:var(--f-disp);font-size:var(--fs-1);font-weight:500;color:var(--ink-3);min-height:46px;justify-content:center}
@@ -368,7 +375,7 @@ nav.tabs button:active{opacity:.5}
 @keyframes fadein{from{opacity:0}to{opacity:1}}
 @keyframes sheetin{from{transform:translateY(16px);opacity:.4}to{transform:none;opacity:1}}
 .sheet{position:fixed;inset:0;z-index:60;background:var(--scrim);display:flex;align-items:flex-end;
-  justify-content:center;padding-bottom:calc(64px + env(safe-area-inset-bottom,0px));
+  justify-content:center;padding-bottom:calc(64px + var(--sa-bottom));
   animation:fadein .16s ease-out}
 .sheet .inner{background:var(--surface-up);width:100%;max-width:640px;max-height:78vh;max-height:78dvh;overflow-y:auto;
   overscroll-behavior:contain;animation:sheetin .22s cubic-bezier(.32,.72,0,1);
@@ -388,7 +395,7 @@ body.sheetopen{overflow:hidden}
 /* toast */
 #toast{position:fixed;left:50%;transform:translateX(-50%);z-index:70;pointer-events:none;
   animation:fadein .14s ease-out;
-  bottom:calc(126px + env(safe-area-inset-bottom,0px));
+  bottom:calc(126px + var(--sa-bottom));
   background:var(--toast-bg);color:var(--toast-ink);font-family:var(--f-disp);font-size:var(--fs-3);font-weight:500;
   padding:9px 15px;border-radius:18px;box-shadow:var(--shadow);text-align:center;
   /* **幅を自分で決めること**（2026-09-24・実機で報告）。`left:50%` だけだと、
@@ -518,7 +525,7 @@ body.sheetopen{overflow:hidden}
 .miniplan .why{display:block;font-size:var(--fs-1);color:var(--ink-3);margin-top:1px}
 
 .saybar{position:fixed;left:0;right:0;z-index:45;background:var(--paper);border-top:1px solid var(--line);
-  padding:8px 14px 4px;display:none;bottom:calc(58px + env(safe-area-inset-bottom,0px))}
+  padding:8px 14px 4px;display:none;bottom:calc(58px + var(--sa-bottom))}
 body.talking .saybar{display:block}
 .saybar-in{max-width:640px;margin:0 auto;display:flex;gap:8px;align-items:flex-end}
 /* **角丸をカプセル（999px）にしないこと**（2026-09-21・実機で報告）。
@@ -550,10 +557,10 @@ body.talking .saybar{display:block}
    **会話の末尾が入力バーの裏に 63px 隠れていた**（実測）。
    バーの実際の高さを `--saybar` で受け取る（`fitSaybar()` が入れる）。
    既定値は1行のときのおおよその高さ——JSが動く前でも破綻しないように。 */
-body.talking .wrap{padding-bottom:calc(var(--saybar, 100px) + 58px + env(safe-area-inset-bottom,0px) + 18px)}
+body.talking .wrap{padding-bottom:calc(var(--saybar, 100px) + 58px + var(--sa-bottom) + 18px)}
 @media (min-width:720px){
-  .saybar{bottom:calc(74px + env(safe-area-inset-bottom,0px))}
-  body.talking .wrap{padding-bottom:calc(var(--saybar, 100px) + 74px + env(safe-area-inset-bottom,0px) + 22px)}
+  .saybar{bottom:calc(74px + var(--sa-bottom))}
+  body.talking .wrap{padding-bottom:calc(var(--saybar, 100px) + 74px + var(--sa-bottom) + 22px)}
 }
 
 /* 移動・準備・休憩・予備。どれも灰色で、主役にしない */
@@ -605,6 +612,10 @@ details.unconf>summary{color:var(--warn-ink)}
 .bar>i{display:block;height:100%;background:var(--accent);transition:width .25s}
 .tiny{font-size:var(--fs-1);color:var(--ink-3);font-family:var(--f-mono)}
 </style>
+<script>
+/* 殻（Android アプリ）の中なら、端の余白は殻に任せる。描く前に決めるので、ちらつかない。 */
+try { if (window.ReactNativeWebView) document.documentElement.classList.add("in-shell"); } catch (e) {}
+</script>
 
 <div class="wrap">
 
@@ -2586,6 +2597,7 @@ function migrateWindow(s) {
 }
 
 async function boot() {
+  if (nativeOn()) document.documentElement.classList.add("in-shell");   // 先頭の1行が取りこぼしたときの控え（端の余白は殻に任せる）
   const cached = lsRead();
   state.settings = migrateWindow(safeSettings((cached && cached.settings) || {}));
   applyTheme(state.settings.theme);      // 端末の控えから、まず即座に当てる（ちらつかせない）
