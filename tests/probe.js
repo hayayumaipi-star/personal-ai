@@ -5938,6 +5938,128 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== CS. テスター2周目（2026-09-27・本人の指示「アプリのテスターを徹底的に幅広く多くのパターンを想定して模索して」・決まり0o） =====
+       言い方300文あまり・会話の流れ・時計と暦の境目・AIの変な返事・本物の画面・持ち込むファイルを流して見つけたものの見張り。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const at = (h, m = 0, d = 15) => zoned(2026, 9, d, h, m, TZ).toISOString();
+      const mkNote = (text, h = 10, m = 0, d = 15) => ({ id: uid(), text, hash: "cs" + text + h + m + d + Math.random(), capturedAt: at(h, m, d), source: "talk", sourceName: null, createdAt: at(h, m, d) });
+      const opsOf = (text, h, m, d) => { reset(); return ruleOps(mkNote(text, h, m, d)); };
+      const read = (text, h, m, d) => opsOf(text, h, m, d).filter(o => o.op === "add" && o._built).map(o => o._built);
+      const hm = iso => hhmm(minOfDay(iso, TZ));
+      const show = its => its.map(i => i.kind + "「" + i.title + "」" + (i.dayKey || "") + (i.repeat ? "［" + repeatJa(i.repeat) + "］" : "")
+        + (i.start && !i.timeUnknown ? " " + hm(i.start) + (i.end ? "-" + hm(i.end) : "") : i.duePrecision === "exact" && i.due ? " " + hm(i.due) : "")).join(" ｜ ");
+      const one = (text, h, m, d) => { const a = read(text, h, m, d); return a.length === 1 ? a[0] : null; };
+      const seq = async (pairs) => { reset(); let r = null; for (const [t, h, m, d] of pairs) { const n = mkNote(t, h, m, d); await putNote(n); r = await applyOps(ruleOps(n), n); } return r; };
+      // ① 漢数字・3pm（根拠は元の文を指す）
+      { const a = one("三時に歯医者"), b = one("十月五日に引っ越し"), c = one("3pmにcall"), d = one("三時十分に電話する");
+        ok("CS. 漢数字と3pmを時刻・日付として読む（三時・十月五日・3pm・三時十分）",
+          !!a && a.title === "歯医者" && hm(a.start) === "15:00" && !!b && b.dayKey === "2026-10-05" && !!c && hm(c.start) === "15:00" && !!d && hm(d.start || d.due) === "15:10", show([a, b, c, d].filter(Boolean)));
+        ok("CS. 漢数字を直して読んでも、根拠は本人の言葉のまま（位置も元の文）", !!a && a.evidence.text === "三時に歯医者" && a.evidence.start === 0 && a.evidence.end === 6, a ? JSON.stringify(a.evidence) : "なし");
+        const e = read("一時的に保留する"), f = read("十分気をつけて帰る");
+        ok("CS. 「一時的」「十分気をつけて」は数ではない", e.every(i => !i.start && !i.due) && f.every(i => !i.start && !i.due), show(e.concat(f))); }
+      // ② 日付の言い方
+      { const cases = [["しあさってに歯医者", "2026-09-18"], ["明々後日に面談", "2026-09-18"], ["明朝6時に出発", "2026-09-16"], ["10月の第2月曜に健康診断", "2026-10-12"],
+                       ["月末の金曜に飲み会", "2026-09-25"], ["2026/10/05に健康診断", "2026-10-05"], ["2026年10月5日に健康診断", "2026-10-05"], ["年度末までに書類を出す", "2027-03-31"]]
+          .map(([t, k]) => { const x = one(t); return x && x.dayKey === k ? null : t + "→" + (x ? show([x]) : "なし"); }).filter(Boolean);
+        ok("CS. しあさって・明朝・第2月曜・月末の金曜・年つきの日付・年度末を、その日として読む", cases.length === 0, cases.join(" ／ "));
+        const g = read("1日おきにランニング").concat(read("1日3食食べる"), read("3日に1回洗濯"));
+        ok("CS. 「1日おき」「1日3食」「3日に1回」は日付（1日・3日）ではない", g.length === 3 && g.every(i => !i.dayKey), show(g));
+        const pw = t => parseWhen(t, at(10), TZ);
+        ok("CS. 日付の読み取りそのものが「1日おき」「3日に1回」を日付にしない", !pw("1日おきにランニング") && !pw("3日に1回洗濯"), JSON.stringify([pw("1日おきにランニング"), pw("3日に1回洗濯")].map(w => w && w.dayKey)));
+        const mc = one("明朝6時に出発", 5);
+        ok("CS. 5時の「明朝6時」も明日の朝（今日の6時にしない）", !!mc && mc.dayKey === "2026-09-16", mc ? show([mc]) : "なし");
+        const st = one("3時に面接が入った", 13);
+        ok("CS. 「面接が入った」は決まったこと（済んだ話として捨てない・13時の「3時」は15時）", !!st && st.kind === "event" && hm(st.start) === "15:00", st ? show([st]) : "なし");
+        const h = one("昨日の続きをやる");
+        ok("CS. 「昨日の続きをやる」は昨日が期限ではない（言った瞬間に期限切れにしない）", !!h && !h.dayKey, h ? show([h]) : "なし"); }
+      // ③ 時刻の言い方
+      { const a = one("明日は9時5時で仕事"), b = one("9時から17時まで仕事"), c = one("7時15分前に家を出る", 22);
+        ok("CS. 「9時5時で仕事」は9:00〜17:00（9:05にしない）・見出しは「仕事」", !!a && a.title === "仕事" && hm(a.start) === "09:00" && hm(a.end) === "17:00", a ? show([a]) : "なし");
+        ok("CS. 10時の「9時から17時まで」は今日の9〜17時（21時から翌17時の20時間にしない）", !!b && b.dayKey === "2026-09-15" && hm(b.start) === "09:00" && hm(b.end) === "17:00", b ? show([b]) : "なし");
+        ok("CS. 「7時15分前」は6:45・見出しに「前に」を残さない", !!c && hm(c.due || c.start) === "06:45" && c.title === "家を出る", c ? show([c]) : "なし");
+        const d = one("朝7時に起きる", 23, 59);
+        ok("CS. 23:59の「朝7時に起きる」は翌朝（言った瞬間に過ぎた時刻にしない）", !!d && d.dayKey === "2026-09-16" && hm(d.due || d.start) === "07:00", d ? show([d]) : "なし");
+        const e = read("毎週月水金の7時にジョギング");
+        ok("CS. 「毎週月水金」は曜日ごとに毎週（1件にまとめない）", e.length === 3 && e.map(i => i.repeat && i.repeat.dow).sort().join() === "1,3,5" && e.every(i => hm(i.start) === "07:00"), show(e)); }
+      // ④ 夜中の「明日」
+      { const n = mkNote("明日10時に会議", 0, 30, 16); reset(); const r = await applyOps(ruleOps(n), n); const it = state.items[0];
+        ok("CS. 0時半の「明日10時」は寝て起きた日（暦の今日）。暦の明日を持って聞き返す",
+          !!it && it.dayKey === "2026-09-16" && it.whenAlt && it.whenAlt.dayKey === "2026-09-17" && r.asks.some(x => /9\/17/.test(x)), it ? show([it]) + " " + r.asks.join("/") : "なし");
+        const k = one("明日10時に会議", 4, 30, 16);
+        ok("CS. 4時半を過ぎたら「明日」は暦の明日", !!k && k.dayKey === "2026-09-17" && !k.whenAlt, k ? show([k]) : "なし"); }
+      // ⑤ 済んだ話・様子・決まったこと
+      { const none = ["7時に起きた", "昨日歯医者行った", "会議が長引いた", "明日はバタバタ", "明後日は余裕がある", "明日の面接が不安", "10時に会議があった"]
+          .map(t => { const x = read(t); return x.length ? t + "→" + show(x) : null; }).filter(Boolean);
+        ok("CS. 済んだ話・その日の様子を、予定や用事にしない（7通り）", none.length === 0, none.join(" ／ "));
+        const a = one("歯医者の予約を明日の10時に入れた"), b = one("来週出張することになった"), c = read("明日会議じゃなかった");
+        ok("CS. 「明日の10時に予約を入れた」「出張することになった」はこれからのこと（見出しは「歯医者の予約」「出張」）",
+          !!a && a.kind === "event" && a.title === "歯医者の予約" && hm(a.start) === "10:00" && !!b && b.title === "出張", show([a, b].filter(Boolean)));
+        ok("CS. 「明日会議じゃなかった」は予定にしない", c.every(i => i.kind !== "event"), show(c));
+        ok("CS. 「今日は疲れた」は今までどおり体調（済んだ言い方でも）", opsOf("今日は疲れた").some(o => o.op === "condition")); }
+      // ⑥ 会話の流れ
+      { await seq([["明日14時から会議", 9], ["会議は明後日になった", 9, 10]]);
+        let ev = state.items.filter(i => i.kind === "event" && i.status === "open");
+        ok("CS. 「会議は明後日になった」は同じ会議を明後日へ（2件にしない・時刻はそのまま）", ev.length === 1 && ev[0].dayKey === "2026-09-17" && hm(ev[0].start) === "14:00", show(ev));
+        await seq([["毎週月曜10時からゼミ", 9], ["来週のゼミは休み", 11]]);
+        ev = state.items.filter(i => i.kind === "event");
+        ok("CS. 「来週のゼミは休み」はその回だけ外す（シリーズは残す）", ev.length === 1 && ev[0].status === "open" && (ev[0].skipDays || []).includes("2026-09-21"), show(ev) + " skip=" + (ev[0] && ev[0].skipDays));
+        await seq([["夜は予定を入れないで", 9], ["夜も入れていいよ", 9, 5]]);
+        ok("CS. 「夜も入れていいよ」で夜の希望を外せる（片道にしない）", !state.items.some(i => i.kind === "preference" && i.status === "open" && i.preferKey === "noEveningWork"));
+        const p = opsOf("早く寝る", 20).find(o => o.op === "prefer");
+        ok("CS. 「早く寝る」だけなら今夜の希望（ずっとの希望にしない）", !!p && p.scopeDay === "2026-09-15", JSON.stringify(p));
+        await seq([["片付けをする", 9], ["片付け、30分くらいかかる", 9, 1]]);
+        const tk = state.items.filter(i => i.kind === "task");
+        ok("CS. 「片付け、30分くらいかかる」は前の用事の長さを直す（2件にしない）", tk.length === 1 && tk[0].estimateMin === 30, show(tk));
+        await seq([["牛乳を買う", 9]]);
+        const ans = answerQuestion("今日何するんだっけ", planFor("2026-09-15"), "2026-09-15");
+        ok("CS. 「今日何する？」に日付を決めていない用事も添える", /牛乳を買う/.test(ans || ""), ans); }
+      // ⑦ 敬語・関西・名詞だけ・体調・迷い・URL
+      { const want = [["資料を作成いたします", "task", "資料を作成する"], ["明日の午後にお伺いします", "task", "お伺いする"], ["資料作らんと", "task", "資料作る"],
+                      ["洗濯せなあかん", "task", "洗濯する"], ["明日バイトやねん", "event", "バイト"], ["母に電話", "task", "母に電話"], ["犬の散歩", "task", "犬の散歩"],
+                      ["1万円おろす", "task", "1万円おろす"], ["余裕があれば英語の勉強", "idea", null], ["本日15時より会議です", "event", "会議"]]
+          .map(([t, k, ttl]) => { const x = one(t); return x && x.kind === k && (!ttl || x.title === ttl) ? null : t + "→" + (x ? show([x]) : "なし"); }).filter(Boolean);
+        ok("CS. 敬語・関西の言い方・名詞だけの用事・金額・「余裕があれば」を読む（10通り）", want.length === 0, want.join(" ／ "));
+        ok("CS. 「眠すぎて無理」「やる気でない」は体調", ["眠すぎて無理", "やる気でない"].every(t => opsOf(t).some(o => o.op === "condition")));
+        const u = one("https://example.com/very/long/url/without/any/break/points/abcdefghijklmnopqrstuvwxyz0123456789 を見る");
+        ok("CS. URLの入った長い用事も捨てない", !!u && u.kind === "task", u ? show([u]) : "なし"); }
+      // ⑧ 見出しの跡
+      { const titles = [["正午に待ち合わせ", "待ち合わせ"], ["10時過ぎに電話する", "電話する"], ["20時以降に電話する", "電話する"], ["5日(月)に打ち合わせ", "打ち合わせ"],
+                        ["来週の頭に資料を出す", "資料を出す"], ["TODO 請求書", "請求書"], ["明日10時に会議ｗ", "会議"], ["・牛乳を買う", "牛乳を買う"], ["1. 牛乳を買う", "牛乳を買う"],
+                        ["明日歯医者😭", "歯医者"], ["近々引っ越す", "引っ越す"], ["明日締め切りのレポート", "レポート"], ["レポートは明日が締め切り", "レポート"], ["絶対に明日10時に病院", "病院"]]
+          .map(([t, want]) => { const x = one(t); return x && x.title === want ? null : t + "→" + (x ? show([x]) : "なし"); }).filter(Boolean);
+        ok("CS. 見出しに言い方の跡（正午に・過ぎに・(月)・頭に・TODO・ｗ・箇条書きの印・絵文字・近々・締め切りの・絶対に）を残さない", titles.length === 0, titles.join(" ／ ")); }
+      // ⑨ 取り込むカレンダー・AIの ops
+      { const keepAC = window.askConfirm; window.askConfirm = async () => true;
+        const ics = (body) => "BEGIN:VCALENDAR\nBEGIN:VEVENT\n" + body + "\nEND:VEVENT\nEND:VCALENDAR";
+        reset(); await importICS(ics("SUMMARY:休み\nDTSTART;VALUE=DATE:20261001\nDTEND;VALUE=DATE:20261004"), "t.ics");
+        const a = state.items[0];
+        reset(); await importICS(ics("SUMMARY:定例\nDTSTART:20261001T100000\nRRULE:FREQ=WEEKLY;BYDAY=TH"), "t.ics");
+        const b = state.items[0];
+        reset(); await importICS(ics("SUMMARY:逆\nDTSTART:20261001T100000\nDTEND:20261001T090000"), "t.ics");
+        const c = state.items[0];
+        window.askConfirm = keepAC;
+        ok("CS. カレンダーの何日も続く終日は全部の日に（10/1〜10/3）", !!a && a.allDay && a.spanEndKey === "2026-10-03", a ? JSON.stringify([a.dayKey, a.spanEndKey]) : "なし");
+        ok("CS. カレンダーの毎週のくり返しは、くり返しとして入る", !!b && b.repeat && b.repeat.kind === "weekly" && b.repeat.dow === 4, b ? JSON.stringify(b.repeat) : "なし");
+        ok("CS. 終わりが始まりより前の予定は、1時間の仮置きに直す", !!c && new Date(c.end) > new Date(c.start), c ? c.start + "〜" + c.end : "なし");
+        reset(); let threw = null; const n = mkNote("明日10時に会議");
+        try { await applyOps({ op: "add", kind: "task", title: "牛乳を買う" }, n); } catch (e) { threw = e.message; }
+        ok("CS. AIの ops が1件の物でも落ちない", !threw && state.items.length === 1, threw || "");
+        reset(); await applyOps([{ op: "add", kind: "event", title: "会議", dueDate: "9999-12-31", dueTime: "10:00" }], n);
+        ok("CS. AIの日付がありえない年なら採らない", state.items.length === 1 && !/^9999/.test(state.items[0].dayKey || ""), show(state.items)); }
+      // ⑩ 画面：長い英数字・大きな文字・横向き
+      { const sheetRules = []; for (const sh of document.styleSheets) { let rules; try { rules = sh.cssRules; } catch { continue; } for (const r of rules) sheetRules.push(r); }
+        const bodyRule = sheetRules.find(r => r.selectorText === "body" && r.style && r.style.overflowWrap);
+        ok("CS. 切れ目の無い長い文字でも画面の幅を越えない（body に overflow-wrap:anywhere）", !!bodyRule && bodyRule.style.overflowWrap === "anywhere");
+        const tabRule = sheetRules.find(r => r.selectorText === "nav.tabs button" && r.style);
+        ok("CS. タブの名前は折り返さず、文字を大きくしても13pxで止める", !!tabRule && tabRule.style.whiteSpace === "nowrap" && /min\(/.test(tabRule.style.fontSize), tabRule ? tabRule.style.cssText.slice(0, 120) : "なし");
+        const coarse = sheetRules.find(r => r.media && /pointer:\s*coarse/.test(r.media.mediaText));
+        const cb = coarse && [...coarse.cssRules].find(r => r.selectorText === ".btn.sm");
+        ok("CS. 指で触る画面なら横向きでも押しどころは44px", !!cb && cb.style.minHeight === "44px" && cb.style.minWidth === "44px"); }
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

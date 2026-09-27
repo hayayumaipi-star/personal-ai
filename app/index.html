@@ -1053,8 +1053,7 @@ function parseWhen(rawText, baseISO, tz) {
      22時の「深夜1時まで作業」が「夜1時」＝13時と読まれ、見出しも「深作業」になっていた。
      「夜」「晩」でも1〜4時は夜中のこと（夜1時＝25時）。もう過ぎていれば次の日（下の `lateNight`）。 */
   let lateNight = false, plusDay = 0, nowish = false;
-  // 「9時5時で仕事」の5は分ではなく次の時刻（2026-09-27・9:05 と読んでいた）。分のあとに「時」が続くなら分と読まない
-  const tr = text.match(/(深夜|夜中の?|午前|午後|朝|昼|夕方|夜|晩)?\s*(\d{1,2})\s*[:：時](?!間)\s*(\d{1,2}(?!\d|\s*時))?\s*分?(半)?/);
+  const tr = text.match(/(深夜|夜中の?|午前|午後|朝|昼|夕方|夜|晩)?\s*(\d{1,2})\s*[:：時](?!間)\s*(\d{1,2})?\s*分?(半)?/);
   if (tr) {
     let h = +tr[2]; const mm = tr[3] != null ? +tr[3] : (tr[4] ? 30 : 0);
     if (/^(深夜|夜中)/.test(tr[1] || "") || (/^(夜|晩)$/.test(tr[1] || "") && h <= 4)) lateNight = h <= 5 || h === 12;
@@ -1071,6 +1070,10 @@ function parseWhen(rawText, baseISO, tz) {
       if (endM && +endM[1] >= 13 && +endM[1] <= 23 && +endM[1] > h) bareHour = false;
     }
     if (h <= 23 && mm <= 59) { tH = h; tM = mm; tSpan = [tr.index, tr.index + tr[0].length]; }
+    // 「7時15分前に家を出る」は 6:45（2026-09-27・7:15 と読み、見出しに「前に」が残っていた）
+    if (tH != null && tr[3] != null && mm > 0 && mm < 60 && /^\s*前(?!後)/.test(text.slice(tr.index + tr[0].length))) {
+      const t0 = tH * 60 - mm; if (t0 >= 0) { tH = Math.floor(t0 / 60); tM = t0 % 60; }
+    }
   }
   /* 「今からお風呂」「今すぐ買い物に行く」——**いま**が始まり（2026-09-27・何も記録されていなかった）。
      5分刻みに切り上げる。「今から◯時まで」は組み立ての時間帯（決まり4m）なのでここでは読まない。 */
@@ -1927,6 +1930,9 @@ function cleanTitle(s, when, opts) {
   // 左の「時」は省かれることがある（「6〜9時の間に」）。見出しに「6〜」が残らないように
   t = t.replace(new RegExp(AMPM + "\\s*\\d{1,2}\\s*(?:[:：時](?!間)\\s*\\d{0,2}\\s*分?半?)?\\s*(から[、,，]?|〜|～|-|–)\\s*" + AMPM + "\\s*\\d{1,2}\\s*[:：時](?!間)\\s*\\d{0,2}\\s*分?半?", "g"), CUT);
   t = t.replace(/\d{1,2}\s*時\s*\d{1,2}\s*時(?!間)/g, CUT);          // 「9時5時で仕事」の2つの時刻（2026-09-27）
+  // 時刻の前後の言葉（2026-09-27・テスター2周目）：「お昼の12時に」「正午に」「10時過ぎに」「20時以降に」「7時15分前に」
+  t = t.replace(/(お昼の|昼の|朝の|夜の|夕方の)(?=\s*\d{1,2}\s*[:：時])/g, "").replace(/正午(?=に|から|まで|の|、|$)/g, CUT);
+  t = t.replace(/(\d{1,2}\s*(?:[:：]\d{2}|時\s*(?:\d{1,2}\s*分|半)?))\s*(?:過ぎ|すぎ|以降|以後|前後|前(?=に|まで|、))/g, "$1");
   t = t.replace(new RegExp(AMPM + "\\s*\\d{1,2}\\s*[:：時](?!間)\\s*\\d{0,2}\\s*分?半?", "g"), CUT);
   if (!keepHabit) t = t.replace(/[1１一]\s*日\s*(?=\d+\s*(?:時間|分|回))/g, CUT);   // 「1日2時間」の「1日」は日付ではない
   if (!keepHabit) t = t.replace(/(?<!\d)(\d+\s*時間\s*半?(\d+\s*分)?|\d+\s*分)(?!\s*(目|前|後|おき|ごと|以内|以上|遅れ|早|経))(くらい|ほど|程度|だけ)?/g, CUT);
@@ -1968,6 +1974,19 @@ function cleanTitle(s, when, opts) {
      い段（起きたい／書きたい）は、起きる・書く のどちらか決められないので触らない（決まり7cb）。
      続けたいことでは「〜たい」が中身なので触らない（決まり3d）。 */
   t = t.replace(/^(そのあと|その後|それから|あとは|次に|終わったら)[、，,\s]*/, "");
+  /* 見出しの頭と終わりに付く、中身ではない印と言い方（2026-09-27・テスター2周目）：
+     箇条書きの印（・ - 1. ①）／TODO／端の絵文字／「ｗ」「笑」／「近々」「今度」「近いうちに」「できれば」「絶対に」「必ず」「なるはやで」「急ぎで」／
+     「(月)」／「頭に」（来週の頭）／「3日間」／「締め切りの」「の締め切り」／「必着で」／「朝晩に」 */
+  t = t.replace(/^(?:[・\-‐―*＊●○■□◆◇▶►→✓✔☑]\s*|\d{1,2}\s*[.)．）]\s+|[①-⑳]\s*)/, "");
+  t = t.replace(/^(?:TODO|ToDo|todo|To Do|やること)\s*[:：]?\s*/, "");
+  t = t.replace(/^[\p{Extended_Pictographic}\u200d\ufe0f\s]+|[\p{Extended_Pictographic}\u200d\ufe0f\s]+$/gu, "");
+  t = t.replace(/(?<=\S)(?:[wｗ]{1,5}|（笑）|\(笑\)|笑)$/, "");
+  t = t.replace(/^(?:近いうちに|近々|今度|できれば|出来れば|絶対に?|必ず|なるはやで|なるべく早く|急ぎで|至急)[、,\s]*/, "");
+  t = t.replace(/^[（(][日月火水木金土](?:曜日?)?[）)]\s*(?:に|は)?/, "").replace(/^頭(?:に|まで|は)\s*/, "").replace(/^\d{1,3}\s*日間\s*/, "");
+  t = t.replace(/^(?:締め切り|締切|〆切|しめきり)の\s*/, "").replace(/(?<=\S)(?:の|は|が)?(?:締め切り|締切|〆切|しめきり)$/, "");
+  t = t.replace(/^必着で\s*/, "").replace(/^朝晩(?:に|は)?\s*/, "");
+  t = t.replace(/^(?:前|過ぎ|すぎ|以降|以後)(?:に|から|は)\s*/, "");        // 時刻の跡に残った「前に」「過ぎに」「以降に」
+  t = t.replace(/(?<=予約)を?\s*(?:入れた|取った)$/, "");
   t = t.replace(/[をは]?[、,，\s]*(に|へ)?(変更|移動)(して|する|で|です)?$/, "").trim();
   t = t.replace(/[、,，\s]*(じゃなくて|じゃなく|ではなくて|ではなく)[、,，\s]*/g, "").replace(/[、,，\s]+$/, "").trim();   // 言い直しの跡（「会議、じゃなくて」）   // 「会議、10時から11時に変更」の「、変更」も
   t = t.replace(/(が|も)(ある|あります)$/, "").trim();                                  // 「面接がある」→「面接」
@@ -6730,7 +6749,9 @@ function ruleOpsRead(note) {
   return ops;
 }
 
-async function applyOps(rawOps, note) {
+async function applyOps(rawOps0, note) {
+  // AIや呼び出し側が ops を1件の物で渡しても落ちない（2026-09-27・配列でないと例外で止まっていた）
+  const rawOps = Array.isArray(rawOps0) ? rawOps0 : (rawOps0 && typeof rawOps0 === "object" ? [rawOps0] : []);
   const tz = state.settings.timezone, changes = [], asks = [], days = [], kinds = [];
   let habitDay = null;                              // 組み立てた日（まとめて消す道に渡す）
   /* AIが考えた「提案の札」。**先に全部読んでから組み立てる**——
@@ -7167,6 +7188,11 @@ function ruleClockMins(note, tz) {
   return mins;
 }
 function applyFields(it, o, tz, note, opts) {
+  /* AIの日付の年は、話した年の前後だけ受け取る（2026-09-27・9999年・1900年の予定がそのまま入っていた・決まり9） */
+  if (o && isDate(o.dueDate)) {
+    const y0 = +(dayKey(new Date(note && note.capturedAt || Date.now()), tz)).slice(0, 4), y = +o.dueDate.slice(0, 4);
+    if (y < y0 - 1 || y > y0 + 5) o = Object.assign({}, o, { dueDate: null, dueTime: null });
+  }
   /* 同じ発言を、ルールでも読んでおく。AIの読み違いを見つけるための「もう一つの目」。 */
   const rw = (note && note.text)
     ? parseWhen(readText(note.text), note.capturedAt || new Date().toISOString(), tz) : null;
@@ -8556,7 +8582,20 @@ async function importICS(text, name) {
   let found = [];
   try { found = parseICS(text, tz); } catch (e) { lastError = describeError(e); }
   if (!found.length) { $("#expOut").innerHTML = '<p class="hint" style="color:var(--alert-ink)">予定が見つかりませんでした。.ics ファイルを選んでください。</p>'; return; }
-  const rep = found.filter(f => f.rrule).length;
+  /* **くり返しを、くり返しとして取り込む**（2026-09-27・テスター2周目。前は全部「最初の1回だけ」だった）。
+     このアプリのくり返し（毎日・平日・毎週・隔週・毎月）に**そのまま写せるものだけ**。終わりのあるもの（UNTIL・COUNT）や
+     曜日が複数のものは、今までどおり最初の1回だけにして、そう言う。 */
+  const icsRepeat = r => {
+    if (!r || /(UNTIL|COUNT)=/.test(r)) return null;
+    const f = (/FREQ=(\w+)/.exec(r) || [])[1], iv = +((/INTERVAL=(\d+)/.exec(r) || [])[1] || 1), bd = (/BYDAY=([A-Z,0-9+-]+)/.exec(r) || [])[1];
+    const DW = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+    if (f === "DAILY" && iv === 1 && !bd) return { kind: "daily" };
+    if (f === "WEEKLY" && bd === "MO,TU,WE,TH,FR" && iv === 1) return { kind: "weekday" };
+    if (f === "WEEKLY" && (!bd || /^[A-Z]{2}$/.test(bd)) && (iv === 1 || iv === 2)) return iv === 2 ? { kind: "biweekly" } : { kind: "weekly", dow: bd ? DW[bd] : null };
+    if (f === "MONTHLY" && iv === 1 && !bd) { const dm = (/BYMONTHDAY=(\d{1,2})$/.exec(r) || [])[1]; return { kind: "monthly", dom: dm ? +dm : null }; }
+    return null;
+  };
+  const rep = found.filter(f => f.rrule && !icsRepeat(f.rrule)).length;
   const mk = f => {
     const it = {
       id: uid(), noteId: null, kind: "event", title: f.title, fixed: true,
@@ -8568,6 +8607,21 @@ async function importICS(text, name) {
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       history: [{ at: new Date().toISOString(), by: "user", what: "カレンダーから取り込み" }]
     };
+    // 終わりが始まりより前・同じ（壊れたファイル）なら、1時間の仮置きにする（2026-09-27・逆向きの枠が入っていた）
+    if (!(new Date(it.end) > new Date(it.start))) { it.end = new Date(new Date(it.start).getTime() + 3600000).toISOString(); it.endUnknown = true; }
+    /* 何日も続く終日（DTEND はその次の日を指す）——全部の日に出す（決まり4g・2026-09-27 まで1日目だけだった） */
+    if (it.allDay && f.end) {
+      const last = dayKey(new Date(new Date(f.end).getTime() - 43200000), tz);
+      if (last > it.dayKey) { it.spanEndKey = last; it.timeUnknown = false; it.end = zoned(...last.split("-").map(Number), 23, 59, tz).toISOString(); }
+      else it.end = zoned(...it.dayKey.split("-").map(Number), 23, 59, tz).toISOString();
+      it.timeUnknown = false;
+    }
+    const rp = icsRepeat(f.rrule);
+    if (rp) {
+      if (rp.kind === "weekly" && rp.dow == null) rp.dow = parts(new Date(f.start), tz).dow;
+      if (rp.kind === "monthly" && rp.dom == null) rp.dom = parts(new Date(f.start), tz).d;
+      it.repeat = rp;
+    }
     it.dedupeKey = dedupeKey(it);
     return it;
   };
