@@ -7203,6 +7203,33 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DG. AIが使えないことを、はじめの画面で言う（2026-09-28・残タスク 1-2） ===== */
+    {
+      const keepFn = SAMPLEFN, keepAI = window.HITOHI_AI, keepDay = view.chatDay, keepAcct = { ok: acct.ok, email: acct.email };
+      view.chatDay = "2031-01-01";                  // 会話の無い日＝はじめの案内が出る
+      const hint = () => { renderChat(); const e = document.getElementById("noAIHint"); return e ? e.textContent : ""; };
+      SAMPLEFN = keepFn || (async () => ({ text: "" })); delete window.HITOHI_AI;
+      ok("DG. AIが使えるときは、はじめの案内に何も足さない", hint() === "");
+      SAMPLEFN = null;
+      ok("DG. キーの無い自分用のアプリでは「いまはAIを使っていません」と、読めるものを言う", /いまはAIを使っていません/.test(hint()) && /キーを入れる/.test(hint()), hint());
+      window.HITOHI_AI = { provider: "server" };
+      ok("DG. 配る版でログインしていなければ「Google アカウントでログインすると使えます」", /ログインすると使えます/.test(hint()) && !/キーを入れる/.test(hint()), hint());
+      acctSet(true, "a@example.com");
+      ok("DG. ログインしたら、描き直して案内を消す", !document.getElementById("noAIHint") && !!SAMPLEFN, String(!!SAMPLEFN));
+      acctSet(false, "");
+      ok("DG. ログアウトしたら、また出す", !!document.getElementById("noAIHint"));
+      SAMPLEFN = keepFn; if (keepAI) window.HITOHI_AI = keepAI; else delete window.HITOHI_AI;
+      acct.ok = keepAcct.ok; acct.email = keepAcct.email; view.chatDay = keepDay; renderChat();
+      // 入りきらなかったものも名前で答える（本物の時計に頼らない：いまを23:30に決めて聞く）
+      const keepIt = state.items, K9 = "2026-09-15";
+      state.items = [{ id: "dg1", noteId: null, kind: "task", title: "牛乳を買う", status: "open", origin: "rule", confirmed: false, corrected: false, history: [],
+        createdAt: T(9, 0), dayKey: K9, duePrecision: "day", due: zoned(2026, 9, 15, 23, 59, TZ).toISOString(), preferWindow: "evening", estimateMin: 30 }];
+      const pl = planFor(K9, { nowMin: 23 * 60 + 30 });
+      const an = answerQuestion("今日何するんだっけ", pl, K9, "今日") || "";
+      ok("DG. 夜遅くに聞かれて入りきらなかったものも、名前で答える（「1件」とだけ言わない）", pl.unplaced.length === 1 && /「牛乳を買う」/.test(an), an);
+      state.items = keepIt;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

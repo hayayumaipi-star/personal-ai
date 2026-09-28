@@ -3400,6 +3400,8 @@ function acctSet(ok, email) {
   if (!aiViaServer()) return;
   SAMPLEFN = acct.ok ? ownAI(builtInAI()) : null;
   if (!acct.ok) aiUse = null;
+  // はじめの案内に「ログインすると使えます」が出ていたら、描き直して消す（出ていないときは描き直さない）
+  if ((!!document.getElementById("noAIHint")) === !!SAMPLEFN) renderChat();
 }
 /* 今日の回数を使い切ったら、その日のうちはもう頼まない（待っても戻らない・言うのは使い切ったときの1回だけ）。 */
 const aiOutToday = () => !!aiOutDay && aiOutDay === dayKey(new Date(), state.settings.timezone);
@@ -5856,6 +5858,14 @@ function refreshNowCard() {
   if (old) old.outerHTML = h; else if (h && host) host.insertAdjacentHTML("beforeend", h);
 }
 
+/* **AIが使えないことを、はじめの画面で言う**（2026-09-28・残タスク 1-2）。前は言い直しをして初めて「AIを使っていないので」と分かった。
+   何も話していないあいだの案内のカードにだけ出す（使い始めたら消える・決まり15j）。**いまの状態を見て書き分ける**（片方の前提で書かない）。 */
+function noAIHint() {
+  if (SAMPLEFN) return "";
+  return `<p class="hint" id="noAIHint">${aiViaServer()
+    ? "AIは、設定の「Google アカウント」でログインすると使えます。ログインしなくても、時刻・日付・「〜する」のようなはっきりした言い方は読み取れます。"
+    : "いまはAIを使っていません。時刻・日付・「〜する」のようなはっきりした言い方は読み取れます（AIは、アプリを作るときにキーを入れると使えます）。"}</p>`;
+}
 function renderChat(scroll) {
   if (!state.settings) return;
   /* **会話は「話した日」を見せる**（v7.3・組み立てを測って見つけた）。
@@ -5870,7 +5880,7 @@ function renderChat(scroll) {
     host.innerHTML = `<div class="card stack">
       <h3 class="cardttl">整理しないで、そのまま話してください</h3>
       <p class="hint">
-      「資料できた」「15時じゃなくて14時だった」——言い直しもそのまま言ってください。</p>
+      「資料できた」「15時じゃなくて14時だった」——言い直しもそのまま言ってください。</p>${noAIHint()}
       <div class="row">
         <button class="btn" id="btnSample">例を入れてみる</button>
         <button class="btn" id="btnFileOpen">テキストファイルを取り込む</button>
@@ -9061,7 +9071,8 @@ function answerQuestion(rawText, plan, key, dw = "今日") {
     if (fixed.length) bits.push(`予定は${fixed.map(i => `「${i.title}」`).join("と")}`);
     if (todays.length) bits.push(`やることに入れているのは${todays.slice(0, 3).map(i => `「${i.title}」`).join("、")}${todays.length > 3 ? `ほか${todays.length - 3}件` : ""}`);
     if (loose.length) bits.push(`時刻を決めていないのが${loose.slice(0, 3).map(i => `「${i.title}」`).join("、")}${loose.length > 3 ? `ほか${loose.length - 3}件` : ""}`);
-    if (plan.unplaced.length) bits.push(`${dw}に入りきらなかったのが${plan.unplaced.length}件`);
+    /* 入りきらなかったものも名前で言う（2026-09-28・夜遅くに「今日何するんだっけ」と聞くと「入りきらなかったのが1件」とだけ返していた） */
+    if (plan.unplaced.length) bits.push(`${dw}に入りきらなかったのが${plan.unplaced.slice(0, 3).map(u => `「${u.item.title}」`).join("、")}${plan.unplaced.length > 3 ? `ほか${plan.unplaced.length - 3}件` : ""}`);
     return (dw !== "今日" ? `${dw}は、` : "") + bits.join("。") + "。" + undatedLine;
   }
 

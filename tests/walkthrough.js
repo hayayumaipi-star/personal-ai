@@ -130,7 +130,9 @@
       dt.items.add(new File(["来週の水曜に美容院の予約。"], "memo.txt", { type: "text/plain" }));
       $$("#file").files = dt.files;
       $$("#file").dispatchEvent(new Event("change", { bubbles: true }));
-      if (!await waitFor(() => $$("#say").value)) throw new Error("ファイルの中身が入らない");
+      /* ファイルの読み込み（FileReader）は本物の時間で進み、ここの時計は仮想で速く進む。3秒では、重いときに間に合わないことがあった
+         （2026-09-28・4本同時で8回に1回。変更の前の版でも同じ）。待つ長さだけ延ばす（入ればすぐ抜ける）。 */
+      if (!await waitFor(() => $$("#say").value, 20000)) throw new Error("ファイルの中身が入らない");
       await click("#btnSend"); await wait(400);
     });
 
