@@ -7481,6 +7481,58 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DL. テスター7周目：続けたいことの「できた」・旬・何日も続く予定を延ばす・あいさつ・並べた用事（2026-09-28・自律で進めた回） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, h, mi] of steps) r = await say(s, at(15, h, mi)); return r || { changes: [], asks: [] }; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.spanEndKey ? "→" + i.spanEndKey : ""}${i.doneDays ? " done:" + i.doneDays.join(",") : ""}${i.preferWindow ? " " + i.preferWindow : ""}${i.estimateMin ? " " + i.estimateMin + "分" : ""}`).join(" ／ ");
+      // --- 続けたいことの「できた」 ---
+      await run([["英語を毎日30分勉強したい", 9], ["今日は英語30分やった", 21], ["英語やった", 22]]);
+      const g = state.items.find(i => i.kind === "goal");
+      ok("DL. 「今日は英語30分やった」は続けたいことのその日を1回数える（同じ日に2回言っても1回）", g && JSON.stringify(g.doneDays) === '["2026-09-15"]' && g.status === "open", show(state.items));
+      ok("DL. 数えた日は「この7日で◯回」に乗る（予定と結びついていなくても・点数にしない）", goalCount({ doneDays: g.doneDays }, "2026-09-16", TZ).done === 1);
+      await run([["週に2回ジムに行く", 9], ["昨日ジムに行った", 9, 5]]);
+      ok("DL. 「昨日ジムに行った」は昨日を数える", (state.items.find(i => i.kind === "goal").doneDays || []).includes("2026-09-14"), show(state.items));
+      await run([["英語を毎日30分勉強したい", 9], ["英語の宿題を出す", 9, 1], ["英語の宿題出した", 21]]);
+      ok("DL. 当たる用事があれば用事の完了（続けたいことは数えない）", state.items.find(i => i.kind === "task").status === "done" && !(state.items.find(i => i.kind === "goal").doneDays || []).length, show(state.items));
+      ok("DL. 「できた」の op はルールだけ（OPS に無い＝AIの返事からは落ちる）", !OPS.includes("goalhit"));
+      await run([["牛乳を毎日飲みたい", 9], ["牛乳を買う", 9, 1], ["パンを買う", 9, 2], ["牛乳とパン買った", 18]]);
+      ok("DL. 「牛乳とパン買った」で用事を完了にした文では、続けたいこと（牛乳を飲む）は数えない",
+        state.items.filter(i => i.kind === "task").every(i => i.status === "done") && !(state.items.find(i => i.kind === "goal").doneDays || []).length, show(state.items));
+      ok("DL. 予定と結びついた続けたいことも、会話で数えた日を同じ日なら1回として足す",
+        goalCount({ doneDays: ["2026-09-14"], repeat: null }, "2026-09-16", TZ, ["2026-09-15", "2026-09-14"]).done === 2);
+      // --- 旬 ---
+      await run([["10月中旬に旅行", 9]]);
+      ok("DL. 「10月中旬」は10/20ごろのあいまいな期限", state.items.length === 1 && state.items[0].dayKey === "2026-10-20" && state.items[0].duePrecision === "week", show(state.items));
+      await run([["来月上旬に引っ越し", 9]]);
+      ok("DL. 「来月上旬」は10/10ごろ", state.items.length === 1 && state.items[0].dayKey === "2026-10-10", show(state.items));
+      await run([["今月下旬に面談", 9]]);
+      ok("DL. 「今月下旬」は月末ごろ", state.items.length === 1 && state.items[0].dayKey === "2026-09-30", show(state.items));
+      // --- 何日も続く予定を延ばす ---
+      let r = await run([["明日から3日間出張", 9], ["出張は1日延びた", 9, 5]]);
+      ok("DL. 「出張は1日延びた」は終わりの日を1日後ろへ（「出張は延びた」を作らない・1日を日付にしない）",
+        state.items.length === 1 && state.items[0].spanEndKey === "2026-09-19" && /終わりの日を 09\/19/.test((r.changes || []).join()), show(state.items) + " " + (r.changes || []).join());
+      r = await run([["金曜までにレポート", 9], ["レポートの締切が1日延びた", 9, 5]]);
+      ok("DL. 「レポートの締切が1日延びた」は締切を1日後ろへ（1日を1日の日付にしない）", state.items.length === 1 && state.items[0].dayKey === "2026-09-19", show(state.items));
+      await run([["打ち合わせが1日延びた", 9]]);
+      ok("DL. 当てる相手が無い「1日延びた」で、1日の予定を作らない", !state.items.some(i => i.dayKey === "2026-10-01"), show(state.items));
+      // --- あいさつ・並べた用事・天気しだい・URL ---
+      await run([["明日10時から会議です。よろしくお願いします。", 9]]);
+      ok("DL. 「よろしくお願いします」を用事にしない", state.items.length === 1 && state.items[0].title === "会議", show(state.items));
+      await run([["今日のタスク：洗濯、掃除、買い物", 9]]);
+      ok("DL. 「今日のタスク：洗濯、掃除、買い物」は今日の用事3件", state.items.length === 3 && state.items.every(i => i.dayKey === "2026-09-15") && state.items.map(i => i.title).join() === "洗濯,掃除,買い物", show(state.items));
+      await run([["明日雨なら洗濯は明後日", 9]]);
+      ok("DL. 天気しだいの話はメモ", state.items.length === 1 && state.items[0].kind === "memo", show(state.items));
+      await run([["明後日10時からオンライン会議、URLはあとで送られてくる", 9]]);
+      ok("DL. 予定のあとの「URLは〜」は分けてメモ（予定の見出しに混ぜない）", state.items.some(i => i.kind === "event" && i.title === "オンライン会議") && state.items.some(i => i.kind === "memo" && /URL/.test(i.title)), show(state.items));
+      await run([["夜ジョギング30分", 9]]);
+      ok("DL. 「夜ジョギング30分」は夜の用事「ジョギング」30分", state.items.length === 1 && state.items[0].title === "ジョギング" && state.items[0].estimateMin === 30 && state.items[0].preferWindow === "evening", show(state.items));
+      await run([["勉強2時間", 9]]);
+      ok("DL. 「勉強2時間」も用事", state.items.length === 1 && state.items[0].kind === "task" && state.items[0].estimateMin === 120, show(state.items));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

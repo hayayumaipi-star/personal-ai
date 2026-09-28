@@ -1249,6 +1249,16 @@ function parseWhen(rawText, baseISO, tz) {
     if (m[3] || until) return { abs: end, prec: "day" };
     return { abs: end, prec: "week", label: (yw ? yw + "の" : "") + mo + "月", start: dayKey(new Date(zoned(y, mo, 1, 12, 0, tz)), tz) };
   });
+  /* 「10月中旬に旅行」「来月上旬」——月の上・中・下旬（2026-09-28・テスター7周目・何も記録されていなかった）。
+     あいまいな期限：上旬＝10日・中旬＝20日・下旬＝月末まで（「来月」と同じく日にちを決めたことにしない） */
+  grab(/(?:(今年|来年)\s*の?\s*)?(?:(\d{1,2})\s*月|(今月|来月|再来月))\s*の?\s*(上旬|中旬|下旬|初め|はじめ|頭)/, m => {
+    let y, mo;
+    if (m[2]) { mo = +m[2]; if (mo < 1 || mo > 12) return null; y = m[1] === "来年" ? bp.y + 1 : m[1] === "今年" ? bp.y : (mo < bp.mo ? bp.y + 1 : bp.y); }
+    else { const k = m[3] === "今月" ? 0 : m[3] === "来月" ? 1 : 2, dt = new Date(zoned(bp.y, bp.mo + k, 1, 12, 0, tz)), p = parts(dt, tz); y = p.y; mo = p.mo; }
+    const part = m[4], last = parts(new Date(zoned(y, mo + 1, 0, 12, 0, tz)), tz).d;
+    const [d0, d1] = part === "中旬" ? [11, 20] : part === "下旬" ? [21, last] : [1, 10];
+    return { abs: dayKey(new Date(zoned(y, mo, d1, 12, 0, tz)), tz), prec: "week", label: (m[2] ? mo + "月" : m[3]) + (part === "はじめ" ? "初め" : part), start: dayKey(new Date(zoned(y, mo, d0, 12, 0, tz)), tz) };
+  });
   /* 「3か月後に試験」——話した日から数えた、だいたいの日（あいまいな期限） */
   grab(/(\d{1,2})\s*[かヶケカ]\s*月\s*後/, m => {
     const n = +m[1];
@@ -1306,7 +1316,7 @@ function parseWhen(rawText, baseISO, tz) {
   /* 「1日2時間」「1日3回」は1日あたりの量で、日付ではない（2026-09-27・10月1日と読まれていた）。「1日中」も同じ */
   /* 「1日おきに」「3日に1回」「1日3食」「2日ごとに」も量・間隔で、日付ではない（2026-09-27・10月1日・10月3日と読んでいた） */
   // 「週5日勤務」「週に3日」「月に2日」は回数で、日にちではない（2026-09-28・「週5日勤務」が10/5の予定になっていた）
-  grab(/(今月|来月|再来月|来々月)?\s*の?\s*(?<!週\s*|[週月]に\s*)(\d{1,2})\s*日(?!間|以|くらい|ほど|\s*後|\s*前|\s*(?:おき|置き|ごと|毎)|\s*に\s*\d{1,2}\s*(?:回|度)|\s*\d{1,3}\s*(?:時間|分|回|度|ページ|個|問|杯|冊|キロ|km|歩|食|錠|粒|本|件|枚|リットル|L|ml|g|kg|カロリー|kcal))/, m => {
+  grab(/(今月|来月|再来月|来々月)?\s*の?\s*(?<!週\s*|[週月]に\s*)(\d{1,2})\s*日(?!間|以|くらい|ほど|\s*後|\s*前|\s*(?:延び|延長|伸び|早ま|ずれ|長くな)|\s*(?:おき|置き|ごと|毎)|\s*に\s*\d{1,2}\s*(?:回|度)|\s*\d{1,3}\s*(?:時間|分|回|度|ページ|個|問|杯|冊|キロ|km|歩|食|錠|粒|本|件|枚|リットル|L|ml|g|kg|カロリー|kcal))/, m => {
     const d = +m[2];
     if (d === 1 && !m[1] && /^\s*(中|ずっと|あたり|につき|ごと)/.test(text.slice(m.index + m[0].length))) return null;
     if (d < 1 || d > 31) return null;
@@ -1961,8 +1971,10 @@ function splitLines(text) {
         const body = cur && !RE_SELFTASK.test(cur.text) && (RE_COND.test(cur.text) || RE_PAIN.test(cur.text)) && RE_SELFTASK.test(t) && contentWords(t).length > 0;
         /* ⑨「水曜までに企画書、金曜までに見積もり」——**締切を言った話のあとの、日付と「までに」で始まる話**（2026-09-28・テスター6周目。
            「企画書、金曜までに見積もり」の1件になり、見積もりの締切が消えていた）。前の話にも「までに」と日付があるときだけ。 */
+        // ⑩「オンライン会議、URLはあとで送られてくる」——予定のあとの「URLは・場所は」は、その予定の覚え書き（メモ・2026-09-28）
+        const info = cur && (cur.clock || cur.dated) && /^(URL|場所|会場|集合場所|待ち合わせ場所|部屋|住所|持ち物|服装|お店|店)(は|って)/.test(t);
         const dues = cur && cur.dated && /までに/.test(cur.text) && RE_DATE_HEAD.test(t) && /^[^、，,。]{0,12}までに/.test(t) && contentWords(t.replace(/^[^、，,。]{0,12}までに/, "")).length > 0;
-        if (cur && t && !openRange && ((clock && cur.clock) || (seq && cur.text.trim().length >= 2) || but || newDay || (win && (cur.win || cur.clock || te)) || chore || body || dues)) { topics.push(cur); cur = null; }
+        if (cur && t && !openRange && ((clock && cur.clock) || (seq && cur.text.trim().length >= 2) || but || newDay || (win && (cur.win || cur.clock || te)) || chore || body || dues || info)) { topics.push(cur); cur = null; }
         if (!cur) cur = { text: "", start: c.start, clock: false, dated: false, win: false };
         cur.text += c.text; cur.clock = cur.clock || clock; cur.dated = cur.dated || RE_DATE_HEAD.test(t);
         cur.win = cur.win || RE_WIN_ANY.test(t);
@@ -2014,9 +2026,10 @@ const RE_REPEAT_WORD = /(毎週\s*(?:の)?\s*[日月火水木金土]曜?日?|毎
 /* 時間帯の言い方は1か所にまとめる（決まり7e）。
    **読み取る側（`parseIntent`）と、見出しから落とす側（`cleanTitle`）で同じものを使う。**
    長い言い方から並べること——「午前中」より先に「午前」を試すと「中」が取り残される。 */
-const RE_WIN_MORNING   = /(午前中|午前|朝のうち|朝一番|朝一|朝イチ|朝に)/;
+// 「朝ヨガ」「夜ジョギング」——助詞の無い「朝・夜」は、すぐ後がカタカナの語のときだけ時間帯（「夜景」「朝食」は中身・2026-09-28）
+const RE_WIN_MORNING   = /(午前中|午前|朝のうち|朝一番|朝一|朝イチ|朝に|朝(?=[ァ-ヴ][ァ-ヴー]))/;
 const RE_WIN_AFTERNOON = /(午後イチ|午後一番|午後一|午後|お昼過ぎ|昼過ぎ|昼から)/;     // 「お昼過ぎ」を先に（「昼過ぎ」だけ落とすと「お郵便局」が残った・2026-09-28）
-const RE_WIN_EVENING   = /(夕方以降|夕方|夜に|晩に)/;
+const RE_WIN_EVENING   = /(夕方以降|夕方|夜に|晩に|夜(?=[ァ-ヴ][ァ-ヴー]))/;
 const RE_CUT_WINDOW = new RegExp(
   "(?:" + [RE_WIN_MORNING, RE_WIN_AFTERNOON, RE_WIN_EVENING]
     .map(r => r.source.replace(/^\(|\)$/g, "")).join("|") + ")(?:には|には|に|は|から|で)?", "g");
@@ -2268,16 +2281,19 @@ const RE_DECIDED = new RegExp([
 const RE_VERB_END = /[^そよろっ](く|ぐ|つ|ぬ|ぶ|む|る)[。、]?$|[^そよろっでま]す[。、]?$|(買う|会う|使う|払う|手伝う|洗う|もらう|向かう|行う|通う)[。、]?$/;
 const looksDecided = s => RE_DECIDED.test(s) || (RE_VERB_END.test(s) && contentWords(s).length > 0);
 /* 「明日プレゼンの準備。」のような名詞止め */
-const RE_NOUN_TASK = /(準備|予約|掃除|洗濯|買い物|連絡|提出|申請|登録|練習|片付け|支払い|振込|振り込み|手続き|返却|予習|復習|会計|入金|更新|車検|点検|修理|ゴミ出し|ごみ出し|申し込み|申込|解約|契約|返品|受け取り|引き取り|クリーニング|模様替え|大掃除|衣替え|草むしり|散髪|報告|相談|電話|メール|返信|お迎え|迎え|散歩|勉強|宿題|課題|注文|問い合わせ|手配|予約確認|お礼)[。、]?$/;
+const RE_NOUN_TASK = /(準備|予約|掃除|洗濯|買い物|連絡|提出|申請|登録|練習|片付け|支払い|振込|振り込み|手続き|返却|予習|復習|会計|入金|更新|車検|点検|修理|ゴミ出し|ごみ出し|申し込み|申込|解約|契約|返品|受け取り|引き取り|クリーニング|模様替え|大掃除|衣替え|草むしり|散髪|報告|相談|電話|ジョギング|ランニング|ウォーキング|筋トレ|ストレッチ|メール|返信|お迎え|迎え|散歩|勉強|宿題|課題|注文|問い合わせ|手配|予約確認|お礼)[。、]?$/;
 // 「1万円おろす」「¥1,000払う」「￥500を返す」——金額とお金の動詞（2026-09-27）。判定と強さの両方で同じものを見る（決まり7e）
 const RE_MONEY_TASK = { test: s => /(\d[\d,]*\s*(円|万円?|千円)|[¥￥]\s*\d)/.test(s) && /(払う|払い|振り込|振込|おろす|下ろす|引き出す|送金|入金|返す|貸す|チャージ)/.test(s) };
+/* 用事の名詞で終わるか。「ジョギング30分」「勉強2時間」——名詞のあとに長さだけが付く形も同じ（2026-09-28・何も記録されていなかった）。
+   classify と taskStrength の2か所が同じものを使う（決まり7e） */
+const nounTask = s => RE_NOUN_TASK.test(s) || RE_NOUN_TASK.test(String(s).replace(/\s*\d+\s*(?:分|時間)\s*半?\s*(?:くらい|ぐらい|ほど)?[。、]?$/, ""));
 function taskStrength(s) {
   let n = 0;
   if (RE_MONEY_TASK.test(s)) n += 2;
   if (RE_SELFTASK.test(s)) n += 3;              // しないと／なきゃ／忘れないように
   if (/(しておいて|しといて|やっておいて)/.test(s)) n += 2;
   if (looksDecided(s)) n += 2;
-  if (RE_NOUN_TASK.test(s)) n += 2;             // 「明日プレゼンの準備。」
+  if (nounTask(s)) n += 2;                      // 「明日プレゼンの準備。」「ジョギング30分」
   if (RE_NARRATIVE.test(s)) n -= 3;             // 出来事の説明であって、やることではない
   if (RE_SOFT.test(s)) n -= 3;                  // 「〜な気がする」は決定ではない
   if (RE_ASSISTANT_REQ.test(s)) n -= 2;         // AIへの要望であって、自分のタスクではない
@@ -2329,7 +2345,7 @@ function classify(rawS, lineWhen) {
   /* 「会議準備をする」「会議の資料を作る」「試験勉強」「面接対策」——予定の語のすぐ後に準備・資料・練習…が続くのは、**その予定のための用事**
      （2026-09-28・「今日は資料作成と会議準備とメール返信をする」が時刻未定の予定になっていた）。予定の語としては数えない。 */
   const isEvent = RE_EVENT.test(s.replace(RE_EVENT_PREP_G, "$3")) || RE_GOTO.test(s);
-  const isTask = RE_TASK.test(s) || RE_VERB.test(s) || RE_NOUN_TASK.test(s);
+  const isTask = RE_TASK.test(s) || RE_VERB.test(s) || nounTask(s);
   /* 「10時から11時まで勉強しようかな」——ここまで具体的に時刻を言うのは、迷いではない。
      日本語の「〜しようかな」は、やると決めたことを柔らかく言うときにも使う。
      **時刻が言われているときだけ**、問いかけ・迷いの扱いから外して予定にする。
@@ -2350,7 +2366,11 @@ function classify(rawS, lineWhen) {
   /* 「午前中は集中したいから会議を入れないで」——**頼み**であって、用事ではない（2026-09-27・テスターで発見。用事になっていた）。
      「忘れないで」は用事の念押しなので外さない。頼みは ruleOps が「こうしてほしい」に残す。 */
   if (/(ないで|ないでね|ないでください|ないでほしい)[。！!]*$/.test(s) && !/忘れないで/.test(s) && !RE_SELFTASK.test(s)) return null;
-  if (RE_FOCUS_WISH.test(s)) return null;                                 // 「明日は午前中に集中したい」は用事ではなく、その日の希望（ruleOps が残す）
+  if (RE_FOCUS_WISH.test(s)) return null;
+  // 「よろしくお願いします」「ありがとう」——あいさつは記録しない（2026-09-28・「よろしくお願いする」という用事になっていた）
+  if (/^(よろしく(お願い(します|する|いたします|いたす|ね|ね〜)?)?|ありがとう(ございます|ございました)?|おはよう(ございます)?|こんにちは|こんばんは|おやすみ(なさい)?|お疲れ(さま|様)(です|でした)?)[。！!〜ー\s]*$/.test(s)) return null;
+  // 「明日雨なら洗濯は明後日」——天気しだいの話は、あとで見返すメモ（どちらになるか決まっていない・同上）
+  if (/(雨|晴れ|天気|雪|台風|寒かったら|暑かったら)[^。、]{0,4}(なら|だったら|だと|の場合|次第)/.test(s) && !RE_SELFTASK.test(s)) return "memo";                                 // 「明日は午前中に集中したい」は用事ではなく、その日の希望（ruleOps が残す）
   /* **済んだ話は、予定にも用事にもしない**（2026-09-27・テスターで発見）。「7時に起きた」が明日の予定「起きた」、
      「昨日歯医者行った」が昨日の予定、「会議が長引いた」が用事になっていた。完了の照合は ruleOps が受け持つ（決まり0m）。
      **これから来る日時の話は別**——「明日の10時に歯医者の予約を入れた」は予定。取りやめ・否定は下の memo へ回す。 */
@@ -2887,7 +2907,10 @@ function extractByRule(note, settings) {
     /* 「資料作成と会議準備とメール返信」——**「と」でつないだ用事の名詞を、1つずつの用事に**（2026-09-28・「残っている弱点の対策を模索して」）。
        どの部分も用事の名詞（`RE_NOUN_TASK`・作成・確認…）で終わるときだけ。「牛乳とパンを買う」「友達とご飯」「母と電話」は分けない。
        根拠は同じ行のまま（決まり1）。所要時間は1件ずつに持ち込まない（どれの長さか分からない）。 */
-    const parts = base.kind === "task" && !base.isMeal && !base.repeat ? splitNounTasks(base.title) : null;
+    /* 「今日のタスク：洗濯、掃除、買い物」——見出しの後ろに並べた用事は1つずつ（2026-09-28・テスター7周目・「タスク:洗濯、掃除、買い物」1件だった） */
+    const lm = base.kind === "task" ? /^(?:タスク|やること|やる事|すること|用事|TODO|ToDo|todo)\s*[:：]\s*(.+)$/.exec(base.title) : null;
+    const listed = lm ? lm[1].split(/[、,，・\/]/).map(x => x.trim()).filter(x => x.length >= 1) : null;
+    const parts = listed && listed.length >= 1 ? listed : base.kind === "task" && !base.isMeal && !base.repeat ? splitNounTasks(base.title) : null;
     if (parts) {
       for (const p of parts) {
         const c = Object.assign({}, base, { id: uid(), title: p, estimateMin: parts.length > 1 ? null : base.estimateMin, history: [] });
@@ -6134,21 +6157,26 @@ function goalPlan(g) {
 }
 /* この7日で何回できたか。**点数ではなく、数えた事実**（決まり3 は体調を数値にしないという決まりで、
    完了した回数は本人が押した記録そのもの）。予定があった日の数も一緒に出し、割合にはしない。 */
-function goalCount(ev, key, tz) {
+// 会話で「今日は英語やった」と言った日（goal の doneDays）も、同じ日なら1回として数える
+function goalCount(ev, key, tz, extra) {
   let done = 0, due = 0;
   for (let k = 0; k < 7; k++) {
     const d = dayKey(new Date(keyToDate(key, tz).getTime() - k * 86400000), tz);
-    const hit = (ev.doneDays || []).includes(d);
+    const hit = (ev.doneDays || []).includes(d) || (extra || []).includes(d);
     if (hit) done++;
     if (hit || occursOn(ev, d, tz)) due++;
   }
   return { done, due };
 }
 function goalNote(g) {
-  const ev = goalPlan(g);
-  if (!ev) return "";
-  const tz = state.settings.timezone, st = validISO(ev.start) ? parts(new Date(ev.start), tz) : null;
-  const c = goalCount(ev, dayKey(new Date(), tz), tz);
+  const ev = goalPlan(g), tz = state.settings.timezone, key = dayKey(new Date(), tz);
+  if (!ev) {
+    // 予定と結びついていない続けたいことも、会話で「できた」と言った日を数える（割合・連続日数にしない）
+    const own = goalCount({ doneDays: g.doneDays || [] }, key, tz).done;
+    return own ? `この7日で${own}回。` : "";
+  }
+  const st = validISO(ev.start) ? parts(new Date(ev.start), tz) : null;
+  const c = goalCount(ev, key, tz, g.doneDays);
   const len = validISO(ev.start) && validISO(ev.end) ? durJa(Math.round((new Date(ev.end) - new Date(ev.start)) / 60000)) : "";
   return `${repeatJa(ev.repeat)}${st ? " " + pad2(st.h) + ":" + pad2(st.mi) + "から" : ""}${len}の予定にしています。`
     + (c.due ? `この7日で${c.done}回（予定は${c.due}日）。` : "");
@@ -6803,7 +6831,7 @@ function note(it, what) { it.history = (it.history || []).concat({ at: new Date(
            toDate（延期先）, via（"talk" なら履歴に「会話で」） }
    返り値: { ok:true, day?, from?, to? } か { ok:false, why:"notRepeat"|"repeat"|"noOccur" }
    ======================================================================= */
-const STATE_ACTS = ["done", "undone", "drop", "undrop", "defer", "skipday"];
+const STATE_ACTS = ["done", "undone", "drop", "undrop", "defer", "skipday", "goalhit"];
 async function setItemState(it, action, opts = {}) {
   const tz = state.settings.timezone;
   const base = isDate(opts.base) ? opts.base : dayKey(new Date(), tz);
@@ -6819,6 +6847,15 @@ async function setItemState(it, action, opts = {}) {
     return { ok: true, day: d };
   }
   if (action === "skipday") return { ok: false, why: "notRepeat" };
+  /* 続けたいこと：できた日を数える（状態は open のまま・その日は1回だけ・点数にしない＝決まり15n・2026-09-28） */
+  if (action === "goalhit") {
+    if (it.kind !== "goal" || !isDate(opts.day)) return { ok: false, why: "unknown" };
+    if ((it.doneDays || []).includes(opts.day)) return { ok: false, why: "already" };
+    it.doneDays = (it.doneDays || []).concat(opts.day).slice(-400);
+    note(it, `${opts.day} にできた${tag}`);
+    await putItem(it);
+    return { ok: true, day: opts.day };
+  }
   if (action === "done") {
     it.status = "done"; it.completedAt = new Date().toISOString(); it.confirmed = true;
     note(it, "完了にした" + tag);
@@ -7309,7 +7346,7 @@ function evidenceOf(note, quote) {
    （2026-09-26・同じ判定が2か所にあって、片方だけ直った——決まり7e）。 */
 /* 「牛乳買った」「歯医者行ってきた」も、開いている用事と照合できたら完了（2026-09-27）。
    ただし「どれが終わったか分からない」と聞き返すのは `RE_FINISH` の言い方だけ——「映画を見た」で毎回聞き返さない。 */
-const RE_FINISH_MORE = /(買った|払った|出した|返した|書いた|読んだ|洗った|行ってきた|行ってきました|行った|片付けた|掃除した|洗濯した|連絡した|電話した|返信した|予約した|予約取った|予約とった|予約入れた|予約できた|申し込んだ|受け取った|届けた|済ませた|終わらせた|やっといた|やっておいた|飲んだ|飲みました|捨てた|干した|畳んだ|たたんだ|作った|振り込んだ|投函した)[よね。！!]*$/;
+const RE_FINISH_MORE = /(買った|払った|出した|返した|書いた|読んだ|洗った|行ってきた|行ってきました|行った|片付けた|掃除した|洗濯した|連絡した|電話した|返信した|予約した|予約取った|予約とった|予約入れた|予約できた|申し込んだ|受け取った|届けた|済ませた|終わらせた|やっといた|やっておいた|走った|歩いた|泳いだ|練習した|勉強した|筋トレした|ストレッチした|飲んだ|飲みました|捨てた|干した|畳んだ|たたんだ|作った|振り込んだ|投函した)[よね。！!]*$/;
 /* ひらがなの「おわった」も同じ（2026-09-28・本物の Gemini で比べたとき、ルールだけだと「勉強おわった」で完了にならなかった）。RE_DONE と2か所に。 */
 const RE_FINISH = /((できた|出来た|終わった|終えた|おわった|おえた|送った|送信した|提出した|済んだ|済ませた)(?!ら)|終わりました|おわりました|完了(?!したら|次第)|やった(よ|わ)?$)/;
 const RE_NEXTONLY = /((一つ|ひとつ|1つ)(だけ)?|次にやること(だけ)?).{0,12}(分かる|わかる|表示|出して|教えて|の方が|でいい|にして)/;
@@ -7353,6 +7390,8 @@ const RE_PANTRY = /(冷蔵庫|家にある|うちにある|家にあった|残�
 const RE_RESTATE = /(じゃなくて|ではなく|やっぱり|やっぱ|に変更|変えて|延期|ずらして|ずらす|ずらそう|ずらした|あと\s*\d+\s*(分|時間)|もう少しかか|もうちょっとかか|思ったより|かかってる|かかりそう|延ばして|後ろに|遅らせ)/;
 /* 「会議30分早まった」「会議1時間遅れて始まる」「会議が30分延びた」——ずれた分だけ動かす・延ばす（2026-09-28・テスター5周目・「会議1時間遅れて始まる」という用事ができていた）。
    「待ち合わせに10分遅れる」は自分が遅れる話なので当てない（「に」のすぐ後の長さは外す） */
+/* 「出張は1日延びた」——何日も続く予定の終わりを延ばす（2026-09-28・テスター7周目・「出張は延びた」という予定ができていた） */
+const RE_SHIFT_DAYS = /(\d{1,2})\s*日\s*(延び|延長|伸び|長くなっ)/;
 const RE_SHIFT = /(?<![にへ]\s{0,2})(\d+)\s*(分|時間)(半)?\s*(?:くらい|ぐらい|ほど)?\s*(早ま|早くなっ|早く始ま|前倒し|繰り上が|遅れて始ま|遅くなっ|遅れ(?:る|た|ます|そう)|後ろ倒し|繰り下が|延び|延長|長引)/;
 /* 「牛乳のやつ消して」「明日の美容院削除して」——当たるものを取り消す（2026-09-28・テスター5周目・何も起きなかった） */
 const RE_DELETE = /(消して|消しといて|消しておいて|削除して|取り消して|キャンセルして|なしにして|無しにして)[。！!]*$/;
@@ -7362,7 +7401,7 @@ const RE_UNDO_LAST = /^\s*(さっきの|今の|いまの|さっき言った(?:�
 const RE_FOCUS_WISH = /集中(?:したい|する日にしたい|する時間にしたい|したいな)[。！!]*$/;
 /* 言い直しかどうかの判定は **1か所にまとめる**（v5.4）。
    ルールの中に同じ判定が2つあり、幅が違っていたので取りこぼした。 */
-const looksRestating = t => !/(起きたら|気づいたら|気付いたら|目が覚めたら|見たら|着いたら|帰ったら)/.test(t) && (RE_RESTATE.test(t) || RE_SHIFT.test(t)
+const looksRestating = t => !/(起きたら|気づいたら|気付いたら|目が覚めたら|見たら|着いたら|帰ったら)/.test(t) && (RE_RESTATE.test(t) || RE_SHIFT.test(t) || RE_SHIFT_DAYS.test(t)
   // 「片付け、30分くらいかかる」——前に言った用事の長さの言い直し（2026-09-27・同じ用事が2件になっていた）
   || /[、,]\s*\d+\s*(分|時間)(半)?\s*(くらい|ぐらい|ほど)?\s*(かかる|かかりそう|かな)?[。！!]*$/.test(t)
   // 「打ち合わせ1時間半かかる」——読点が無くても「かかる」まで言えば長さの言い直し（当たる相手が無ければ今までどおり足す・2026-09-28）
@@ -7376,6 +7415,13 @@ const looksRestating = t => !/(起きたら|気づいたら|気付いたら|目�
 /* 言い直しを、ルールで予定・用事に反映する（決まり7）。**新しく言った時刻・日付だけ**を渡す（言っていないものは変えない・決まり6h）。 */
 function restateOp(target, it, note) {
   const tz = state.settings.timezone;
+  const shd = RE_SHIFT_DAYS.exec(halfWidth(note.text));
+  if (shd && target.kind === "event" && isDate(target.dayKey) && (target.spanEndKey || target.allDay)) {
+    const n = clamp(+shd[1], 1, 60);
+    return { op: "update", id: target.id, _rule: { spanEndKey: addKey(target.spanEndKey || target.dayKey, n) }, quote: String(note.text).slice(0, 60) };
+  }
+  // 「レポートの締切が1日延びた」——用事の締切を後ろへ（日付の無い用事には当てない）
+  if (shd && target.kind === "task" && isDate(target.dayKey) && !target.repeat) return { op: "defer", id: target.id, toDate: addKey(target.dayKey, clamp(+shd[1], 1, 60)), quote: String(note.text).slice(0, 60) };
   const sh = RE_SHIFT.exec(halfWidth(note.text)), baseISO = target.kind === "event" ? target.start : target.due;
   if (sh && validISO(baseISO) && !target.timeUnknown && !target.allDay && (target.kind === "event" || target.duePrecision === "exact")) {
     const m = (+sh[1]) * (sh[2] === "時間" ? 60 : 1) + (sh[3] ? 30 : 0), oo = { op: "update", id: target.id, quote: String(note.text).slice(0, 60) };
@@ -7740,8 +7786,18 @@ function ruleOpsRead(note) {
     if (t) continue;
     /* 「牛乳とパン買った」——名詞を「と」「、」で並べて1つの動詞で済ませた。1つずつ「牛乳買った」「パン買った」として当てる（2026-09-28・テスター4周目） */
     for (const x of finishedEach(s)) if (!doneIds.has(x.id)) { ops.push({ op: "done", id: x.id, quote: s.slice(0, 60) }); doneIds.add(x.id); }
+    /* 「今日は英語30分やった」——当たる用事が無く、続けたいことに1つだけ当たれば、その日を数える（2026-09-28・テスター6周目で残したもの）。
+       日付を言っていて、それが今日より前なら（「昨日走った」）その日 */
+    if (!ops.some(o => o.op === "done" && o.quote === s.slice(0, 60))) {
+      const gs = liveItems().filter(i => i.kind === "goal" && i.status === "open" && titleSaid(i.title, s) === 1);
+      if (gs.length === 1 && !ops.some(o => o.op === "goalhit" && o.id === gs[0].id)) {
+        const tz0 = state.settings.timezone, today0 = dayKey(new Date(note.capturedAt), tz0), gw = parseWhen(s, note.capturedAt, tz0);
+        const d = gw && dateSpokenIn(gw) && isDate(gw.dayKey) && gw.dayKey <= today0 ? gw.dayKey : today0;
+        ops.push({ op: "goalhit", id: gs[0].id, day: d, quote: s.slice(0, 60) });
+      }
+    }
   }
-  if (RE_FINISH.test(text) && !RE_PARTIAL.test(text) && !doneIds.size) ops.push({ op: "_ambiguous_done" });
+  if (RE_FINISH.test(text) && !RE_PARTIAL.test(text) && !doneIds.size && !ops.some(o => o.op === "goalhit")) ops.push({ op: "_ambiguous_done" });
 
   // 進捗（完了にしたものは対象外）
   let progTarget = null, rem = null;
@@ -8078,6 +8134,14 @@ async function applyOps(rawOps0, note) {
         : "いまAIを使っていないので、言い直し（時刻や所要時間の変更、完了）は自動で反映できません。「スケジュール」タブの項目の「…」→「訂正」から直してください。");
       continue;
     }
+    /* 続けたいことの「できた」（ルールだけの op・AIの返事からは aiTurn で落ちる） */
+    if (o.op === "goalhit") {
+      const g = o.id ? findItem(String(o.id)) : null;
+      if (!g || g.kind !== "goal" || g.status !== "open" || !isDate(o.day)) continue;
+      const r = await setItemState(g, "goalhit", { day: o.day, via: "talk" });
+      if (r.ok) { touchId(g); changes.push(`続けたいこと：${g.title}（${o.day.slice(5).replace("-", "/")} にできた）`); }
+      continue;
+    }
     if (!OPS.includes(o.op)) continue;
     const target = o.id ? findItem(String(o.id)) : null;
     if (["update", "done", "defer", "drop", "progress", "skipday", "undrop", "undone"].includes(o.op) && !target) {
@@ -8159,7 +8223,7 @@ async function applyOps(rawOps0, note) {
       }
     }
     else if (o.op === "update") {
-      const before = { title: target.title, day: target.dayKey, est: target.estimateMin, start: target.start, end: target.end, due: target.due, pw: target.preferWindow, tday: target.targetDay };
+      const before = { title: target.title, day: target.dayKey, est: target.estimateMin, start: target.start, end: target.end, span: target.spanEndKey, due: target.due, pw: target.preferWindow, tday: target.targetDay };
       applyFields(target, o, tz, note);
       /* ルールが読んだ日・時間帯をそのまま写す（「牛乳は帰りに買う」・ruleOpsRead）。AIの ops には `_rule` は来ない（aiTurn で落とす） */
       const rl = o._rule && typeof o._rule === "object" ? o._rule : null;
@@ -8168,6 +8232,9 @@ async function applyOps(rawOps0, note) {
         if (isDate(rl.dayKey) && validISO(rl.due)) Object.assign(target, { dayKey: rl.dayKey, due: rl.due, duePrecision: rl.duePrecision || "day", dueIsDeadline: !!rl.dueIsDeadline });
         if (isDate(rl.targetDay)) target.targetDay = rl.targetDay;
       }
+      // 「出張は1日延びた」——何日も続く予定の終わりの日（始まりより後・60日まで）
+      if (rl && target.kind === "event" && isDate(rl.spanEndKey) && isDate(target.dayKey) && rl.spanEndKey > target.dayKey
+          && (keyToDate(rl.spanEndKey, tz) - keyToDate(target.dayKey, tz)) <= 60 * 86400000) target.spanEndKey = rl.spanEndKey;
       wordCheck(target, note, tz, "update");       // 「18時までにして」は締切、「18時にして」は始まり（決まり6q）
       if (typeof o.title === "string" && o.title.trim()) target.title = cleanTitle(o.title.trim(), null, { keepHabit: target.kind === "goal" }).slice(0, 80);
       target.corrected = true; target.confirmed = true; target.whenAlt = null;   // 本人が決めたので、もう一方は要らない
@@ -8180,6 +8247,7 @@ async function applyOps(rawOps0, note) {
       // 用事の時刻（「やっぱり7時に起きる」）——前は予定の時刻しか見ておらず、直したのに「変更なし」と返していた（2026-09-28）
       if (target.kind === "task" && before.due !== target.due && validISO(target.due) && target.duePrecision === "exact" && before.day === target.dayKey) d.push(`時刻を ${fmtDT(target.due, tz)} に`);
       if (before.day !== target.dayKey && target.dayKey) d.push(`日付を ${target.dayKey.slice(5).replace("-", "/")} に`);
+      if (before.span !== target.spanEndKey && isDate(target.spanEndKey)) d.push(`終わりの日を ${target.spanEndKey.slice(5).replace("-", "/")} に`);
       // 予定の長さだけの言い直し（「打ち合わせ1時間半かかる」）——前は終わりが動いたのに「変更なし」と返していた（2026-09-28）
       if (before.start === target.start && before.end !== target.end && validISO(target.end) && before.est === target.estimateMin && !target.allDay) d.push(`終わりを ${hhmm(minOfDay(target.end, tz))} に`);
       if (before.est !== target.estimateMin) d.push(`所要時間を ${before.est == null ? "未設定" : before.est + "分"}→${target.estimateMin == null ? "未設定" : target.estimateMin + "分"} に`);
