@@ -6269,7 +6269,7 @@
         G.calls.push(meth + " " + path);
         const ok = (d, st = 200) => reply({ id: m.id, status: st, body: d == null ? "" : JSON.stringify(d) });
         if (path === "calendars/primary/events") {
-          if (meth === "GET") return ok({ items: list() });
+          if (meth === "GET") { if (G.onGet) { const f = G.onGet; G.onGet = null; f(); } return ok({ items: list() }); }
           if (meth === "POST") { const ev = Object.assign({}, body, { id: "e" + (++G.seq), updated: up() }); G.ev.push(ev); return ok(ev); }
         }
         const mm = /^calendars\/primary\/events\/([^/]+)$/.exec(path);
@@ -6277,7 +6277,7 @@
         const i = G.ev.findIndex(e => e.id === decodeURIComponent(mm[1]));
         if (i < 0) return ok({ error: { message: "Not Found" } }, 404);
         if (meth === "GET") return ok(G.ev[i]);
-        if (meth === "PATCH") { G.ev[i] = Object.assign({}, G.ev[i], body, { updated: up() }); return ok(G.ev[i]); }
+        if (meth === "PATCH") { if (G.onWrite) { const f = G.onWrite; G.onWrite = null; f(); } G.ev[i] = Object.assign({}, G.ev[i], body, { updated: up() }); return ok(G.ev[i]); }
         if (meth === "DELETE") { G.ev.splice(i, 1); return ok(null, 204); }
         return ok(null, 400);
       };
@@ -6433,6 +6433,31 @@
         ok("CV. つなぎ直したら、こちらの印で見つけ直す（時刻を直していても、同じ予定を2つ作らない・直した時刻を送る）",
           !!yu.gcalRef && G.ev.filter(e => e.summary === "夕食会").length === 1 && !G.calls.some(c => /^POST/.test(c))
           && G.ev.find(e => e.summary === "夕食会").start.dateTime === yu.start && state.items.filter(i => i.title === "夕食会").length === 1, G.calls.join(" | "));
+        /* ⑯ **足した・直した予定は、自動で合わせる**（2026-09-28・本人「予定を追加編集したら自動で同期してほしい」）。
+           ふだんは4秒後（`gcalSoon`）。**合わせている最中に足した予定も取りこぼさない**（前は次のきっかけまで Google に行かなかった）。
+           本当に4秒待つとテストの持ち時間を超えるので、「頼んだ回数」を数えて、頼まれたら自分で合わせる。 */
+        const origSoon = gcalSoon; let asked = 0;
+        clearTimeout(gcalTimer); gcalSoon = () => { asked++; };
+        try {
+          for (let i = 0; i < 100 && gcalBusy; i++) await settle();          // つなぎ直しの同期が終わってから
+          asked = 0; await say("明後日9時から10時まで歯科検診");
+          const asa = state.items.find(i => i.title === "歯科検診");
+          const a1 = asked; if (a1) await gcalSync();
+          ok("CV. 話して足した予定は、何も押さなくても Google に入る（合わせるのを自分で頼む）", a1 > 0 && !!asa && !!asa.gcalRef && G.ev.some(e => e.summary === "歯科検診"), a1 + "回");
+          asked = 0; asa.start = iso(addKey(tk, 2), 9, 30); asa.end = iso(addKey(tk, 2), 10, 30); asa.corrected = true; await putItem(asa);
+          const a2 = asked; if (a2) await gcalSync();
+          ok("CV. 直した予定も、何も押さなくても Google で変わる", a2 > 0 && (G.ev.find(e => e.summary === "歯科検診") || { start: {} }).start.dateTime === asa.start, a2 + "回");
+          // 合わせている最中（こちらの変更を Google に書いている間）に話した。書く番はもう始まっているので、この回では送られない
+          asa.title = "歯科検診（場所変更）"; asa.corrected = true; await putItem(asa);
+          G.onWrite = () => { say("明後日17時から18時まで書類の相談"); };
+          asked = 0; await gcalSync(); await settle();
+          const men = state.items.find(i => i.title === "書類の相談"), a3 = asked, sentMid = !!(men && men.gcalRef);
+          if (a3) await gcalSync();
+          ok("CV. 合わせている最中に足した予定も、終わったあと自動でもう1回合わせて Google に入れる",
+            a3 > 0 && !!men && !!men.gcalRef && G.ev.some(e => e.summary === "書類の相談"), a3 + "回 / " + (sentMid ? "1回目で入った" : "1回目では入らず"));
+          asked = 0; G.calls = []; await gcalSync(); await settle();
+          ok("CV. 変わっていなければ、自動では合わせ続けない（回り続けない）", asked === 0 && !G.calls.some(c => /^(POST|PATCH|DELETE)/.test(c)), asked + "回 / " + G.calls.join(" | "));
+        } finally { gcalSoon = origSoon; clearTimeout(gcalTimer); }
         // ⑮ 古い APK（Google を知らない殻）：返事が無い → 使えないと言う
         window.ReactNativeWebView = { postMessage: () => {} }; gcalCap = null;
         await gcalProbe(); renderSettings();

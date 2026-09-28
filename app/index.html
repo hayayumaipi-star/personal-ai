@@ -3163,7 +3163,9 @@ async function gcalTwoWay(tz) {
   // ③ 書く
   let over = 0;
   for (const it of state.items.slice()) {
-    if (it.gcalRef && it.status === "dropped") {                                      // ここで取り消した → Google からも消す
+    const w = gcalWriteOf(it, tz, lo);
+    if (!w) continue;
+    if (w === "delete") {                                                              // ここで取り消した → Google からも消す
       if (st.deleted >= GCAL_DEL_MAX) { over++; continue; }                            // 守り②
       const r = await gcalReq("DELETE", gcalEvPath(it.gcalRef));
       if ([200, 204, 404, 410].includes(r.status)) {
@@ -3171,10 +3173,8 @@ async function gcalTwoWay(tz) {
       } else throw gcalErr(r, "「" + it.title + "」を Google から消せませんでした");
       continue;
     }
-    if (!gcalSyncable(it) || it.status !== "open") continue;
     const sig = gcalSig(it, tz);
-    if (it.gcalRef) {
-      if (it.gcalSent === sig) continue;                                               // 変わっていない
+    if (w === "patch") {
       let r = await gcalReq("PATCH", gcalEvPath(it.gcalRef), "", gcalBody(it, tz));
       if (r.status === 404 || r.status === 410) { delete it.gcalRef; }                 // Google で消えていた → ここで直したので作り直す
       else if (r.status !== 200 || !r.data) throw gcalErr(r, "「" + it.title + "」を Google で直せませんでした");
@@ -3191,6 +3191,15 @@ async function gcalTwoWay(tz) {
   if (odd && lost.length) throw new Error("Google の予定が急にたくさん見つからなくなったので、念のため、こちらからは消していません。Google カレンダーを確かめてください。");
   return st;
 }
+/* 書く番（③）で、その項目に何をするか（"delete" / "patch" / "post" / null）。**判定は1か所**（決まり7e）——
+   同期のあとに「まだ送っていない変更」が残っていないかを見るのも、同じ判定を使う。 */
+function gcalWriteOf(it, tz, lo) {
+  if (it.gcalRef && it.status === "dropped") return "delete";
+  if (!gcalSyncable(it) || it.status !== "open") return null;
+  if (it.gcalRef) return it.gcalSent === gcalSig(it, tz) ? null : "patch";
+  if (!it.repeat && it.dayKey < lo) return null;                                     // 過ぎた予定は、あとから送らない
+  return "post";
+}
 function gcalErr(r, what) {
   const msg = r && r.data && r.data.error && r.data.error.message ? String(r.data.error.message).slice(0, 160) : "";
   const e = new Error(`${what}（Google ${r ? r.status : "?"}${msg ? "：" + msg : ""}）`);
@@ -3201,10 +3210,15 @@ async function gcalSync(opts = {}) {
   if (!gcalOn()) return null;
   if (gcalBusy) { gcalAgain = true; return null; }
   gcalBusy = true;
-  const tz = state.settings.timezone;
+  const tz = state.settings.timezone, t0 = new Date().toISOString();
   let res = null;
   try {
     res = await gcalTwoWay(tz);
+    /* **合わせている最中に足した・直した予定を、取りこぼさない**（2026-09-28・本人「予定を追加編集したら自動で同期してほしい」）。
+       合わせている間の変更は `putItem` が次の同期を頼まない（自分の書き込みで回り続けないため）。終わった時点で、
+       合わせ始めたあとに変わって、まだ送っていない予定があれば、もう1回。変わった時刻で見るので、送れないものが残っても回り続けない。 */
+    const lo = addKey(dayKey(new Date(), tz), -GCAL_BACK);
+    if (state.items.some(x => String(x.updatedAt || "") > t0 && gcalWriteOf(x, tz, lo))) gcalAgain = true;
     const g = gcalGet(); g.lastSync = new Date().toISOString(); delete g.lastError; gcalPut(g);
     if (res.added || res.changed || res.removed) renderAll();
     if (opts.loud) toast(`Googleカレンダーと合わせました（Google から +${res.added}・変わった ${res.changed}・消えた ${res.removed}／こちらから ${res.wrote}件・消した ${res.deleted}件）`);
