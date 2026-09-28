@@ -7623,6 +7623,37 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DO. テスター10周目：順番で指す・くり返しの時刻を変える・その週だけ変える・「明日と2日間」（2026-09-28・自律で進めた回） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const hmOf = x => x && validISO(x) ? hhmm(minOfDay(x, TZ)) : "なし";
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, h, mi] of steps) r = await say(s, at(15, h, mi)); return r || { changes: [], asks: [] }; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.start && !i.timeUnknown ? " " + hmOf(i.start) : ""}${i.repeat ? " くり返し" : ""}${(i.skipDays || []).length ? " 外す" + i.skipDays.join("/") : ""}`).join(" ／ ");
+      const evs = () => state.items.filter(i => i.kind === "event");
+      // --- 順番で指す ---
+      await run([["明日10時と15時に打ち合わせ", 9], ["2つ目の打ち合わせ、16時にして", 12]]);
+      ok("DO. 「2つ目の打ち合わせ、16時にして」は15時のほうを16時へ（同じ名前が2つでも順番で当てる）",
+        evs().length === 2 && evs().map(i => hmOf(i.start)).sort().join() === "10:00,16:00", show(state.items));
+      await run([["明日10時と15時に打ち合わせ", 9], ["最初の打ち合わせはなしになった", 12]]);
+      ok("DO. 「最初の打ち合わせはなしになった」は10時のほうだけ取り消す",
+        evs().find(i => hmOf(i.start) === "10:00").status === "dropped" && evs().find(i => hmOf(i.start) === "15:00").status === "open", show(state.items));
+      await run([["明日10時と15時に打ち合わせ", 9], ["最後の打ち合わせは17時にして", 12]]);
+      ok("DO. 「最後の打ち合わせは17時にして」は15時のほうを17時へ", evs().map(i => hmOf(i.start)).sort().join() === "10:00,17:00", show(state.items));
+      // --- くり返しの時刻を変える ---
+      await run([["毎週月曜9時に朝礼", 9], ["朝礼は10時からになった", 12]]);
+      ok("DO. 「朝礼は10時からになった」はくり返しの時刻を10:00に（1回きりの予定を足さない）",
+        evs().length === 1 && evs()[0].repeat && hmOf(evs()[0].start) === "10:00" && !(evs()[0].skipDays || []).length, show(state.items));
+      await run([["毎週月曜9時に朝礼", 9], ["来週の朝礼は10時からになった", 12]]);
+      const rep = evs().find(i => i.repeat), one = evs().find(i => !i.repeat);
+      ok("DO. 「来週の朝礼は10時からになった」は来週の回だけを外して、その日の10:00に1回きりを足す（くり返しは9時のまま）",
+        evs().length === 2 && hmOf(rep.start) === "09:00" && (rep.skipDays || []).join() === "2026-09-21" && one && one.dayKey === "2026-09-21" && hmOf(one.start) === "10:00", show(state.items));
+      // --- 見出し ---
+      await run([["明日、明後日と2日間出張", 8]]);
+      ok("DO. 「明日、明後日と2日間出張」の見出しは「出張」", state.items.length === 1 && state.items[0].title === "出張", show(state.items));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

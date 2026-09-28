@@ -2184,6 +2184,8 @@ function cleanTitle(s, when, opts) {
     return /^(行|来|帰|戻|寄|出かけ|出る|い[るく]|あ[るく]|な[る]|寝|起き|泊ま|休)/.test(str.slice(m.length)) ? m : n + "を";
   });
   t = t.replace(/^予定\s*[:：]\s*(?=\S{2})/, "");     // 「今週の予定：月曜会議」の見出しの跡
+  // 「明日、明後日と2日間出張」→「出張」（何日続くかは spanEndKey に持つ・2026-09-28）
+  t = t.replace(/^(?:今日|明日|明後日|あさって)\s*と\s*/, "").replace(/^\d{1,2}\s*日間\s*(?=\S{2})/, "");
   // 「今月の目標は5冊読むこと」→「5冊読む」／「明日の朝までにメール」→「メール」／「来週月曜に提出、レポート」→「レポート提出」（2026-09-28・テスター8周目）
   t = t.replace(/^(?:今月|今年|今週|来月|来年)?の?目標は\s*(?=\S{2})/, "").replace(/(?<=[うくすつぬぶむる])こと$/, "");
   t = t.replace(/^(?:朝|昼|夕方|夜|晩|午前中|午後)\s*まで(?:に)?\s*(?=\S{2})/, "");
@@ -7564,6 +7566,17 @@ function byClock(text, note) {
     && [hh * 60 + mi, (hh + 12) * 60 + mi].includes(minOfDay(i.start, tz)));
   return hits.length === 1 ? hits[0] : null;
 }
+/* 「2つ目の打ち合わせ、16時にして」「最初の会議はなしになった」——同じ名前が並んでいるとき、順番で指す（2026-09-28・テスター10周目）。
+   開いている同じ名前の予定・用事を、始まり（締切）の早い順に並べて数える。2件以上あるときだけ */
+function byOrder(text) {
+  const t = halfWidth(text), m = /(最初|1つ目|一つ目|ひとつ目|2つ目|二つ目|ふたつ目|3つ目|三つ目|みっつ目|最後|あと)の/.exec(t);
+  if (!m) return null;
+  const hits = liveItems().filter(i => (i.kind === "event" || i.kind === "task") && i.status === "open" && !i.repeat && titleSaid(i.title, t.slice(m.index + m[0].length)) === 1)
+    .sort((a, b) => String(a.start || a.due || "~").localeCompare(String(b.start || b.due || "~")));
+  if (hits.length < 2) return null;
+  const n = /^(最初|1|一|ひと)/.test(m[1]) ? 0 : /^(2|二|ふた)/.test(m[1]) ? 1 : /^(3|三|みっ)/.test(m[1]) ? 2 : hits.length - 1;
+  return hits[n] || null;
+}
 /* 「11時にして」「やっぱり10時半」——名前を言わない言い直しは、**直前の発言で作った予定・用事が1つだけ**のときそれに当てる
    （2026-09-28・テスター6周目・何も起きないか「する」という用事ができていた）。直前の発言が3時間より前なら当てない。 */
 // 何も作らなかった発言（「11時にして」）は飛ばして、さかのぼる（「やっぱり10時半」が「11時にして」の前の会議に届かなかった）
@@ -7705,22 +7718,35 @@ function ruleOpsEarly(note, text, q) {
   if (looksRestating(text)) {
     const reps = liveItems().filter(i => i.kind === "event" && i.status === "open" && i.repeat && titleSaid(i.title, text) === 1);
     const w = reps.length === 1 ? parseWhen(note.text, note.capturedAt, tz) : null;
-    if (w && dateSpokenIn(w) && isDate(w.dayKey) && w.precision !== "week" && w.dayKey >= day && validISO(reps[0].start)) {
-      const it = reps[0], [yy, mm, dd] = w.dayKey.split("-").map(Number);
-      const mon = addKey(w.dayKey, -((new Date(Date.UTC(yy, mm - 1, dd)).getUTCDay() + 6) % 7));
-      let from = null;
-      for (let k = mon; k <= addKey(mon, 6) && !from; k = addKey(k, 1)) if (k !== w.dayKey && occursOn(it, k, tz) && !(it.skipDays || []).includes(k)) from = k;
-      if (from) {
+    // 「来週の朝礼は10時からになった」——週だけ言って時刻を言い直したら、その週の回の時刻だけ変える（2026-09-28）
+    const wk = !!(w && dateSpokenIn(w) && w.precision === "week" && w.hasTime);
+    if (w && dateSpokenIn(w) && isDate(w.dayKey) && (w.precision !== "week" || wk) && w.dayKey >= day && validISO(reps[0].start)) {
+      const it = reps[0], [y0, m0, d0] = w.dayKey.split("-").map(Number);
+      const mon = addKey(w.dayKey, -((new Date(Date.UTC(y0, m0 - 1, d0)).getUTCDay() + 6) % 7));
+      let from = null, nd = wk ? null : w.dayKey;
+      for (let k = mon; k <= addKey(mon, 6) && !from; k = addKey(k, 1)) {
+        if (!occursOn(it, k, tz) || (it.skipDays || []).includes(k) || k < day) continue;
+        if (wk) { from = k; nd = k; } else if (k !== nd) from = k;
+      }
+      const [yy, mm, dd] = nd ? nd.split("-").map(Number) : [0, 0, 0];
+      if (from && nd) {
         const len = validISO(it.end) ? new Date(it.end) - new Date(it.start) : 3600000;
         const clock = w.hasTime ? minOfDay(w.start || w.iso, tz) : minOfDay(it.start, tz);
         const st = zoned(yy, mm, dd, Math.floor(clock / 60), clock % 60, tz), now = new Date().toISOString();
         const copy = { id: uid(), noteId: note.id, kind: "event", title: it.title, evidence: { text: note.text, start: 0, end: note.text.length },
           origin: "rule", corrected: false, status: "open", confirmed: false, createdAt: now, updatedAt: now, history: [],
-          dayKey: w.dayKey, duePrecision: "exact", fixed: true, start: st.toISOString(), end: new Date(st.getTime() + len).toISOString(), due: st.toISOString(),
+          dayKey: nd, duePrecision: "exact", fixed: true, start: st.toISOString(), end: new Date(st.getTime() + len).toISOString(), due: st.toISOString(),
           travelMin: it.travelMin, prepMin: it.prepMin };
         return [{ op: "skipday", id: it.id, day: from, quote: q }, { op: "add", _built: copy, quote: q }];
       }
     }
+  }
+  /* ⑦ 「朝礼は10時からになった」——日付も「今週は・次は」も言わずに、くり返しの予定の時刻を言い直したら、これからの回の時刻を変える（2026-09-28・テスター10周目・何も起きなかった）。
+     その回だけなら日付を言う（⑥）。くり返しは1件のまま（決まり4f） */
+  if (looksRestating(text) && !/(今週|来週|再来週|今日|明日|明後日|今度|次の?回|次は|この日)/.test(text)) {
+    const reps = liveItems().filter(i => i.kind === "event" && i.status === "open" && i.repeat && titleSaid(i.title, text) === 1);
+    const w = reps.length === 1 ? parseWhen(note.text, note.capturedAt, tz) : null;
+    if (w && w.hasTime && !dateSpokenIn(w)) { const u = restateOp(reps[0], null, note); if (u && u.dueTime && !u.dueDate) return [u]; }
   }
   return null;
 }
@@ -7825,7 +7851,7 @@ function ruleOpsRead(note) {
      （`matchOpenTask`・くり返しの予定は外す・同じ発言で新しく足すものがあれば使わない）。当たらなければ今までどおり伝える。 */
   if (restating && !ops.some(o => ["update", "defer", "add", "done", "drop", "undrop"].includes(o.op))) {
     // 「あと10分で終わる」は残り時間（下の進み具合で受ける）。長さの言い直しにしない
-    const t0 = matchOpenTask(text) || (RE_PROGRESS.test(text) ? null : lastSaidItem(note));
+    const t0 = byOrder(text) || matchOpenTask(text) || (RE_PROGRESS.test(text) ? null : lastSaidItem(note));
     const u0 = t0 && !t0.repeat ? restateOp(t0, null, note) : null;
     if (u0) { ops.push(u0); needsAi = false; }
   }
@@ -7947,7 +7973,7 @@ function ruleOpsRead(note) {
      （2026-09-27・テスターで発見。メモだけ残って、予定は入ったままだった）。戻すときは振り返りから（決まり15f）。 */
   for (const sx of sents) {
     if (!(RE_CANCELLED.test(sx) || RE_DELETE.test(sx)) || RE_SELFTASK.test(sx)) continue;
-    const t = matchOpenTask(sx) || byClock(sx, note);
+    const t = byOrder(sx) || matchOpenTask(sx) || byClock(sx, note);
     if (t && !doneIds.has(t.id) && !ops.some(o => o.id === t.id)) ops.push({ op: "drop", id: t.id, quote: sx.slice(0, 60) });
   }
   /* 「夜も入れていいよ」——夜の希望を外す（2026-09-27・片道だった。一度言うと画面から外す道しか無かった） */
