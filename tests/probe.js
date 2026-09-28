@@ -6299,7 +6299,7 @@
         const card = $("#gcalCard");
         ok("CV. Android アプリでは欄が出て、両方向に映ること・取り消すと Google でも消えること・送るもの・費用を書いてから「Google と同期する」を出す",
           !card.hidden && /どちらで変えても/.test(card.textContent) && /取り消すと Google でも/.test(card.textContent) && /送るのは/.test(card.textContent)
-          && /費用はかかりません/.test(card.textContent) && /アプリの提案・タスクは送りません/.test(card.textContent) && !!$("#btnGcalOn"), card.textContent.replace(/\s+/g, " ").slice(0, 160));
+          && /費用はかかりません/.test(card.textContent) && /アプリの提案・タスクは送りません/.test(card.textContent) && !!$("#gcalSwitch") && !$("#gcalSwitch").checked, card.textContent.replace(/\s+/g, " ").slice(0, 160));
         // ② Google → ここ
         G.ev = [
           { id: "g1", summary: "歯医者", updated: up(), start: { dateTime: iso(tmr, 10) }, end: { dateTime: iso(tmr, 11) } },
@@ -6307,7 +6307,7 @@
           { id: "g3", summary: "断った会議", updated: up(), start: { dateTime: iso(tmr, 13) }, end: { dateTime: iso(tmr, 14) }, attendees: [{ self: true, responseStatus: "declined" }] },
           { id: "g4", summary: "取り消された", status: "cancelled", updated: up(), start: { dateTime: iso(tmr, 15) }, end: { dateTime: iso(tmr, 16) } }
         ];
-        $("#btnGcalOn").click(); await settle();
+        $("#gcalSwitch").click(); await settle();
         const gi = () => state.items.filter(i => i.origin === "google" && i.status === "open");
         const den = byRef("g1"), trip = byRef("g2");
         ok("CV. 「Google と同期する」で、Google の予定を予定表に出す（断った・取り消されたものは出さない）",
@@ -6410,12 +6410,12 @@
         // ⑫ 話したら、呼ばなくても少し待って合わせる／前に出てきたら合わせ直す
         await say("明後日19時から20時まで夕食会"); await new Promise(r => setTimeout(r, 4600)); await settle();
         ok("CV. 話したら、呼ばなくても少し待って Google に入れる", G.ev.some(e => e.summary === "夕食会"), JSON.stringify(G.ev.map(e => e.summary)));
-        { const g = gcalGet(); g.lastSync = new Date(Date.now() - 3600000).toISOString(); gcalPut(g); }
+        { const g = gcalGet(); g.lastSync = new Date(Date.now() - 3600000).toISOString(); gcalPut(g); gcalTried = 0; }
         Object.defineProperty(document, "visibilityState", { get: () => "visible", configurable: true });
         G.calls = []; document.dispatchEvent(new Event("visibilitychange"));
         await new Promise(r => setTimeout(r, 800)); await settle();
         delete document.visibilityState;
-        ok("CV. アプリが前に出てきたら（10分以上たっていれば）Google と合わせ直す", G.calls.some(c => /^GET calendars\/primary\/events/.test(c)), G.calls.join(" | "));
+        ok("CV. アプリが前に出てきたら（30秒以上たっていれば）Google と合わせ直す", G.calls.some(c => /^GET calendars\/primary\/events/.test(c)), G.calls.join(" | "));
         // ⑬ 記録は端末の中：書き出し・設定に入れない。鍵はページに来ない
         const ex = exportPayload();
         ok("CV. つないでいるアカウントは、書き出しにも設定にも入れない（端末の中だけ）", !/me@example\.com/.test(ex) && !/gcal|google/i.test(JSON.stringify(state.settings)));
@@ -6458,6 +6458,39 @@
           asked = 0; G.calls = []; await gcalSync(); await settle();
           ok("CV. 変わっていなければ、自動では合わせ続けない（回り続けない）", asked === 0 && !G.calls.some(c => /^(POST|PATCH|DELETE)/.test(c)), asked + "回 / " + G.calls.join(" | "));
         } finally { gcalSoon = origSoon; clearTimeout(gcalTimer); }
+        /* ⑰ **設定の欄は「同期する／しない」だけ・合わせるのは全部自動**（2026-09-28・本人「今合わせるを押さないと同期されない。同期するかどうかの項目以外いらない」） */
+        for (let i = 0; i < 100 && gcalBusy; i++) await settle();
+        { const g0 = gcalGet(); delete g0.lastError; gcalPut(g0); }
+        showTab("p-set"); renderSettings();
+        const gc = $("#gcalCard");
+        ok("CV. つないでいるときの欄は「Googleカレンダーと同期する」のスイッチ（オン）だけ（いま合わせる・最後に合わせた・つなぎ直すは出さない）",
+          !!$("#gcalSwitch") && $("#gcalSwitch").checked && !$("#btnGcalSync") && !$("#btnGcalRe") && !/最後に合わせた|いま合わせる/.test(gc.textContent) && gc.querySelectorAll("button").length === 0,
+          gc.textContent.replace(/\s+/g, " ").slice(0, 120));
+        { const g0 = gcalGet(); g0.lastError = "Google のログインが切れています。「つなぎ直す」を押してください。"; gcalPut(g0); renderSettings(); }
+        ok("CV. 自動では直せないとき（ログインが切れた）だけ、理由と「つなぎ直す」を出す", !!$("#btnGcalRe") && /ログインが切れています/.test($("#gcalCard").textContent));
+        { const g0 = gcalGet(); delete g0.lastError; gcalPut(g0); }
+        const origSoon2 = gcalSoon; let asked2 = 0; gcalSoon = () => { asked2++; };
+        try {
+          const setLast = ms => { const g0 = gcalGet(); g0.lastSync = new Date(Date.now() - ms).toISOString(); gcalPut(g0); gcalTried = 0; };
+          const due = (ago, ms) => { setLast(ago); asked2 = 0; const r = gcalDue(ms); return r && asked2 === 1; };
+          ok("CV. 前に出てきたら、30秒たっていれば Googleカレンダーの変更を取りに行く（Google 側で入れて戻ってきたとき）",
+            document.visibilityState !== "hidden" && due(40000, GCAL_FRONT_MS) && !due(10000, GCAL_FRONT_MS), document.visibilityState);
+          ok("CV. 開いたままでも、5分たてば取りに行く（5分以内は行かない）", due(6 * 60000, GCAL_EVERY_MS) && !due(4 * 60000, GCAL_EVERY_MS));
+          setLast(60 * 60000); gcalTried = Date.now(); asked2 = 0;
+          ok("CV. うまくいかなかった直後は、同じ間隔が過ぎるまで叩き直さない（試した時刻で数える）", !gcalDue(GCAL_FRONT_MS) && asked2 === 0);
+          asked2 = 0; document.dispatchEvent(new Event("visibilitychange")); setLast(0);
+          setLast(40000); asked2 = 0; document.dispatchEvent(new Event("visibilitychange"));
+          ok("CV. 前に出てきた合図（visibilitychange）で、実際に取りに行く", asked2 === 1, asked2 + "回");
+        } finally { gcalSoon = origSoon2; gcalTried = 0; clearTimeout(gcalTimer); }
+        ok("CV. 開いたままの間も、1分ごとの時計が「5分たったか」を見て取りに行く（時計の中身を見る）", /gcalDue\(GCAL_EVERY_MS\)/.test(String(startClock)));
+        // スイッチを切って「やめますか？」で「やめない」→ スイッチはオンに戻る・同期は続く
+        window.askConfirm = async () => false;
+        $("#gcalSwitch").click(); await settle();
+        ok("CV. スイッチを切っても「やめない」を選んだら、スイッチはオンに戻り、同期は続く", gcalGet().on === true && !!$("#gcalSwitch") && $("#gcalSwitch").checked);
+        // スイッチを切る → やめてよいか聞いてから、同期をやめる
+        window.askConfirm = async () => true;
+        $("#gcalSwitch").click(); await settle();
+        ok("CV. スイッチを切ると、同期をやめる（スイッチはオフに戻り、送るもの・費用の説明が出る）", gcalGet().on !== true && !!$("#gcalSwitch") && !$("#gcalSwitch").checked && /費用はかかりません/.test($("#gcalCard").textContent));
         // ⑮ 古い APK（Google を知らない殻）：返事が無い → 使えないと言う
         window.ReactNativeWebView = { postMessage: () => {} }; gcalCap = null;
         await gcalProbe(); renderSettings();
@@ -6542,7 +6575,7 @@
         $("#btnAcctIn").click(); await settle(); await settle();
         ok("CW. ログインしたら、AI の窓口を開ける", acct.ok === true && !!SAMPLEFN && SAMPLEFN.own === "server");
         ok("CW. ログインしたら、アカウント・今日の残り（サーバーに聞いた数を、話しかけの回数に直して）・ログアウト・カレンダーの欄を出す",
-          /user@example\.com/.test(txt()) && /あと19回ほど話せます（1日20回まで）/.test(txt()) && /AI を使って話せるのは1日20回まで/.test(txt()) && !!$("#btnAcctOut") && !!$("#gcalSub") && !!$("#btnGcalOn"), txt().slice(0, 200));
+          /user@example\.com/.test(txt()) && /あと19回ほど話せます（1日20回まで）/.test(txt()) && /AI を使って話せるのは1日20回まで/.test(txt()) && !!$("#btnAcctOut") && !!$("#gcalSub") && !!$("#gcalSwitch"), txt().slice(0, 200));
         ok("CW. 無料の枠だと分かったら「いまは無料の枠」と書く", /いまは無料の枠を使っているため/.test(txt()), txt().slice(0, 300));
         S.tier = "paid"; await aiUsage(true); await settle();
         ok("CW. 有料の枠なら、無料の注意は出さない", !/担当者が読む/.test(txt()) && /費用はかかりません/.test(txt()), txt().slice(0, 300));

@@ -3001,7 +3001,16 @@ const GCAL_MAX = 1000;                          // 1回に読む予定の上限�
 const GCAL_DEL_MAX = 10;                        // 1回に消してよい数（守り②）
 const GCAL_PRIMARY = "calendars/primary/events";
 let gcalCap = null;                             // 殻が Google を扱えるか（null＝まだ聞いていない）
-let gcalBusy = false, gcalTimer = null, gcalAgain = false;
+let gcalBusy = false, gcalTimer = null, gcalAgain = false, gcalTried = 0;
+/* **自動で取りに行く間隔**（2026-09-28・本人「設定から今合わせるを押さないと同期されない」）。Google カレンダーのアプリで入れて戻ってきたとき
+   （前は10分たっていないと取りに行かなかった）と、開いたままのとき。失敗が続いても、試した時刻で数えるので毎分は叩かない。 */
+const GCAL_FRONT_MS = 30000, GCAL_EVERY_MS = 300000;
+function gcalDue(ms) {
+  if (!gcalOn() || gcalBusy || document.visibilityState === "hidden") return false;
+  const last = Math.max(Date.parse(gcalGet().lastSync || 0) || 0, gcalTried);
+  if (Date.now() - last <= ms) return false;
+  gcalSoon(500); return true;
+}
 function gcalGet() { try { return JSON.parse(localStorage.getItem(GCAL_LS) || "null") || {}; } catch { return {}; } }
 function gcalPut(o) { try { localStorage.setItem(GCAL_LS, JSON.stringify(o)); } catch {} }
 const gcalOn = () => nativeOn() && !!gcalGet().on;
@@ -3209,7 +3218,7 @@ function gcalErr(r, what) {
 async function gcalSync(opts = {}) {
   if (!gcalOn()) return null;
   if (gcalBusy) { gcalAgain = true; return null; }
-  gcalBusy = true;
+  gcalBusy = true; gcalTried = Date.now();
   const tz = state.settings.timezone, t0 = new Date().toISOString();
   let res = null;
   try {
@@ -3436,25 +3445,21 @@ function renderAccount(card, out) {
 }
 /* カレンダーの同期の欄（自分用ではこれだけ・配る版では「Google アカウント」の中）。 */
 function gcalCardInto(out) {
-  const g = gcalGet(), tz = state.settings.timezone;
+  const g = gcalGet();
   const sends = `<p class="hint">Google カレンダー（メイン）と、どちらで変えてももう一方に映ります。
     ここで話した予定は Google に入り、ここで時刻を直す・取り消すと Google でも変わる／消えます。
     送るのは予定の名前と日時だけ（アプリの提案・タスクは送りません）。読むのは1週間前〜2か月先。送り先は Google、費用はかかりません。</p>`;
   if (gcalCap === false) { out.innerHTML = `<p class="hint">このアプリの版では使えません。APK を作り直すと使えるようになります。</p>`; return; }
-  if (!g.on) {
-    out.innerHTML = `${sends}<button class="btn pri" id="btnGcalOn">Google と同期する</button>`;
-    $("#btnGcalOn").addEventListener("click", gcalConnect);
-    return;
-  }
-  out.innerHTML = `<div class="kv"><span>アカウント</span><span>${esc(g.email || "（ログイン中）")}</span></div>
-    <div class="kv"><span>最後に合わせた</span><span>${g.lastSync ? esc(fmtDT(g.lastSync, tz)) : "まだ"}</span></div>
-    ${g.lastError ? `<div class="note bad">${esc(g.lastError)}</div>` : ""}${sends}
-    <div class="row"><button class="btn" id="btnGcalSync">いま合わせる</button>
-    <button class="btn" id="btnGcalRe">つなぎ直す</button>
-    <button class="btn danger" id="btnGcalOff">同期をやめる</button></div>`;
-  $("#btnGcalSync").addEventListener("click", () => gcalSync({ loud: true }));
-  $("#btnGcalRe").addEventListener("click", gcalConnect);
-  $("#btnGcalOff").addEventListener("click", gcalDisconnect);
+  /* **欄は「同期する／しない」の1つだけ**（2026-09-28・本人「同期をするかどうかの項目以外いらない」）。合わせるのは全部自動（決まり17）。
+     「いま合わせる」「最後に合わせた」は外した。自動では直せないとき（ログインが切れた・許可を外した）だけ、理由と「つなぎ直す」を出す。
+     入れる前には、送るもの・送り先・費用を書いておく（新しい外部送信の決まり）。 */
+  out.innerHTML = `<label class="chk"><input type="checkbox" role="switch" id="gcalSwitch"${g.on ? " checked" : ""}> Googleカレンダーと同期する</label>
+    ${g.on ? (g.lastError ? `<div class="note bad">${esc(g.lastError)}</div><div class="row"><button class="btn" id="btnGcalRe">つなぎ直す</button></div>` : "") : sends}`;
+  $("#gcalSwitch").addEventListener("change", async e => {
+    if (e.target.checked) await gcalConnect(); else await gcalDisconnect();
+    renderGcal();                  // 断った・やめなかったときは、スイッチを元の位置に戻す
+  });
+  if ($("#btnGcalRe")) $("#btnGcalRe").addEventListener("click", gcalConnect);
 }
 
 /* 何を知らせるかを決める。**時計を読まない**（`nowMin` を渡してもらう）ので、
@@ -6456,8 +6461,8 @@ document.addEventListener("keydown", e => {
 window.addEventListener("pagehide", () => lsFlush());
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") lsFlush();
-  // 前に出てきたら、10分以上たっていれば Googleカレンダーと合わせ直す（決まり17）
-  else if (gcalOn()) { const t = Date.parse(gcalGet().lastSync || 0) || 0; if (Date.now() - t > 600000) gcalSoon(500); }
+  // 前に出てきたら、30秒以上たっていれば Googleカレンダーと合わせ直す（決まり17・Google 側で入れて戻ってきたとき）
+  else gcalDue(GCAL_FRONT_MS);
 });
 window.addEventListener("beforeunload", e => {
   lsFlush();
@@ -9640,6 +9645,7 @@ function startClock() {
     }
     soonWarn();
     refreshNowCard();              // 「あと◯分」を、開いたままでも進める（C）
+    gcalDue(GCAL_EVERY_MS);        // 開いたままでも、5分ごとに Googleカレンダーの変更を取りに行く（決まり17）
     const rk = runningKey();
     if (rk !== tickRunning) { tickRunning = rk; if (view.tab === "p-day") renderDay(); }
   }, 60000);
