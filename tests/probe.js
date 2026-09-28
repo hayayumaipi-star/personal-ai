@@ -6486,8 +6486,8 @@
         // ⑤ ログインする：窓口が開き、今日の残り・アカウント・カレンダーの欄が出る
         $("#btnAcctIn").click(); await settle(); await settle();
         ok("CW. ログインしたら、AI の窓口を開ける", acct.ok === true && !!SAMPLEFN && SAMPLEFN.own === "server");
-        ok("CW. ログインしたら、アカウント・今日の残り（サーバーに聞いた数）・ログアウト・カレンダーの欄を出す",
-          /user@example\.com/.test(txt()) && /あと38回（1日40回まで）/.test(txt()) && !!$("#btnAcctOut") && !!$("#gcalSub") && !!$("#btnGcalOn"), txt().slice(0, 200));
+        ok("CW. ログインしたら、アカウント・今日の残り（サーバーに聞いた数を、話しかけの回数に直して）・ログアウト・カレンダーの欄を出す",
+          /user@example\.com/.test(txt()) && /あと19回ほど話せます（1日20回まで）/.test(txt()) && /AI を使って話せるのは1日20回まで/.test(txt()) && !!$("#btnAcctOut") && !!$("#gcalSub") && !!$("#btnGcalOn"), txt().slice(0, 200));
         ok("CW. 無料の枠だと分かったら「いまは無料の枠」と書く", /いまは無料の枠を使っているため/.test(txt()), txt().slice(0, 300));
         S.tier = "paid"; await aiUsage(true); await settle();
         ok("CW. 有料の枠なら、無料の注意は出さない", !/担当者が読む/.test(txt()) && /費用はかかりません/.test(txt()), txt().slice(0, 300));

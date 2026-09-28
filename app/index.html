@@ -3346,12 +3346,16 @@ function renderGcal() {
 }
 /* 配る版の欄：ログイン（AI のため）→ 今日の残り → 送るもの → プライバシーポリシー → カレンダーの同期（選んだ人だけ）。
    **送るもの・送り先・費用を先に書く**（新しい外部送信の決まり）。無料枠なら、中身が Google の改善に使われることも書く。 */
+/* サーバーが数えるのは **AI を呼んだ回数**。話しかけ1回で2回呼ぶ（受け止めの一言＋読み取り・決まり7b）ので、
+   画面は**話しかけの回数**で言う（2026-09-28・本人「20回で大丈夫」）。呼んだ回数のまま「40回」と書くと、40回話せると読まれる。 */
+const AI_CALLS_PER_TALK = 2;
+const talksOf = n => Math.floor(Math.max(0, Number(n) || 0) / AI_CALLS_PER_TALK);
 function renderAccount(card, out) {
   if ($("#gcalTtl")) $("#gcalTtl").textContent = "Google アカウント";
   if (gcalCap === false) { out.innerHTML = `<p class="hint">このアプリの版では使えません。アプリを新しくすると使えるようになります。</p>`; return; }
   const u = aiUse;
   const sends = `<p class="hint">AI を使うとき、話した内容と、読み取りに必要な予定などの要約を、運営者の中継サーバーを通して Google（Gemini）へ送ります。
-    中継サーバーは中身を保存しません。費用はかかりません${u ? `（1日${u.limit}回まで）` : ""}。</p>`
+    中継サーバーは中身を保存しません。費用はかかりません${u ? `（AI を使って話せるのは1日${talksOf(u.limit)}回まで）` : ""}。</p>`
     /* 有料だと分かるまでは、無料の注意を出す（ログインする前＝送ることに同意する前に読めるように） */
     + (!(u && u.tier === "paid") ? `<p class="note warn">${u ? "いまは無料の枠を使っているため" : "運営者が無料の枠を使っているあいだは"}、送った内容が Google の製品の改善に使われ、Google の担当者が読むことがあります。見られて困ることは話さないでください。</p>` : "");
   if (!acct.ok) {
@@ -3363,7 +3367,7 @@ function renderAccount(card, out) {
   }
   if (!u) aiUsage();
   out.innerHTML = `<div class="kv"><span>アカウント</span><span>${esc(acct.email || "（ログイン中）")}</span></div>
-    <div class="kv"><span>今日のAI</span><span>${u ? `あと${u.remaining}回（1日${u.limit}回まで）` : "確かめています…"}</span></div>
+    <div class="kv"><span>今日のAI</span><span>${u ? `あと${talksOf(u.remaining)}回ほど話せます（1日${talksOf(u.limit)}回まで）` : "確かめています…"}</span></div>
     ${sends}
     <div class="row"><button class="btn" id="btnPrivacy">プライバシーポリシー</button><button class="btn danger" id="btnAcctOut">ログアウト</button></div>
     <h4 class="cardttl" style="margin-top:14px">Googleカレンダー</h4><div id="gcalSub"></div>`;
