@@ -7646,7 +7646,7 @@ async function applyOps(rawOps0, note) {
           origin: "ai", corrected: false, confirmed: false, status: "open",
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: []
         };
-        applyFields(it, o, tz, note, { soleAdd });
+        applyFields(it, o, tz, note, { soleAdd, add: true });
         if (!it.whenAlt) { const alt = ruleAltFor(it, note); if (alt) it.whenAlt = alt; }
         /* **AIの道でも、くり返しを付ける**（2026-09-27）。AIは repeat を返さないので、ルールで読む（決まり7e）。
            その項目の根拠の文から読み、1件だけのときは発言まるごとからも読む。日付の無いものには付けない（ルールの道と同じ）。 */
@@ -7916,11 +7916,20 @@ function applyFields(it, o, tz, note, opts) {
   /* **AIが時刻だけ返して、日付を空にしたとき**（2026-09-28・実機で報告：16:58 の「8時から30分勉強する」が何も入らなかった）。
      依頼文は「日付の言葉が無ければ dueDate は null」「時刻だけなら話したその日」と頼んでいるので、AIはこの形で返してくる。
      下の分岐は「言い直し（いまの日付を保つ）」の道しか無く、**新しい項目は日付を持たないので、時刻ごと消えて日時なしの用事になっていた**。
-     決まり7d の「時刻だけ→ルールの日」をここにも通す（過ぎた朝の「8時」は今夜・決まり4b）。ルールが時刻を読めなければ話した日。 */
-  if (isTime(o.dueTime) && !isDate(o.dueDate) && !it.dayKey && note) {
-    const spoken = (rw && rw.hasTime && (rw.start || rw.iso)) ? dayKey(new Date(rw.start || rw.iso), tz) : null;
-    o = Object.assign({}, o, { dueDate: spoken || dayKey(new Date(note.capturedAt || Date.now()), tz), duePrecision: "exact" });
-    it.dateInferred = true;
+     決まり7d の「時刻だけ→ルールの日」をここにも通す（過ぎた朝の「8時」は今夜・決まり4b）。
+     **本人の言葉に時刻か日付があるときだけ・予定と用事だけ**（2026-09-28・旧版と比べて見つけた）：
+     AIが言っていない時刻を足した「牛乳を買う」まで今日の用事にしていた（時刻は `wordCheck` が消すが、日付だけが残る）。
+     続けたいこと（goal）にも日付を付けていた（決まり3d）。どちらも前は「期限なし」で、それが正しい。 */
+  /* 日付は**ルールがその用事を読んだ日**を借りる（発言まるごとを読み直さない）。まるごと読むと、
+     「今日絶対じゃないけど」の「今日」を拾い、「毎月31日」を9月に無い31日から数えていた（ルールは期限なし・9/30）。 */
+  /* **新しく足すときだけ**（`opts.add`）。言い直し（update）は今までどおり——言い直しには「言っていない時刻を消す」確かめ（wordCheck ②）が効かないので、
+     ここで日付を足すと、AIが勝手に付けた時刻まで残る道になる。 */
+  if (opts && opts.add && isTime(o.dueTime) && !isDate(o.dueDate) && !it.dayKey && note && (it.kind === "task" || it.kind === "event")) {
+    const twin = ruleTwinFor(it, note, !!(opts && opts.soleAdd));
+    if (twin && twin.dayKey) {
+      o = Object.assign({}, o, { dueDate: twin.dayKey, duePrecision: "exact" });
+      it.dateInferred = true;
+    }
   }
   // いまの長さと時刻を覚えておく。片方だけ言い直されても、もう片方を失わないため。
   const curDur = (it.kind === "event" && it.start && it.end)
@@ -8000,11 +8009,28 @@ function applyFields(it, o, tz, note, opts) {
 /* **午前とも午後とも読める時刻の「もう一方」は、ルールの読みから借りる**（2026-09-28・決まり4b・決まり7e）。
    ルールの道は `whenAlt` を持って聞き返すのに、AIの道は持たず、**AIがオンだと聞き返しが一度も出ていなかった**。
    判定を2か所に書かない——同じ発言をルールで読んだ項目のうち、**同じ時刻に置いたもの**の `whenAlt` をそのまま使う。 */
+/* 同じ発言をルールで読んだ項目（1つの発言につき1回だけ読む）。AIの道が「ルールの読み」を借りるときの入口。 */
+const RULE_ITEMS = new WeakMap();
+function ruleItemsOf(note) {
+  if (!note || !note.text) return [];
+  if (RULE_ITEMS.has(note)) return RULE_ITEMS.get(note);
+  let list = [];
+  try { list = extractByRule(note, state.settings); } catch { list = []; }
+  RULE_ITEMS.set(note, list);
+  return list;
+}
+/* AIの項目にあたる、ルールの予定・用事。**同じ話題のものが1つだけ**ならそれ。無ければ、用事が1件だけの発言でルールも1件だけのときその1件。 */
+function ruleTwinFor(it, note, soleAdd) {
+  const list = ruleItemsOf(note).filter(r => r.kind === "task" || r.kind === "event");
+  const same = list.filter(r => sameTopic(r.title, it.title));
+  if (same.length === 1) return same[0];
+  if (!same.length && soleAdd && list.length === 1) return list[0];
+  return null;
+}
 function ruleAltFor(it, note) {
   const at = it.start || (it.duePrecision === "exact" ? it.due : null);
   if (!at || !note || !note.text) return null;
-  let list = [];
-  try { list = extractByRule(note, state.settings); } catch { return null; }
+  const list = ruleItemsOf(note);
   const t = new Date(at).getTime();
   const hit = list.find(r => r.whenAlt && validISO(r.start || r.due) && new Date(r.start || r.due).getTime() === t);
   return hit ? Object.assign({}, hit.whenAlt) : null;

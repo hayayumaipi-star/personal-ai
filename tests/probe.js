@@ -6649,6 +6649,40 @@
       }
       ok("CX. AIが時刻だけ（日付は空）で返しても、ルールと同じ日時に入れる・午前午後の「もう一方」も同じに持つ（9通り）", bad.length === 0, bad.join(" ／ "));
       ok("CX. AIの道でも、もう一方があれば聞き返す（「〜のことなら、項目の…を押してください」）", alts.length > 0 && alts.every(Boolean), JSON.stringify(alts));
+      /* 旧版と比べて見つけた悪化（2026-09-28）：AIが**言っていない時刻を足した**とき・**続けたいこと**で返したときに、日付を作っていた。
+         日付は「ルールがその用事を読んだ日」から借りる。ルールが期限なしなら、期限なしのまま。 */
+      const bad2 = [];
+      for (const [h, mi, text, aiTime, kind] of [
+        [10, 0, "牛乳を買う", "10:00", null], [10, 0, "郵便局に行く", "15:00", null],
+        [10, 0, "10kg痩せたい", "10:00", "goal"], [10, 0, "10時から11時まで打ち合わせ", "10:00", "goal"],
+        [10, 0, "あと、友達にAIの構想を送ろうと思ってたんだった。これは今日絶対じゃないけど、忘れないようにしておいて。", "10:00", null],
+        [10, 0, "毎月31日に積立を確認する", "10:00", null], [10, 0, "明日までに資料を作る", "10:00", null], [10, 0, "10/5に歯医者", "10:00", null]]) {
+        const at = zoned(2026, 9, 28, h, mi, TZ).toISOString();
+        const mk = () => ({ id: uid(), text, hash: "cx2" + text + Math.random(), capturedAt: at, source: "talk", sourceName: null, createdAt: at });
+        reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+        const n1 = mk(); await putNote(n1); await applyOps(ruleOps(n1), n1);
+        const r = state.items.find(i => i.noteId === n1.id && (i.kind === "task" || i.kind === "event" || i.kind === "goal"));
+        if (!r) { bad2.push(text + "：ルールで読めない"); continue; }
+        reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+        const n2 = mk(); await putNote(n2);
+        await applyOps([{ op: "add", kind: kind || r.kind, title: r.title, dueDate: null, dueTime: aiTime, duePrecision: "exact", quote: text }], n2);
+        const a2 = state.items.find(i => i.noteId === n2.id);
+        const want = kind === "goal" ? null : (r.dayKey || null);
+        if (!a2 || (a2.dayKey || null) !== want) bad2.push(`「${text}」AI=${aiTime}${kind ? "・" + kind : ""} → ${a2 ? a2.dayKey || "日付なし" : "なし"}（あるべき：${want || "日付なし"}）`);
+      }
+      ok("CX. AIが言っていない時刻を足しても・続けたいことで返しても、ルールが読んだ日のまま（無ければ日付を作らない）（8通り）", bad2.length === 0, bad2.join(" ／ "));
+      // 用事が2つある発言：話題の合わない AI の用事に、ほかの用事の日付を持ち込まない（決まり「1行に複数の話題…日時を他の話題に持ち込まない」）
+      {
+        const at = zoned(2026, 9, 28, 10, 0, TZ).toISOString(), text = "明日牛乳を買う。あと部屋を片付ける";
+        reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+        const n = { id: uid(), text, hash: "cx3" + Math.random(), capturedAt: at, source: "talk", sourceName: null, createdAt: at };
+        await putNote(n);
+        await applyOps([{ op: "add", kind: "task", title: "牛乳を買う", dueDate: null, dueTime: "15:00", duePrecision: "exact", quote: "明日牛乳を買う" },
+                        { op: "add", kind: "task", title: "掃除する", dueDate: null, dueTime: "15:00", duePrecision: "exact", quote: "部屋を片付ける" }], n);
+        const milk = state.items.find(i => i.title === "牛乳を買う"), clean = state.items.find(i => i.title === "掃除する");
+        ok("CX. 用事が2つの発言で、話題の合わない AI の用事に、ほかの用事の日付を持ち込まない", !!milk && milk.dayKey === "2026-09-29" && !!clean && !clean.dayKey,
+          (milk ? milk.dayKey : "牛乳なし") + " / " + (clean ? clean.dayKey || "日付なし" : "掃除なし"));
+      }
       // 言い直し（いまの日付を持っている項目）は、時刻だけ言われても日付を動かさない（今までどおり）
       reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
       const at0 = zoned(2026, 9, 28, 9, 0, TZ).toISOString();
