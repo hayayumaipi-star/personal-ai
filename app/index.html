@@ -7703,10 +7703,12 @@ async function applyOps(rawOps0, note) {
         }
       }
       // AIが「ご飯食べに行こうかな」のような言い方で返してきても、食事は名前を揃える
+      /* **予定（event）でも揃える**（2026-09-28・本物の Gemini で比べて見つけた）。ルールは「12時からランチ」の予定も揃えるのに、
+         AIの道は用事だけだったので、「今日の19時から友達とご飯」が「友達とご飯」のまま入り、「夕食食べた」で完了にできなかった。 */
       const mt = mealTitle(it.title, note.capturedAt, tz) || mealTitle(o.quote || "", note.capturedAt, tz);
-      if (mt && it.kind === "task") {
+      if (mt && (it.kind === "task" || it.kind === "event")) {
         it.title = mt; it.isMeal = true;
-        if (it.estimateMin == null) it.estimateMin = 30;
+        if (it.kind === "task" && it.estimateMin == null) it.estimateMin = 30;
       }
       it.dedupeKey = dedupeKey(it);
       /* 同じものを二重に作らない（決まり5）。ただし **黙って捨てない**（v5.2・実機で報告）。
@@ -7974,10 +7976,17 @@ function applyFields(it, o, tz, note, opts) {
      「今日絶対じゃないけど」の「今日」を拾い、「毎月31日」を9月に無い31日から数えていた（ルールは期限なし・9/30）。 */
   /* **新しく足すときだけ**（`opts.add`）。言い直し（update）は今までどおり——言い直しには「言っていない時刻を消す」確かめ（wordCheck ②）が効かないので、
      ここで日付を足すと、AIが勝手に付けた時刻まで残る道になる。 */
-  if (opts && opts.add && isTime(o.dueTime) && !isDate(o.dueDate) && !it.dayKey && note && (it.kind === "task" || it.kind === "event")) {
+  /* **時刻が無くても同じ**（2026-09-28・本物の Gemini で比べて見つけた）：「午後に郵便局に行く」「夕方にジムに行く」は、
+     ルールなら今日の用事（決まり0l の E）なのに、AIの道では日付なしになっていた。AIは今日の日付を返していたが、
+     「午後」「夕方」は日付の言葉ではないので上で外し、時刻も無いので戻す先が無かった。ルールがその用事に読んだ日を借りる。
+     締切かどうかもルールの読みのまま（「午後に」は締切ではない）。 */
+  let twinDeadline = null;
+  if (opts && opts.add && !isDate(o.dueDate) && !it.dayKey && note && (it.kind === "task" || it.kind === "event")) {
     const twin = ruleTwinFor(it, note, !!(opts && opts.soleAdd));
     if (twin && twin.dayKey) {
-      o = Object.assign({}, o, { dueDate: twin.dayKey, duePrecision: "exact" });
+      const timed = isTime(o.dueTime);
+      o = Object.assign({}, o, { dueDate: twin.dayKey, duePrecision: timed ? "exact" : (["day", "week"].includes(twin.duePrecision) ? twin.duePrecision : "day") });
+      if (!timed) twinDeadline = !!twin.dueIsDeadline;
       it.dateInferred = true;
     }
   }
@@ -8017,7 +8026,7 @@ function applyFields(it, o, tz, note, opts) {
       it.end = new Date(new Date(iso).getTime() + dur * 60000).toISOString();
       it.endUnknown = o.estimateMin == null && curDur == null;
       it.timeUnknown = !clock;                      // 時刻を言われていない予定は時間割に置かない
-    } else { it.due = iso; it.dueIsDeadline = true; }
+    } else { it.due = iso; it.dueIsDeadline = twinDeadline == null ? true : twinDeadline; }
     it.duePrecision = ["exact", "day", "week", "none"].includes(o.duePrecision) ? o.duePrecision : (clock ? "exact" : "day");
   }
   if (o.kind === "event" || it.kind === "event") {

@@ -6791,6 +6791,61 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DA. 本物の Gemini で比べて見つけた、AIの道で落としていた2つ（2026-09-28・本人の指示「キーです。試してください」） =====
+       AI の答えは正しかったのに、アプリが受け取るところで落としていた（tools/ai-eval・4通りの比べ方すべてで同じ3件）。
+       ① 「午後に郵便局に行く」「夕方にジムに行く」：AIは今日の日付を返したが、「午後」「夕方」は日付の言葉ではないので外し、
+          時刻も無いので戻す先が無く、日付なしになっていた（ルールは今日の用事・決まり0l の E）
+       ② 「今日の19時から友達とご飯」：AIが予定（event）で返すと、食事の名前を揃えていなかった（ルールは予定でも揃える・決まり6i） */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at10 = zoned(2026, 9, 28, 10, 0, TZ).toISOString();
+      const mkA = (text, at = at10) => ({ id: uid(), text, hash: "da" + text + Math.random(), capturedAt: at, source: "talk", sourceName: null, createdAt: at });
+      const fresh = () => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); };
+      const bad = [];
+      for (const [text, kind, aiDate, win] of [
+        ["午後に郵便局に行く", "task", "2026-09-28", "afternoon"], ["午後に郵便局に行く", "task", null, "afternoon"],
+        ["夕方にジムに行く", "event", "2026-09-28", "evening"], ["夕方にジムに行く", "task", null, "evening"],
+        ["帰りに牛乳を買う", "task", null, null], ["帰りに牛乳を買う", "task", "2026-09-29", null]]) {
+        fresh(); const n1 = mkA(text); await putNote(n1); await applyOps(ruleOps(n1), n1);
+        const r = state.items.find(i => i.noteId === n1.id && (i.kind === "task" || i.kind === "event"));
+        fresh(); const n2 = mkA(text); await putNote(n2);
+        await applyOps([{ op: "add", kind, title: r ? r.title : text, dueDate: aiDate, dueTime: null, duePrecision: aiDate ? "day" : null, preferWindow: win, quote: text }], n2);
+        const a = state.items.find(i => i.noteId === n2.id);
+        const okDay = !!r && !!r.dayKey && !!a && a.dayKey === r.dayKey;
+        const okDeadline = !a || a.kind !== "task" || !!a.dueIsDeadline === !!r.dueIsDeadline;
+        const okWin = !win || !a || a.kind !== "task" || a.preferWindow === win;
+        const okPrec = !a || a.kind !== "task" || a.duePrecision === r.duePrecision;   // 「日付だけ」を 23:59 の時刻にしない
+        if (!okDay || !okDeadline || !okWin || !okPrec) bad.push(`「${text}」AI=${kind}・${aiDate || "日付なし"} → ルール ${r ? r.dayKey || "日付なし" : "なし"}${r && r.dueIsDeadline ? "まで" : ""} ／ AIの道 ${a ? a.dayKey || "日付なし" : "なし"}${a && a.dueIsDeadline ? "まで" : ""}${a && a.preferWindow ? "・" + a.preferWindow : ""}${a && a.kind === "task" ? "・" + a.duePrecision : ""}`);
+      }
+      ok("DA. 「午後に」「夕方に」「帰りに」は、AIの道でもルールと同じ日（今日）・締切にしない・時間帯を持つ（6通り）", bad.length === 0, bad.join(" ／ "));
+      // 直しすぎていない：ルールが期限なしと読むものは、AIが日付を付けても・付けなくても期限なし（決まり7d）
+      const bad2 = [];
+      for (const [text, kind, aiDate] of [["牛乳を買う", "task", "2026-09-28"], ["牛乳を買う", "task", null], ["そのうち本棚を整理したい", "task", "2026-09-28"], ["毎朝ストレッチを続けたい", "goal", "2026-09-28"]]) {
+        fresh(); const n = mkA(text); await putNote(n);
+        await applyOps([{ op: "add", kind, title: text.replace(/(したい|を続けたい)$/, "する"), dueDate: aiDate, dueTime: null, duePrecision: aiDate ? "day" : null, quote: text }], n);
+        const a = state.items.find(i => i.noteId === n.id);
+        if (!a || a.dayKey) bad2.push(`「${text}」AI=${kind}・${aiDate || "日付なし"} → ${a ? a.dayKey : "なし"}`);
+      }
+      ok("DA. 日付も時間帯も言っていない用事・続けたいことは、今までどおり期限なし（4通り）", bad2.length === 0, bad2.join(" ／ "));
+      // ② 食事の予定
+      fresh();
+      const n3 = mkA("今日の19時から友達とご飯"); await putNote(n3);
+      await applyOps([{ op: "add", kind: "event", title: "友達とご飯", dueDate: "2026-09-28", dueTime: "19:00", duePrecision: "exact", quote: "今日の19時から友達とご飯" }], n3);
+      const meal = state.items.find(i => i.noteId === n3.id);
+      ok("DA. AIが食事を予定で返しても、名前を揃える（「友達とご飯」→「夕食を食べる」・19:00の予定のまま・本人の言葉は根拠に残る）",
+        !!meal && meal.title === "夕食を食べる" && meal.kind === "event" && fmtDT(meal.start, TZ) === "9/28 19:00" && /友達とご飯/.test(meal.evidence && meal.evidence.text || ""),
+        meal ? `${meal.kind}「${meal.title}」${fmtDT(meal.start, TZ)} 根拠:${meal.evidence && meal.evidence.text}` : "なし");
+      const n4 = mkA("夕食食べた", zoned(2026, 9, 28, 21, 0, TZ).toISOString()); await putNote(n4);
+      await applyOps(ruleOps(n4), n4);
+      ok("DA. 揃えた食事の予定は、「夕食食べた」で完了にできる", !!meal && meal.status === "done", meal ? meal.status : "なし");
+      fresh();
+      const n5 = mkA("今日の19時から友達と映画"); await putNote(n5);
+      await applyOps([{ op: "add", kind: "event", title: "友達と映画", dueDate: "2026-09-28", dueTime: "19:00", duePrecision: "exact", quote: "今日の19時から友達と映画" }], n5);
+      const mov = state.items.find(i => i.noteId === n5.id);
+      ok("DA. 食事でない予定の名前は、そのまま（「友達と映画」）", !!mov && mov.title === "友達と映画", mov ? mov.title : "なし");
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

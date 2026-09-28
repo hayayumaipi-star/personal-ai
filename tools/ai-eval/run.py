@@ -92,16 +92,23 @@ def main():
     ap.add_argument("--price-in", type=float, default=0.30, help="100万トークンあたりの送る量の値段（ドル）")
     ap.add_argument("--price-out", type=float, default=2.50, help="100万トークンあたりの返ってくる量の値段（ドル・考えた量を含む）")
     ap.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "hitohi-ai-eval"))
+    ap.add_argument("--only", default="", help="この id で始まる発言だけ（カンマ区切り・例：r）")
+    ap.add_argument("--reuse", default="", help="前に流した --out の返事（responses.json）で採点だけやり直す（AI を呼ばない）")
     a = ap.parse_args()
     cfgs = [c.strip() for c in a.configs.split(",") if c.strip()]
     for c in cfgs:
         if c not in CONFIGS:
             sys.exit(f"知らない比べ方：{c}（使えるもの：{', '.join(CONFIGS)}）")
     key = os.environ.get("GEMINI_API_KEY", "")
-    if any(CONFIGS[c][0] for c in cfgs) and not key:
+    if any(CONFIGS[c][0] for c in cfgs) and not key and not a.reuse:
         sys.exit("環境変数 GEMINI_API_KEY がありません（鍵なしで試すなら --configs rules）。")
+    a.out = os.path.abspath(a.out)   # file:// には絶対の場所が要る
     os.makedirs(a.out, exist_ok=True)
     cases = json.load(open(os.path.join(HERE, "cases.json"), encoding="utf-8"))
+    if a.only:
+        cases = [x for x in cases if any(x["id"].startswith(p.strip()) for p in a.only.split(",") if p.strip())]
+        if not cases:
+            sys.exit("--only に当たる発言がありません。")
     cases_js = "window.__CASES=" + json.dumps(cases, ensure_ascii=False) + ";"
     new_html = open(os.path.join(REPO, "app", "index.html"), encoding="utf-8").read()
 
@@ -117,9 +124,16 @@ def main():
 
     # 2. Gemini に送る
     resp, calls = {}, []
+    if a.reuse:
+        old = json.load(open(os.path.join(a.reuse, "responses.json"), encoding="utf-8"))
+        resp, calls = old["responses"], old["calls"]
+        resp = {c: {k: v for k, v in resp.get(c, {}).items() if any(x["id"] == k for x in cases)} for c in cfgs}
+        calls = [x for x in calls if x["cfg"] in cfgs and any(k["id"] == x["id"] for k in cases)]
     gap = 60.0 / max(a.rpm, 0.1)
     for c in cfgs:
         order, level, with_quick = CONFIGS[c]
+        if a.reuse:
+            continue
         resp[c] = {}
         if not order:
             continue
@@ -139,8 +153,14 @@ def main():
             resp[c][case["id"]] = r
             print(f"  {c} {case['id']} " + ("ok" if r.get("main") is not None else "×" + r.get("err", "")[:60]), flush=True)
 
+    # 返事を先に残す（採点で止まっても、呼んだぶんを失わない）
+    with open(os.path.join(a.out, "responses.json"), "w", encoding="utf-8") as f:
+        json.dump({"responses": resp, "calls": [{k: v for k, v in x.items() if k != "text"} for x in calls]}, f, ensure_ascii=False, indent=1)
+
     # 3. 返事で流して採点する
-    graded = run_page(new_html, cases_js + 'window.__MODE="apply";window.__RESP=' + json.dumps(resp, ensure_ascii=False) + ";", a.out)
+    preids = {c: {i: r.get("preIds") for i, r in prompts[CONFIGS[c][0]].items()} for c in cfgs if CONFIGS[c][0] and CONFIGS[c][0] in prompts}
+    graded = run_page(new_html, cases_js + 'window.__MODE="apply";window.__RESP=' + json.dumps(resp, ensure_ascii=False)
+                      + ";window.__PREIDS=" + json.dumps(preids) + ";", a.out)
     by = {}
     for r in graded["results"]:
         by.setdefault(r["cfg"], []).append(r)
@@ -158,6 +178,11 @@ def main():
                + (avg("candidatesTokenCount") + avg("thoughtsTokenCount")) * a.price_out) / 1e6 * 150
         lines.append(f"{c:12s} {ok:2d}/{len(rs):2d}   {ms/1000:5.1f}秒{'':14s} {avg('promptTokenCount'):6.0f}  {avg('cachedContentTokenCount'):6.0f}  "
                      f"{avg('thoughtsTokenCount'):6.0f}  {avg('candidatesTokenCount'):5.0f}   {yen:.3f}" if mc else f"{c:12s} {ok:2d}/{len(rs):2d}   （AI なし）")
+    for c in cfgs:
+        if CONFIGS[c][0]:
+            fb = [r["id"] for r in by.get(c, []) if not r.get("usedAI")]
+            if fb:
+                lines.append(f"（{c}：AI の返事が使えずルールに戻ったもの {len(fb)}件＝{', '.join(fb)}。この正解は AI の力ではない）")
     qc = [x for x in calls if x["kind"] == "quick" and x.get("status") == 200]
     for c in cfgs:
         q = [x for x in qc if x["cfg"] == c]
