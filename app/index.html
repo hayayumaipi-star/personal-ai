@@ -1305,7 +1305,8 @@ function parseWhen(rawText, baseISO, tz) {
   };
   /* 「1日2時間」「1日3回」は1日あたりの量で、日付ではない（2026-09-27・10月1日と読まれていた）。「1日中」も同じ */
   /* 「1日おきに」「3日に1回」「1日3食」「2日ごとに」も量・間隔で、日付ではない（2026-09-27・10月1日・10月3日と読んでいた） */
-  grab(/(今月|来月|再来月|来々月)?\s*の?\s*(\d{1,2})\s*日(?!間|以|くらい|ほど|\s*後|\s*(?:おき|置き|ごと|毎)|\s*に\s*\d{1,2}\s*(?:回|度)|\s*\d{1,3}\s*(?:時間|分|回|度|ページ|個|問|杯|冊|キロ|km|歩|食|錠|粒|本|件|枚|リットル|L|ml|g|kg|カロリー|kcal))/, m => {
+  // 「週5日勤務」「週に3日」「月に2日」は回数で、日にちではない（2026-09-28・「週5日勤務」が10/5の予定になっていた）
+  grab(/(今月|来月|再来月|来々月)?\s*の?\s*(?<!週\s*|[週月]に\s*)(\d{1,2})\s*日(?!間|以|くらい|ほど|\s*後|\s*(?:おき|置き|ごと|毎)|\s*に\s*\d{1,2}\s*(?:回|度)|\s*\d{1,3}\s*(?:時間|分|回|度|ページ|個|問|杯|冊|キロ|km|歩|食|錠|粒|本|件|枚|リットル|L|ml|g|kg|カロリー|kcal))/, m => {
     const d = +m[2];
     if (d === 1 && !m[1] && /^\s*(中|ずっと|あたり|につき|ごと)/.test(text.slice(m.index + m[0].length))) return null;
     if (d < 1 || d > 31) return null;
@@ -1875,7 +1876,7 @@ function looksDurable(s) {
   if (RE_PROFILE_SELF.test(s) && RE_PROFILE_TREND.test(s)) return true;
   return false;
 }
-const RE_GOAL  = /(目標|目指|なりたい|続けたい|習慣|毎日|毎朝|毎晩|週\d回|(?:週|月)に\s*\d+\s*回|週\s*\d+\s*(?:回|日|で)|月\s*\d+\s*回|\d日(?:おき|置き|ごと)に|\d日に\s*\d\s*回|ようにしたい|していきたい|平日(?:の朝|の夜|は|の間)|痩せたい|やせたい|キロ(?:減らしたい|落としたい)|体重を(?:減らしたい|落としたい))/;
+const RE_GOAL  = /(目標|目指|なりたい|続けたい|習慣|毎日|毎朝|毎晩|週\d回|\d日(?:おき|置き|ごと)に|\d日に\s*\d\s*回|ようにしたい|していきたい|平日(?:の朝|の夜|は|の間)|痩せたい|やせたい|キロ(?:減らしたい|落としたい)|体重を(?:減らしたい|落としたい))/;
 const RE_COND  = /(疲れ|眠(い|く|れ|すぎ|たい|気)|やる気(が)?(出|で)ない|やる気ない|だる|体調|調子|寝(て|た|られ|れ)|睡眠|頭痛|元気|集中(でき|が)|しんどい|回復|風邪|むくみ|食欲)/;
 /* **体の不調の言い方**（2026-09-26・本人の指示）。「頭痛」は拾えるのに「頭が痛い」が拾えず、
    「今日は少し頭が痛い。」を言っても**何も記録されなかった**。
@@ -2280,7 +2281,14 @@ function classify(rawS, lineWhen) {
   { const s2 = s.replace(/ことに(なった|なりました|した|しました)([。！!]*)$/, "$2");
     if (s2 !== s && s2.replace(/[。！!]+$/, "").length >= 2) return classify(s2, lineWhen); }
   const isCond = RE_COND.test(s) || (RE_PAIN.test(s) && !RE_SELFTASK.test(s) && !RE_GOTO.test(s));
-  const isGoal = RE_GOAL.test(s);
+  /* 「週に2回ジムに行く」「週2でジム」「月に1回美容院」——**回数だけのくり返しは、続けたいこと**（2026-09-28・決まり0p）。
+     当てないもの：名詞を飾る「月1回の定期検診が明日」（予定）・日付を言った文・「週3でバイトしてる」（いまの事実）・勤務の形（週5日勤務・週2で在宅）。 */
+  const freqWork = /(勤務|バイト|出社|出勤|シフト|仕事|在宅|リモート|テレワーク)/.test(s);
+  const freqGoal = RE_FREQ_GOAL.test(s) && !(lineWhen && dateSpokenIn(lineWhen)) && !freqWork
+    && (!/(て|で)(る|いる|います)[。！!]*$/.test(s) || /ように(して|し)(る|いる|います)[。！!]*$/.test(s));   // 「行くようにしてる」はいま続けている習慣
+  // 「週5日勤務」「週2で在宅」「週3でバイトしてる」——働き方は、変わらないその人のこと（わたしのこと・仕事）
+  if (RE_FREQ_GOAL.test(s) && freqWork && !(lineWhen && dateSpokenIn(lineWhen)) && !RE_QUESTION_END.test(s)) return "profile";
+  const isGoal = RE_GOAL.test(s) || freqGoal;
   /* 「会議準備をする」「会議の資料を作る」「試験勉強」「面接対策」——予定の語のすぐ後に準備・資料・練習…が続くのは、**その予定のための用事**
      （2026-09-28・「今日は資料作成と会議準備とメール返信をする」が時刻未定の予定になっていた）。予定の語としては数えない。 */
   const isEvent = RE_EVENT.test(s.replace(RE_EVENT_PREP_G, "$3")) || RE_GOTO.test(s);
@@ -2824,6 +2832,7 @@ function extractByRule(note, settings) {
   return items;
 }
 
+const RE_FREQ_GOAL = /(?:(?:週|月)に\s*\d+\s*(?:回|日)|週\s*\d+\s*(?:回|日|で)|月\s*\d+\s*回)(?!の)/;
 const RE_EN_TASK = /^(?:buy|get|call|email|mail|text|send|pay|book|clean|wash|read|write|finish|submit|return|pick up|check|fix|order|renew|cancel|reply to|prepare|visit)\s+[a-z0-9' -]{1,40}[.!]?$/i;
 const RE_NOUN_TASK_PART = /(作成|確認|整理|入力|修正|対応|作業|送付|記入|調査)$/;
 function splitNounTasks(title) {

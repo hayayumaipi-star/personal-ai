@@ -7115,6 +7115,18 @@
       const gk = [];
       for (const s of ["週に2回ジムに行く", "週2でジム", "月に1回美容院に行く", "週3回走りたい"]) { fresh(); await say(s, at(15, 9, 0)); if (open().map(i => i.kind).join(",") !== "goal") gk.push(`「${s}」→${show()}`); }
       ok("DE. 「週に2回ジムに行く」「週2でジム」「月に1回美容院に行く」は続けたいこと（1回きりの用事にしない）", gk.length === 0, gk.join(" ／ "));
+      // 回数の言い方で、続けたいことにしないもの（読み直して見つけた悪化・2026-09-28）
+      const fk = [];
+      for (const [s, want, day] of [["月1回の定期検診が明日", "event", "2026-09-16"], ["明日は月1回の定例会議", "event", "2026-09-16"], ["週5日勤務", "profile", null],
+        ["週3でバイトしてる", "profile", null], ["週2で在宅", "profile", null], ["週3日はジムに行くようにしてる", "goal", null], ["5日に歯医者", "event", "2026-10-05"],
+        ["明日は週1で母に電話する", "task", "2026-09-16"]]) {
+        fresh(); await say(s, at(15, 9, 0));
+        const its = state.items.filter(i => i.status === "open");
+        if (its.map(i => i.kind).join(",") !== want || (day !== null && its[0].dayKey !== day) || (day === null && its[0] && its[0].dayKey)) fk.push(`「${s}」→${show()}（正：${want}${day ? " " + day : ""}）`);
+      }
+      fresh(); await say("月1回の定期検診に行く", at(15, 9, 0));
+      ok("DE. 「月1回の定期検診に行く」（名詞を飾る「〜の」）は続けたいことにしない", !state.items.some(i => i.kind === "goal"), show());
+      ok("DE. 「月1回の定期検診が明日」は予定・「週5日勤務」「週2で在宅」はわたしのこと（日付にしない）・「〜ようにしてる」は続けたいこと（7通り）", fk.length === 0, fk.join(" ／ "));
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings; SAMPLEFN = keep.fn;
     }
 
