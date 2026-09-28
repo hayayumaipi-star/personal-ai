@@ -7589,6 +7589,40 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DN. テスター9周目：一日の会話を通して——複合語の完了・聞くだけの文・日付ごとに並べた予定・同じ名前の2件・予約の時刻（2026-09-28・自律で進めた回） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const hmOf = x => x && validISO(x) ? hhmm(minOfDay(x, TZ)) : "なし";
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, h, mi] of steps) r = await say(s, at(15, h, mi)); return r || { changes: [], asks: [] }; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.start && !i.timeUnknown ? " " + hmOf(i.start) : ""}`).join(" ／ ");
+      const said = r => (r.changes || []).concat(r.asks || []).join(" / ");
+      let r = await run([["午後は資料作成", 9], ["資料終わった", 15]]);
+      ok("DN. 「資料終わった」で「資料作成」を完了（1語になった複合語の芯で当てる）", state.items[0].status === "done", show(state.items));
+      r = await run([["明日病院行く", 9], ["病院の予約10時に取れた", 12]]);
+      ok("DN. 「病院の予約10時に取れた」は明日の「病院行く」に10時を入れる", state.items.length === 1 && hmOf(state.items[0].start) === "10:00" && state.items[0].dayKey === "2026-09-16", show(state.items) + " " + said(r));
+      r = await run([["牛乳を買う", 9], ["今日何が終わった？", 21]]);
+      ok("DN. 「今日何が終わった？」は聞いているだけ（「特定できません」を言わない・完了にしない）", !/特定できません/.test(said(r)) && state.items[0].status === "open", said(r));
+      r = await run([["資料作成", 9], ["資料終わった？", 12]]);
+      ok("DN. 「資料終わった？」と聞いただけで完了にしない", state.items[0].status === "open", show(state.items));
+      r = await run([["今週の予定：月曜会議、水曜歯医者、金曜飲み会", 8]]);
+      ok("DN. 「今週の予定：月曜会議、水曜歯医者、金曜飲み会」は日付ごとに3件",
+        state.items.length === 3 && state.items.map(i => i.title + i.dayKey).join() === "会議2026-09-14,歯医者2026-09-16,飲み会2026-09-18", show(state.items));
+      r = await run([["明日は会議、明後日は歯医者", 8]]);
+      ok("DN. 「明日は会議、明後日は歯医者」は2件", state.items.length === 2 && state.items[1].dayKey === "2026-09-17", show(state.items));
+      r = await run([["明日、明後日と2日間出張", 8]]);
+      ok("DN. 「明日、明後日と2日間出張」は分けない（前の話が日付だけ・始まりは明日のまま）", state.items.length === 1 && state.items[0].dayKey === "2026-09-16", show(state.items));
+      r = await run([["明日の会議の資料、今日中に作る", 8]]);
+      ok("DN. 「〜、今日中に作る」の「今日中」は締切の付け足しなので分けない", state.items.length === 1, show(state.items));
+      r = await run([["明日10時と15時に打ち合わせ", 9], ["15時の打ち合わせはなしになった", 12]]);
+      const ev = state.items.filter(i => i.kind === "event");
+      ok("DN. 「15時の打ち合わせはなしになった」は15時のほうだけ取り消す（同じ名前が2つでも時刻で当てる）",
+        ev.length === 2 && ev.find(i => hmOf(i.start) === "15:00").status === "dropped" && ev.find(i => hmOf(i.start) === "10:00").status === "open", show(state.items));
+      r = await run([["来週の水曜に飲み会", 9], ["飲み会の場所決まった、渋谷の居酒屋", 12]]);
+      ok("DN. 「飲み会の場所決まった、〜」はメモ", !state.items.some(i => i.kind === "task") && state.items.some(i => i.kind === "memo"), show(state.items));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
