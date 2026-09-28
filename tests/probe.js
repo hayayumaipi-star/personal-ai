@@ -1461,14 +1461,15 @@
           ok("AO. ルールが翌日にしたものを、今日へ引き戻さない",
              !!ib && ib.dayKey === "2026-09-14", ib && ib.dayKey);
 
-          // 12時間ずれていないときは、AIの時刻をそのまま使う
+          /* 12時間ずれていない、**言っていない時刻**（23:30）。前は「12時間ちょうどでなければ触らない」でそのまま入っていた。
+             2026-09-28 に本人の指示（前からの弱点を直して）で変えた：言っていない時刻は採らず、**言った時刻（23:00）**にする（wordCheck ②）。 */
           reset();
           const nc = late("11時から12時まで勉強する"); await putNote(nc);
           await applyOps([{ op: "add", kind: "event", title: "勉強する", dueDate: "2026-09-13",
             dueTime: "23:30", duePrecision: "exact", estimateMin: 30, quote: "勉強する" }], nc);
           const ic = state.items.find(i => i.kind === "event");
-          ok("AO. ずれが12時間ちょうどでなければ、触らない",
-             !!ic && fmtDT(ic.start, TZ) === "9/13 23:30", ic && fmtDT(ic.start, TZ));
+          ok("AO. 12時間ちょうどでないずれでも、言っていない時刻（23:30）は採らず、言った時刻（23:00）にする",
+             !!ic && fmtDT(ic.start, TZ) === "9/13 23:00", ic && fmtDT(ic.start, TZ));
 
           // 「夜11時から深夜1時まで」は今までどおり日をまたぐ（深夜は +12 しない）
           const w2 = parseWhen("夜11時から深夜1時までゼミ", LATE, TZ);
@@ -6740,6 +6741,53 @@
       const restB = pb.slice(pb.indexOf("「今日」「明日」「あとで」は"), pb.indexOf(PROMPT_TAIL_MARK));
       ok("CY. 組み立ての依頼は、案内がいちばん上のまま・そのあとの説明はふだんと同じ", pb.indexOf("【この発話は「1日の組み立て」の依頼です】") < 200
         && restB === heads[0].slice(intro.length), String(pb.indexOf("【この発話は「1日の組み立て」の依頼です】")));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
+    /* ===== CZ. 前からあった弱点を直した（2026-09-28・本人の指示「前からある弱点を直して」） =====
+       ① 句点のあとの時刻だけの文（「来週の月曜に歯医者。14時から。」）をルールが読めなかった
+       ② 発言にほかの時刻があると、AIの言っていない時刻をそのまま通した（wordCheck ② ③ は「時刻が1つも無い」ときだけ効いた）
+       ③ 「あと2時間で出発」の AI の時刻を、言っていない時刻として消していた
+       ④ 何日も続く予定（出張）が、AIの道では1日になっていた */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at10 = zoned(2026, 9, 28, 10, 0, TZ).toISOString();
+      const mkZ = (text, at = at10) => ({ id: uid(), text, hash: "cz" + text + Math.random(), capturedAt: at, source: "talk", sourceName: null, createdAt: at });
+      const fresh = () => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); };
+      const ruleOf = async text => { fresh(); const n = mkZ(text); await putNote(n); await applyOps(ruleOps(n), n); return state.items.filter(i => i.noteId === n.id && (i.kind === "event" || i.kind === "task")); };
+      const aiOf = async (text, ops) => { fresh(); const n = mkZ(text); await putNote(n); const r = await applyOps(ops, n); return { items: state.items.filter(i => i.noteId === n.id), asks: r.asks }; };
+      const when = i => i ? (i.allDay ? "終日" + i.dayKey + (i.spanEndKey ? "〜" + i.spanEndKey : "") : i.kind === "event" ? (i.timeUnknown ? i.dayKey + " 時刻未定" : fmtDT(i.start, TZ)) : (i.due ? fmtDT(i.due, TZ) + (i.dueIsDeadline ? "まで" : "") : "期限なし")) : "なし";
+      // ①
+      const r1 = await ruleOf("来週の月曜に歯医者。14時から。"), r2 = await ruleOf("明日歯医者。午後3時から。"), r3 = await ruleOf("明日病院。前回は10時だった");
+      ok("CZ. 句点のあとの時刻だけの文も、同じ予定の時刻として読む（「来週の月曜に歯医者。14時から。」「明日歯医者。午後3時から。」）",
+        when(r1[0]) === "10/05 14:00" && when(r2[0]) === "9/29 15:00", when(r1[0]) + " / " + when(r2[0]));
+      ok("CZ. 時刻だけでない文（「前回は10時だった」）の時刻は、今回の予定に付けない", r3.length === 1 && when(r3[0]) === "2026-09-29 時刻未定", when(r3[0]));
+      // ②
+      const a1 = await aiOf("来週の月曜に歯医者。14時から。", [{ op: "add", kind: "event", title: "歯医者", dueDate: "2026-10-05", dueTime: "10:00", duePrecision: "exact", estimateMin: 60, quote: "来週の月曜に歯医者" }]);
+      const a2 = await aiOf("明日の15時までに書類を出す", [{ op: "add", kind: "task", title: "書類を出す", dueDate: "2026-09-29", dueTime: "10:00", duePrecision: "exact", quote: "明日の15時までに書類を出す" }]);
+      const a3 = await aiOf("明日会議。場所は3階。資料は10部", [{ op: "add", kind: "event", title: "会議", dueDate: "2026-09-29", dueTime: "10:00", duePrecision: "exact", quote: "明日会議" }]);
+      ok("CZ. 発言にほかの時刻があっても、AIの言っていない時刻（10時）は採らず、言った時刻（14時・15時まで）にする",
+        when(a1.items[0]) === "10/05 14:00" && when(a2.items[0]) === "9/29 15:00まで", when(a1.items[0]) + " / " + when(a2.items[0]));
+      ok("CZ. 言った時刻がどこにも無ければ、時刻未定にする（「資料は10部」の10は時刻ではない）", when(a3.items[0]) === "2026-09-29 時刻未定", when(a3.items[0]));
+      // ③
+      const a4 = await aiOf("あと2時間で出発", [{ op: "add", kind: "event", title: "出発", dueDate: "2026-09-28", dueTime: "12:00", duePrecision: "exact", quote: "あと2時間で出発" }]);
+      const a5 = await aiOf("あと2時間で出発", [{ op: "add", kind: "event", title: "出発", dueDate: "2026-09-28", dueTime: "12:30", duePrecision: "exact", quote: "あと2時間で出発" }]);
+      ok("CZ. 「あと2時間で」の時刻（ルールも計算する12:00）は、AIの道でも消さない・ずれていればルールの12:00にする",
+        when(a4.items[0]) === "9/28 12:00" && when(a5.items[0]) === "9/28 12:00", when(a4.items[0]) + " / " + when(a5.items[0]));
+      // AIが名前を言い換えても（「出発」→「出かける」・同じ話題と分からない）、ルールがこの発言から読んだ時刻なら「言った時刻」
+      const a4b = await aiOf("あと2時間で出発", [{ op: "add", kind: "event", title: "出かける", dueDate: "2026-09-28", dueTime: "12:00", duePrecision: "exact", quote: "あと2時間で出発" }]);
+      ok("CZ. AIが名前を言い換えても、ルールがこの発言から読んだ時刻（12:00）は言った時刻として残す", when(a4b.items[0]) === "9/28 12:00", when(a4b.items[0]));
+      // ④
+      const a6 = await aiOf("明日から3日間、出張します", [{ op: "add", kind: "event", title: "出張する", dueDate: "2026-09-29", dueTime: null, duePrecision: "day", quote: "明日から3日間、出張します" }]);
+      const trip = a6.items[0];
+      ok("CZ. 何日も続く予定は、AIの道でもルールと同じ終日の3日間にし、3日とも予定表に出す",
+        when(trip) === "終日2026-09-29〜2026-10-01" && ["2026-09-29", "2026-09-30", "2026-10-01"].every(k => planFor(k).blocks.some(b => b.item && b.item.id === trip.id)), when(trip));
+      // 言った時刻は今までどおり残す（直しすぎていないこと）
+      const a7 = await aiOf("11時から12時まで企画会議、そのあと13時から歯医者", [
+        { op: "add", kind: "event", title: "企画会議", dueDate: null, dueTime: "11:00", duePrecision: "exact", estimateMin: 60, quote: "11時から12時まで企画会議" },
+        { op: "add", kind: "event", title: "歯医者", dueDate: null, dueTime: "13:00", duePrecision: "exact", estimateMin: 60, quote: "そのあと13時から歯医者" }]);
+      const kk = a7.items.find(i => i.title === "企画会議"), hh = a7.items.find(i => i.title === "歯医者");
+      ok("CZ. 言った時刻（11時・13時）は、そのまま残す", when(kk) === "9/28 11:00" && when(hh) === "9/28 13:00", when(kk) + " / " + when(hh));
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 

@@ -2622,6 +2622,12 @@ function extractByRule(note, settings) {
       const wIsPast = w.dayKey < noteDayKey && !w.isDeadline;
       if (wIsPast && (when.isDeadline || when.dayKey >= noteDayKey)) w = when;
     }
+    /* 「来週の月曜に歯医者。14時から。」——**時刻だけの文が、句点のあとに続く**（2026-09-28・前からの弱点）。
+       その文は日付だけを言い、次の文の「14時」は捨てられていた（読点「、14時から」なら読めていた）。
+       話題が1つで、話題全体では**同じ日の時刻まで**読めているなら、話題全体の読みを使う。 */
+    /* **時刻だけの文**（時刻を除くと何も残らない）があるときだけ——「明日病院。前回は10時だった」の10時は今回の時刻ではない。 */
+    if (single && kind !== "goal" && w && w === senWhen && !w.hasTime && when && when.hasTime && when.dayKey === w.dayKey
+        && line.sentences.some(x => x !== sen && RE_CLOCK.test(x.text) && clockOnlySentence(x.text))) w = when;
     // 「誕生日に」「旅行の前に」——暦から出せない本人の日は、入っている予定から借りる（決まり0l）
     if (!w && (kind === "task" || kind === "event")) {
       w = anchorWhen(s, noteDayKey, items, tz);
@@ -4200,6 +4206,15 @@ function rangeSpans(text) {
    ・言っていない時刻＝**本人の言葉ではない**
    読み取り方は1か所（`timeRoles`）。ルールの項目もAIの項目も、足す直前に必ず `wordCheck` を通る。 */
 const RE_CLOCK_ROLE = /(午前|午後|朝|昼|夕方|夜|晩|深夜|夜中)?\s*(\d{1,2})\s*(?:時(?!間|限|代)\s*(半|\d{1,2}\s*分)?|[:：](\d{2}))\s*(?:ぐらい|くらい|頃|ごろ|前後|ちょうど)?\s*(までに|まで|から|より|〜|～|-|–)?/g;
+/* 時刻の言い方（「午後3時から」「10時〜11時まで」）を取り除くと、中身の語が何も残らない文か。
+   「たぶん」「かな」「だった」のような言いよどみは残らないものとして扱う（「10時だったかな」は時刻だけ）。
+   **「前回は10時だった」は「前回」が残るので時刻だけではない**（今回の時刻ではない）。 */
+function clockOnlySentence(text) {
+  const t = readText(String(text || "")).replace(RE_CLOCK_ROLE, " ")
+    .replace(/(たぶん|多分|確か|だったかな|だったと思う|だった|かな|かも|です|だよ|だね|予定|くらい|ぐらい|頃|ごろ|の|に|で|は|が|と|、|。|！|!|？|\?|\s)/g, "");
+  RE_CLOCK_ROLE.lastIndex = 0;
+  return !contentWords(t).length && !/[一-龥ァ-ヶa-zA-Z]{2,}/.test(t);
+}
 function timeRoles(text) {
   const t = halfWidth(String(text || ""));
   const out = [];
@@ -4234,10 +4249,8 @@ function timeRoleOf(text, minOfDayVal) {
   if (!hits.length) return null;
   return hits.some(r => r.role !== "until") ? "start" : "until";
 }
-/* 発言から「何時何分」が決まる言葉があるか（時刻・「30分後」・「今から」「すぐ」）。
-   **無いのに時刻が付いていたら、それは本人の言葉ではない**（AIが足した）。
-   「午後に」「夜」のような時間帯だけでは、何時何分かは決まらない——時間帯として持つ（決まり6a）。 */
-const RE_CLOCK_SAID = /(\d{1,2}\s*(時(?!間)|[:：]\d{2})|\d{1,3}\s*(分|時間)\s*(後|前)|正午|今から|いまから|これから|今すぐ|いますぐ|すぐ)/;
+/* `RE_CLOCK_SAID`（発言に時刻が1つでもあるか）は 2026-09-28 に消した。「言っていない時刻か」は、その時刻そのものを
+   言い方（`timeRoleOf`）とルールが読んだ時刻（`ruleClockMins`）で見るようにしたので、使う所が無くなった（wordCheck ②③）。 */
 /* 足す直前・直す直前に、**必ず**通す（ルールの項目もAIの項目も）。直したことは本人に言う（決まり5）。
    `op` は "add" / "update"。返すのは、本人に知らせる文（無ければ null）。 */
 function wordCheck(it, note, tz, op) {
@@ -4261,7 +4274,20 @@ function wordCheck(it, note, tz, op) {
       return `「${it.title}」は、${hhmm(sm)}から始めるのではなく、${hhmm(sm)}までに終える用事として入れました。`;
     }
     // ② 言っていない時刻（AIが足した） → 時刻は採らない（日付は残す・決まり8）
-    if (role === null && isAI && op === "add" && !RE_CLOCK_SAID.test(halfWidth(text))) {
+    /* **発言にほかの時刻があっても見る**（2026-09-28・前からの弱点）。前は「時刻が1つも無い」ときだけ外していたので、
+       「来週の月曜に歯医者。14時から。」に AI が「10時」と返すと、10時のまま入った。
+       言ったかどうかは、言い方（`timeRoleOf`）と、**ルールがこの発言から読んだ時刻**（「あと2時間で」を計算した時刻も含む）で見る。
+       言っていなければ、ルールがこの予定に読んだ時刻へ直し、無ければ時刻未定にする。 */
+    if (role === null && isAI && op === "add" && !ruleClockMins(note, tz).includes(sm)) {
+      const tw = ruleClockOf(it, note, tz);
+      if (tw && dayKey(new Date(tw.at), tz) === it.dayKey) {
+        const dur = it.end && validISO(it.end) ? new Date(it.end) - new Date(it.start) : 3600000;
+        it.start = tw.at;
+        it.end = tw.end || new Date(new Date(tw.at).getTime() + dur).toISOString();
+        it.history = (it.history || []).concat({ at: new Date().toISOString(), by: "app",
+          what: `${hhmm(sm)}とは言っていなかったので、言った時刻（${hhmm(minOfDay(tw.at, tz))}）にした` });
+        return null;
+      }
       it.timeUnknown = true;
       it.history = (it.history || []).concat({ at: new Date().toISOString(), by: "app",
         what: "時刻は言っていなかったので、時刻未定にした" });
@@ -4282,7 +4308,16 @@ function wordCheck(it, note, tz, op) {
     const role = timeRoleOf(text, dm);
     if (role === "until") it.dueIsDeadline = true;
     else if (role === "start") it.dueIsDeadline = false;
-    else if (isAI && op === "add" && !RE_CLOCK_SAID.test(halfWidth(text))) {
+    else if (isAI && op === "add" && !ruleClockMins(note, tz).includes(dm)) {
+      // 言っていない時刻（② と同じ見方・2026-09-28）→ ルールがこの用事に読んだ時刻へ。無ければ、その日のうちに、に戻す
+      const tw = ruleClockOf(it, note, tz);
+      if (tw && dayKey(new Date(tw.at), tz) === (it.dayKey || dayKey(new Date(it.due), tz))) {
+        const m2 = minOfDay(tw.at, tz);
+        it.due = tw.at; it.duePrecision = "exact"; it.dueIsDeadline = timeRoleOf(text, m2) === "until";
+        it.history = (it.history || []).concat({ at: new Date().toISOString(), by: "app",
+          what: `${hhmm(dm)}とは言っていなかったので、言った時刻（${hhmm(m2)}）にした` });
+        return null;
+      }
       // 言っていない時刻 → その日のうちに、に戻す（置き場所を勝手に決めない・決まり6a）。
       // 時間帯（「午後に」）を言っていれば、それを置き場所にする。
       const k = it.dayKey || dayKey(new Date(it.due), tz);
@@ -7657,6 +7692,16 @@ async function applyOps(rawOps0, note) {
       }
       // **本人の言葉と時刻を突き合わせる**（決まり6q）。ルールの項目もAIの項目も、ここを必ず通る
       { const said = wordCheck(it, note, tz, "add"); if (said) asks.push(said); }
+      /* **何日も続く予定は、AIの形では言えない**（「明日から3日間出張」が1日だけになっていた・2026-09-28・前からの弱点）。
+         時刻の無い AI の予定で、ルールが同じ話題を同じ日から続く終日と読んでいれば、その形を借りる。 */
+      if (it.origin === "ai" && it.kind === "event" && !it.allDay && (it.timeUnknown || !it.start)) {
+        const tw = ruleTwinFor(it, note, soleAdd);
+        if (tw && tw.kind === "event" && tw.allDay && tw.dayKey && (!it.dayKey || it.dayKey === tw.dayKey)) {
+          it.dayKey = tw.dayKey; it.allDay = true; it.start = tw.start; it.end = tw.end; it.fixed = true;
+          it.timeUnknown = false; it.endUnknown = false; it.duePrecision = tw.duePrecision || "day";
+          if (tw.spanEndKey) it.spanEndKey = tw.spanEndKey;
+        }
+      }
       // AIが「ご飯食べに行こうかな」のような言い方で返してきても、食事は名前を揃える
       const mt = mealTitle(it.title, note.capturedAt, tz) || mealTitle(o.quote || "", note.capturedAt, tz);
       if (mt && it.kind === "task") {
@@ -7853,14 +7898,19 @@ function dateWasSpoken(note, tz) {
 const RULE_MINS = new WeakMap();
 function ruleClockMins(note, tz) {
   if (RULE_MINS.has(note)) return RULE_MINS.get(note);
-  let mins = [];
-  try {
-    mins = extractByRule(note, state.settings)
-      .filter(i => !i.timeUnknown && !i.allDay && (i.start || (i.duePrecision === "exact" && i.due)))
-      .map(i => minOfDay(i.start || i.due, tz));
-  } catch { mins = []; }
+  const mins = ruleItemsOf(note)
+    .filter(i => !i.timeUnknown && !i.allDay && (i.start || (i.duePrecision === "exact" && i.due)))
+    .map(i => minOfDay(i.start || i.due, tz));
   RULE_MINS.set(note, mins);
   return mins;
+}
+/* ルールがこの項目（同じ話題）に読んだ時刻。`{ at, end }` か null（締切の 23:59 は時刻ではない）。 */
+function ruleClockOf(it, note, tz) {
+  const tw = ruleTwinFor(it, note, false);
+  if (!tw) return null;
+  if (tw.start && !tw.timeUnknown && !tw.allDay && validISO(tw.start)) return { at: tw.start, end: tw.endUnknown ? null : tw.end || null };
+  if (tw.due && tw.duePrecision === "exact" && validISO(tw.due) && minOfDay(tw.due, tz) !== 23 * 60 + 59) return { at: tw.due, end: null };
+  return null;
 }
 function applyFields(it, o, tz, note, opts) {
   /* AIの日付の年は、話した年の前後だけ受け取る（2026-09-27・9999年・1900年の予定がそのまま入っていた・決まり9） */
