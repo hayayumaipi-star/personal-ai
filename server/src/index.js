@@ -12,6 +12,8 @@
    - **使うモデルはここが決める**（GEMINI_MODEL）。アプリから高いモデルを選ばせない。
    - **送れる中身を絞る**：`contents` と `generationConfig` だけを Gemini へ渡す。大きさにも上限。
    - **ブラウザから直接呼ばせない**（CORS の許可を出さない）。呼ぶのは Android アプリの殻だけ。
+   - **AI の文の報告**（Google Play の AI 生成コンテンツのポリシー）：本人が「報告」を押した **AI の文と理由だけ**を
+     `reports` に残す（**だれが送ったかは入れない**）。90日で消す。1人1日 REPORT_LIMIT 件まで（数えるのは別の表で2日だけ）。
 
    設定（wrangler.toml の [vars] と secret）：
      GEMINI_KEY        … Gemini の API キー（`wrangler secret put GEMINI_KEY`・**ファイルに書かない**）
@@ -22,7 +24,7 @@
      DAY_OFFSET_MIN    … 「1日」の区切りの時差（分・既定 540＝日本時間）
      CONTACT_EMAIL     … 問い合わせ先（プライバシーポリシーに出る）
      APP_NAME          … アプリの名前
-   D1（DB）… usage(uid, day, n) だけ。schema.sql。
+   D1（DB）… usage(uid, day, n)・report_count(uid, day, n)・reports(id, at, kind, reason, text)。schema.sql。
    =========================================================================== */
 
 const GEMINI_HOST = "https://generativelanguage.googleapis.com";
@@ -30,6 +32,11 @@ const JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
 const ISSUERS = ["accounts.google.com", "https://accounts.google.com"];
 const MAX_BODY = 250000;          // 1回に受け取る大きさ（文字）
 const KEEP_DAYS = 2;              // 回数の記録を残す日数（それより古いものは消す）
+const REPORT_KEEP_DAYS = 90;      // 報告を残す日数
+const REPORT_LIMIT = 20;          // 1人1日の報告の上限
+const REPORT_MAX_CHARS = 2000;    // 報告する文の長さの上限
+export const REPORT_REASONS = ["offensive", "harmful", "wrong", "other"];
+const REPORT_KINDS = ["chat", "insight"];
 
 const json = (obj, status = 200, extra = {}) => new Response(JSON.stringify(obj), {
   status, headers: Object.assign({ "content-type": "application/json; charset=utf-8", "cache-control": "no-store" }, extra)
@@ -112,8 +119,28 @@ export function resetSweep() { lastSweep = ""; }   // テスト用（同じ日�
 async function sweep(env, day) {
   if (lastSweep === day) return;
   lastSweep = day;
-  const old = new Date(Date.parse(day + "T00:00:00Z") - KEEP_DAYS * 86400000).toISOString().slice(0, 10);
+  const base = Date.parse(day + "T00:00:00Z");
+  const old = new Date(base - KEEP_DAYS * 86400000).toISOString().slice(0, 10);
   await env.DB.prepare("DELETE FROM usage WHERE day < ?1").bind(old).run();
+  await env.DB.prepare("DELETE FROM report_count WHERE day < ?1").bind(old).run();
+  await env.DB.prepare("DELETE FROM reports WHERE at < ?1").bind(new Date(base - REPORT_KEEP_DAYS * 86400000).toISOString()).run();
+}
+
+/* ---------- AI の文の報告 ---------- */
+/* 受け取るのは { kind, reason, text } だけ。**知らない理由・種類・長すぎる文は受け取らない**（来た文字はデータ）。 */
+export function cleanReport(input) {
+  if (!input || typeof input !== "object") return null;
+  const kind = String(input.kind || ""), reason = String(input.reason || "");
+  const text = typeof input.text === "string" ? input.text.trim() : "";
+  if (!REPORT_KINDS.includes(kind) || !REPORT_REASONS.includes(reason)) return null;
+  if (!text || text.length > REPORT_MAX_CHARS) return null;
+  return { kind, reason, text };
+}
+async function takeReport(env, uid, day) {
+  const r = await env.DB.prepare(
+    "INSERT INTO report_count (uid, day, n) VALUES (?1, ?2, 1) ON CONFLICT(uid, day) DO UPDATE SET n = n + 1 WHERE n < ?3 RETURNING n"
+  ).bind(uid, day, REPORT_LIMIT).first();
+  return r ? r.n : null;
 }
 
 /* ---------- Gemini へ ---------- */
@@ -147,14 +174,17 @@ export function privacyHTML(env) {
 <p>話した内容・予定・タスク・体調・「わたしのこと」は、あなたのスマホの中にだけ保存されます。運営者のサーバーには保存しません。</p>
 <h2>AI を使うときに送るもの</h2>
 <p>話した内容を読み取るために、AI（Google の Gemini）を使います。そのとき、話した内容と、読み取りに必要なこれまでの予定などの要約が、運営者の中継サーバーを通って Google に送られます。</p>
-<p>中継サーバーは中身を保存しません。記録するのは「その日に何回 AI を使ったか」だけで、あなたを特定できない形（Google アカウントの番号を元に戻せない形に変えたもの）で、${KEEP_DAYS}日たつと消えます。</p>
+<p>中継サーバーは中身を保存しません（下の「報告」を除く）。記録するのは「その日に何回 AI を使ったか」だけで、あなたを特定できない形（Google アカウントの番号を元に戻せない形に変えたもの）で、${KEEP_DAYS}日たつと消えます。</p>
 <p>${gem}</p>
+<h2>AI の文を報告したとき</h2>
+<p>AI の返事に「報告」を押すと、<strong>その AI の文と、選んだ理由だけ</strong>が運営者のサーバーに保存されます。あなたの話した内容・記録・アカウントは一緒に送りません。報告の記録には、だれが送ったかを入れません（送りすぎを防ぐために、1日の報告の回数だけを${KEEP_DAYS}日間数えます）。</p>
+<p>報告は運営者が読み、AI の使い方を直すために使います。${REPORT_KEEP_DAYS}日たつと消えます。</p>
 <h2>Google でのログイン</h2>
 <p>AI を使うには Google でログインします。ログインで受け取るのは、あなたが本人であることの証明だけで、中継サーバーはメールアドレスを保存しません。</p>
 <h2>Google カレンダーとの同期（選んだ人だけ）</h2>
 <p>設定で同期を選ぶと、あなたの Google カレンダー（メイン）の予定を読み、アプリで話した予定を書き込みます。この通信はあなたのスマホと Google の間で直接行われ、運営者のサーバーは通りません。同期はいつでもやめられます。</p>
 <h2>消したいとき</h2>
-<p>アプリの設定の「記録を消す」で、スマホの中の記録を消せます。アプリを消すと、スマホの中の記録もすべて消えます。中継サーバーの回数の記録は${KEEP_DAYS}日で自動的に消えます。</p>
+<p>アプリの設定の「記録を消す」で、スマホの中の記録を消せます。アプリを消すと、スマホの中の記録もすべて消えます。中継サーバーの回数の記録は${KEEP_DAYS}日、報告は${REPORT_KEEP_DAYS}日で自動的に消えます（報告にはだれが送ったかが入っていないので、1件ずつ選んで消すことはできません）。</p>
 <h2>問い合わせ</h2>
 <p>${contact}</p>
 </body></html>`;
@@ -168,7 +198,7 @@ export async function handle(request, env, fetchImpl = fetch, nowMs = Date.now()
     return new Response(privacyHTML(env), { headers: { "content-type": "text/html; charset=utf-8" } });
   }
   if (request.method === "GET" && url.pathname === "/") return new Response((env.APP_NAME || "AI秘書") + " のサーバーです。", { headers: { "content-type": "text/plain; charset=utf-8" } });
-  if (!["/v1/generate", "/v1/status"].includes(url.pathname)) return fail(404, "not_found", "ありません");
+  if (!["/v1/generate", "/v1/status", "/v1/report"].includes(url.pathname)) return fail(404, "not_found", "ありません");
 
   const auth = request.headers.get("authorization") || "";
   const tok = /^Bearer\s+(.+)$/i.exec(auth);
@@ -185,6 +215,18 @@ export async function handle(request, env, fetchImpl = fetch, nowMs = Date.now()
     return json({ limit, used, remaining: Math.max(0, limit - used), tier: String(env.GEMINI_TIER || "free"), day });
   }
   if (request.method !== "POST") return fail(405, "method", "POST だけです");
+  if (url.pathname === "/v1/report") {
+    const rawR = await request.text();
+    if (rawR.length > REPORT_MAX_CHARS * 4) return fail(413, "too_large", "報告する文が長すぎます");
+    let inR; try { inR = JSON.parse(rawR); } catch { return fail(400, "bad_json", "送る中身が読めません"); }
+    const rep = cleanReport(inR);
+    if (!rep) return fail(400, "bad_request", "報告の中身が足りないか、形が違います");
+    if ((await takeReport(env, uid, day)) == null) return fail(429, "report_limit", `今日はこれ以上報告できません（1日${REPORT_LIMIT}件まで）`);
+    await env.DB.prepare("INSERT INTO reports (at, kind, reason, text) VALUES (?1, ?2, ?3, ?4)")
+      .bind(new Date(nowMs).toISOString(), rep.kind, rep.reason, rep.text).run();
+    try { await sweep(env, day); } catch {}
+    return json({ ok: true });
+  }
   const raw = await request.text();
   if (raw.length > MAX_BODY) return fail(413, "too_large", "送る中身が大きすぎます");
   let input; try { input = JSON.parse(raw); } catch { return fail(400, "bad_json", "送る中身が読めません"); }

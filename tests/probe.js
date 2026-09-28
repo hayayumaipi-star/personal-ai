@@ -6426,7 +6426,7 @@
       const keepRN = window.ReactNativeWebView, keepCap = gcalCap, keepAC = window.askConfirm, keepFn = SAMPLEFN, keepPlain = geminiPlain;
       const keepView = view.day, keepChat = view.chatDay, had = window.HITOHI_AI;
       state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
-      const S = { signed: false, email: "user@example.com", calls: [], raw: [], gen: [], used: 2, tier: "free", mode: "ok" };
+      const S = { signed: false, email: "user@example.com", calls: [], raw: [], gen: [], used: 2, tier: "free", mode: "ok", reports: [], reportFull: false, habit: "" };
       const reply = o => setTimeout(() => nativeReply(JSON.stringify(o)), 0);
       const shell = { postMessage: raw => { const m = JSON.parse(raw); S.calls.push(m.kind + ":" + (m.action || m.op || m.method || "")); S.raw.push(raw);
         if (m.kind === "gauth") {
@@ -6441,13 +6441,15 @@
         const out = (st, d) => reply({ id: m.id, status: st, body: JSON.stringify(d) });
         if (!S.signed) return out(401, { error: { code: "login_required", message: "Google でのログインが必要です" } });
         if (m.op === "status") return out(200, { limit: 40, used: S.used, remaining: 40 - S.used, tier: S.tier, day: "x" });
+        if (m.op === "report") { S.reports.push(JSON.parse(m.body));
+          return S.reportFull ? out(429, { error: { code: "report_limit", message: "今日はこれ以上報告できません（1日20件まで）" } }) : out(200, { ok: true }); }
         const b = JSON.parse(m.body); S.gen.push(b);
         if (S.mode === "limit") return out(429, { error: { code: "daily_limit", message: "今日のAIの回数（40回）を使い切りました。明日また使えます" } });
         if (S.mode === "expired") { S.signed = false; return out(401, { error: { code: "login_required", message: "ログインを確かめられませんでした" } }); }
         if (S.mode === "g400" && b.body.generationConfig) return out(400, { error: { code: 400, message: "Invalid JSON payload received. Unknown name" } });
         if (S.mode === "bad") return out(400, { error: { code: "bad_request", message: "送る中身が足りません" } });
         S.used++;
-        const text = b.tier === "quick" ? "受け止めました。" : JSON.stringify({ ops: [{ op: "add", kind: "task", title: "郵便局に行く", dueDate: null, duePrecision: "none", quote: "郵便局に行く" }], habit: "" });
+        const text = b.tier === "quick" ? "受け止めました。" : JSON.stringify({ ops: [{ op: "add", kind: "task", title: "郵便局に行く", dueDate: null, duePrecision: "none", quote: "郵便局に行く" }], habit: S.habit || "" });
         return out(200, { candidates: [{ content: { parts: [{ text }] } }] });
       } };
       const settle = async () => { for (let i = 0; i < 40; i++) await new Promise(r => setTimeout(r, 5)); };
@@ -6495,13 +6497,63 @@
         ok("CW. 残りを聞いたときにログインが切れていたら（401）、窓口を閉じてログインのボタンに戻す", acct.ok === false && SAMPLEFN === null && !!$("#btnAcctIn"), txt().slice(0, 80));
         $("#btnAcctIn").click(); await settle(); await settle();
         // ⑥ AI を使う：送る中身は Gemini と同じ形・キーも証明もページは持たない
-        S.calls = []; S.raw = []; S.gen = []; S.mode = "ok";
-        reset(); await sendTurn("郵便局に行く。");
+        S.calls = []; S.raw = []; S.gen = []; S.mode = "ok"; S.habit = "寝る前に白湯を一杯飲んでみるのはどうですか？";
+        reset(); await sendTurn("郵便局に行く。"); S.habit = "";
         ok("CW. ログインしていれば、中継サーバー経由で AI を使う（受け止め＋読み取りの2回）", S.gen.length === 2 && S.gen.some(g => g.tier === "quick") && S.gen.some(g => g.tier === "deep") && lastTurn().ai === true, S.gen.map(g => g.tier).join(","));
         ok("CW. 送る中身は Gemini と同じ形（contents・考える深さは thinkingConfig の中）",
           S.gen.every(g => Array.isArray(g.body.contents) && g.body.generationConfig && g.body.generationConfig.thinkingConfig), JSON.stringify(S.gen.map(g => g.body.generationConfig)));
         ok("CW. ページはキーもログインの証明も送らない（殻が証明を付け、サーバーがキーを付ける）",
           !S.raw.some(r => /Bearer|x-goog-api-key|AIza|idToken|"key"/.test(r)), "");
+        // ⑥b AI の文を報告する（Google Play の AI 生成コンテンツのポリシー・本人「サーバーにする」）
+        {
+          const tAI = lastTurn();
+          ok("CW. 返事には、AI が書いた部分（受け止めの一言・習慣の提案）だけを分けて持つ",
+            Array.isArray(tAI.aiText) && tAI.aiText.length === 2 && tAI.aiText[0] === "受け止めました。" && /白湯/.test(tAI.aiText[1]) && /白湯/.test(tAI.text), JSON.stringify(tAI.aiText) + " / " + tAI.text);
+          // AI を使わなかった返事（前からある返事も同じ＝aiText を持たない）
+          await pushTurn({ id: "cw-rule", role: "assistant", text: "ルールだけで書いた返事", at: new Date().toISOString(), changes: [], plan: null, ai: false, error: null });
+          view.chatDay = today(); showTab("p-chat"); renderChat();
+          const btn = $(`#p-chat [data-act="aireport"][data-id="${tAI.id}"]`);
+          ok("CW. AI を使わなかった返事・前からある返事（AI の部分を持たない）には「報告」を出さない",
+            !!$('#p-chat .turn.ai') && !$('#p-chat [data-act="aireport"][data-id="cw-rule"]') && /ルールだけで書いた返事/.test($("#p-chat").textContent));
+          const ruleTurns = (state.turns[today()] || []).filter(t => t.role === "assistant" && !(t.aiText || []).length);
+          ok("CW. AI が書いた返事には「報告」を出す（AI を使わなかった返事には出さない）",
+            !!btn && document.querySelectorAll('#p-chat [data-act="aireport"]').length === (state.turns[today()] || []).filter(t => t.role === "assistant" && (t.aiText || []).length).length,
+            document.querySelectorAll('#p-chat [data-act="aireport"]').length + " / ルールだけの返事 " + ruleTurns.length);
+          S.reports = [];
+          if (btn) btn.click(); await settle();
+          const sh = $("#sheetHost");
+          ok("CW. 「報告」を押すと、送る文と、送るもの・送らないもの・残す日数を先に見せる",
+            /受け止めました。/.test(sh.textContent) && /この AI の文と、選んだ理由だけ/.test(sh.textContent) && /話した内容・記録・アカウントは送りません/.test(sh.textContent) && /90日/.test(sh.textContent)
+            && sh.querySelectorAll("[data-reason]").length === 4 && !sh.querySelector("textarea,input[type=text]"), sh.textContent.slice(0, 120));
+          ok("CW. 理由を選ぶまでは送らない", S.reports.length === 0);
+          const rb = sh.querySelector('[data-reason="offensive"]'); if (rb) rb.click(); await settle();
+          const rpt = S.reports[0] || {};
+          ok("CW. 理由を選ぶと、AI の文と理由だけを送る（話した内容・コードが書いた文は送らない）",
+            S.reports.length === 1 && rpt.kind === "chat" && rpt.reason === "offensive" && rpt.text === "受け止めました。\n寝る前に白湯を一杯飲んでみるのはどうですか？" && Object.keys(rpt).sort().join() === "kind,reason,text"
+            && !/郵便局/.test(JSON.stringify(rpt)), JSON.stringify(rpt));
+          ok("CW. 送れたら知らせ、シートを閉じる", /報告しました/.test($("#toast").textContent) && !$("#sheetHost").firstChild, $("#toast").textContent);
+          // やめる：送らない
+          S.reports = []; $(`#p-chat [data-act="aireport"][data-id="${tAI.id}"]`).click(); await settle();
+          $("#rpNo").click(); await settle();
+          ok("CW. 「やめる」なら送らない", S.reports.length === 0 && !$("#sheetHost").firstChild);
+          // 上限：理由を言う
+          S.reportFull = true; $(`#p-chat [data-act="aireport"][data-id="${tAI.id}"]`).click(); await settle();
+          $('#sheetHost [data-reason="wrong"]').click(); await settle();
+          ok("CW. 送れなかったら、サーバーの理由をそのまま言う（黙らない）", /報告を送れませんでした/.test($("#toast").textContent) && /1日20件まで/.test($("#toast").textContent), $("#toast").textContent);
+          S.reportFull = false;
+          // 気づき（AI の推測）も報告できる。本人の言葉（引用）は送らない
+          const ins = { id: "cw-ins", kind: "insight", title: "夜に予定を詰めがちかもしれない", quotes: ["夜は疲れる"], status: "open", origin: "ai",
+            confirmed: false, corrected: false, history: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+          state.items.push(ins); showTab("p-me"); renderMe();
+          S.reports = []; const ib = $('#p-me [data-act="insightreport"][data-id="cw-ins"]');
+          if (ib) ib.click(); await settle();
+          const r2b = $('#sheetHost [data-reason="wrong"]'); if (r2b) r2b.click(); await settle();
+          ok("CW. 気づき（AI の推測）も報告できる。送るのは気づきの文だけで、本人の言葉（引用）は送らない",
+            !!ib && S.reports.length === 1 && S.reports[0].kind === "insight" && S.reports[0].text === ins.title && !/夜は疲れる/.test(JSON.stringify(S.reports[0])), JSON.stringify(S.reports));
+          state.items = state.items.filter(i => i.id !== "cw-ins");
+          showTab("p-set"); renderSettings();
+          ok("CW. 設定の欄に、「報告」を押した AI の文だけはサーバーに残ると書く", /「報告」を押した AI の文だけは90日残ります/.test(txt()), txt().slice(0, 200));
+        }
         // ⑦ 今日の回数を使い切った：入れ直さない・その日はもう頼まない・言うのは1回
         S.gen = []; S.mode = "limit";
         await sendTurn("図書館に行く。");
@@ -6544,6 +6596,8 @@
         window.HITOHI_AI = { provider: "gemini", key: "AIza-TEST" }; applyOwnAI();
         acctSet(false);
         ok("CW. 自分用（キーを焼き込んだ版）では、ログインしていなくても AI の窓口を閉じない", !!SAMPLEFN && SAMPLEFN.own === "gemini");
+        view.chatDay = today(); showTab("p-chat"); renderChat();
+        ok("CW. 自分用・claude.ai の版では「報告」を出さない（届け先のサーバーが無い）", !$('#p-chat [data-act="aireport"]') && (state.turns[today()] || []).some(t => (t.aiText || []).length));
       } finally {
         clearTimeout(gcalTimer); localStorage.removeItem(GCAL_LS); gcalCap = keepCap; window.askConfirm = keepAC;
         if (keepRN) window.ReactNativeWebView = keepRN; else delete window.ReactNativeWebView;

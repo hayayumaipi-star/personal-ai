@@ -305,7 +305,9 @@ export default function App() {
         catch (e2) { post({ id: m.id, error: gsError(e2) }); }
         return;
       }
-      const op = m.op === "status" ? "status" : "generate";
+      /* 頼めるのは3つだけ：今日の残り（status）・AI（generate）・AI の文の報告（report）。ほかの名前は generate として扱わない＝断る */
+      const op = ["status", "generate", "report"].includes(m.op) ? m.op : "";
+      if (!op) { post({ id: m.id, error: "badop" }); return; }
       const need = () => post({ id: m.id, status: 401, body: JSON.stringify({ error: { code: "login_required", message: "Google でのログインが必要です" } }) });
       try {
         const idToken = async () => {

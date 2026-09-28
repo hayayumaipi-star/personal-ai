@@ -3335,6 +3335,45 @@ async function openPrivacy() {
   try { await nativeAsk("aiserver", { op: "privacy" }, 15000); }
   catch (e) { toast("プライバシーポリシーを開けませんでした：" + (e && e.message ? e.message : e)); }
 }
+/* ---------- AI の文を報告する（2026-09-28・本人「サーバーにする」・決まり18） ----------
+   Google Play は、生成 AI の文を出すアプリに「不快な AI の出力を、アプリの中で報告できること」を求めている。
+   **配る版だけ**（届け先は中継サーバー）。送るのは**その AI の文と、選んだ理由だけ**——本人の発言・記録・アカウントは送らない。
+   理由は選ぶだけにして、**自由に書く欄は作らない**（個人のことを書いて送らせない）。サーバーは90日で消す。
+   AI の文かどうかは、返事を組み立てたときに**AI が書いた部分だけ**を `aiText` に分けて持つ（コードが書いた部分は送らない）。 */
+const REPORT_REASONS = [["offensive", "不快・攻撃的"], ["harmful", "危ない（体や心に悪いことをすすめる）"], ["wrong", "間違っている"], ["other", "その他"]];
+const canReport = () => aiViaServer() && nativeOn();
+const aiTextOf = t => (t && Array.isArray(t.aiText) ? t.aiText : []).filter(x => typeof x === "string" && x.trim()).map(x => x.trim());
+function findTurn(id) {
+  for (const k of Object.keys(state.turns || {})) {
+    const t = (Array.isArray(state.turns[k]) ? state.turns[k] : []).find(x => x && x.id === id);
+    if (t) return t;
+  }
+  return null;
+}
+function openReport(text, kind) {
+  const body = String(text).slice(0, 2000);
+  openSheet(`<h3>この AI の文を報告しますか？</h3>
+    <div class="quote">${esc(body)}</div>
+    <p class="hint">送るのは<strong>この AI の文と、選んだ理由だけ</strong>です。あなたの話した内容・記録・アカウントは送りません。
+      運営者が読んで AI の使い方を直すのに使い、90日で消します。理由を選ぶと送ります。</p>
+    <div class="stack">${REPORT_REASONS.map(([k, ja]) => `<button class="btn wide" data-reason="${k}">${esc(ja)}</button>`).join("")}</div>
+    <div class="foot"><button class="btn" id="rpNo" style="margin-left:auto">やめる</button></div>`);
+  $("#rpNo").addEventListener("click", closeSheet);
+  $("#sheetHost").querySelectorAll("[data-reason]").forEach(b => b.addEventListener("click", () => {
+    closeSheet(); sendReport(body, kind, b.getAttribute("data-reason"));
+  }));
+}
+async function sendReport(text, kind, reason) {
+  let m;
+  try { m = await nativeAsk("aiserver", { op: "report", body: JSON.stringify({ kind, reason, text }) }, 20000); }
+  catch (e) { toast("報告を送れませんでした：" + (e && e.message ? e.message : e)); return false; }
+  let d = null; try { d = JSON.parse(String(m.body || "")); } catch {}
+  if (m.status === 200) { toast("報告しました。ありがとうございます"); return true; }
+  const code = d && d.error && typeof d.error.code === "string" ? d.error.code : "";
+  if (code === "login_required") toast("報告するには、設定の「Google アカウント」でログインしてください");
+  else toast("報告を送れませんでした：" + ((d && d.error && d.error.message) || ("サーバー " + m.status)));
+  return false;
+}
 /* 設定の欄。**送るもの・読むもの・送り先・費用を先に書く**（新しい外部送信の決まり）。 */
 function renderGcal() {
   const card = $("#gcalCard"), out = $("#gcalOut"); if (!card || !out) return;
@@ -3355,7 +3394,7 @@ function renderAccount(card, out) {
   if (gcalCap === false) { out.innerHTML = `<p class="hint">このアプリの版では使えません。アプリを新しくすると使えるようになります。</p>`; return; }
   const u = aiUse;
   const sends = `<p class="hint">AI を使うとき、話した内容と、読み取りに必要な予定などの要約を、運営者の中継サーバーを通して Google（Gemini）へ送ります。
-    中継サーバーは中身を保存しません。費用はかかりません${u ? `（AI を使って話せるのは1日${talksOf(u.limit)}回まで）` : ""}。</p>`
+    中継サーバーは中身を保存しません（「報告」を押した AI の文だけは90日残ります）。費用はかかりません${u ? `（AI を使って話せるのは1日${talksOf(u.limit)}回まで）` : ""}。</p>`
     /* 有料だと分かるまでは、無料の注意を出す（ログインする前＝送ることに同意する前に読めるように） */
     + (!(u && u.tier === "paid") ? `<p class="note warn">${u ? "いまは無料の枠を使っているため" : "運営者が無料の枠を使っているあいだは"}、送った内容が Google の製品の改善に使われ、Google の担当者が読むことがあります。見られて困ることは話さないでください。</p>` : "");
   if (!acct.ok) {
@@ -5519,9 +5558,11 @@ function turnHTML(t, prevAI) {
     : show ? miniplanHTML(sn)
     : `<details class="allplan"><summary>この時点の予定案を見る（${sn.blocks.length}件）</summary><div style="margin-top:8px">${miniplanHTML(sn)}</div></details>`;
   const err = t.error ? `<div class="note warn">${esc(t.error)}</div>` : "";
+  // AI が書いた部分があるときだけ「報告」（配る版だけ・決まり18）。「原文」と同じ小さな形で、打刻の横に置く
+  const rp = canReport() && aiTextOf(t).length ? ` · <button class="btn sm srcbtn" data-act="aireport" data-id="${esc(t.id)}">報告</button>` : "";
   return `<div class="turn ai"><div class="bub">${esc(t.text)}</div>
     <div class="extra">${err}${nextLine}${changes}${plan}</div>
-    <span class="stamp">${stamp}</span></div>`;
+    <span class="stamp">${stamp}${rp}</span></div>`;
   /* **読み取り方（AI／ルール）を、返事ごとに書かない**（2026-09-26・本人の指示「余計な部分をそぎ落として」）。
      作る側には手がかりだったが、使う人が読んで打つ手は無い。AIを使えなかったときは、
      その理由が吹き出しの中に出る（`aiFailNote`・決まり13c）ので、知らせる道は残っている。
@@ -5964,7 +6005,8 @@ function renderMe() {
         <div class="ttl">${esc(g.title)}</div>
         <div class="quotes">${(g.quotes || []).map(q => `<div class="quote">「${esc(q)}」</div>`).join("")}</div>
         <div class="row"><button class="btn sm pri" data-act="insightyes" data-id="${g.id}">合ってる</button>
-          <button class="btn sm" data-act="insightno" data-id="${g.id}">違う</button></div></div>`).join("")}</div>`;
+          <button class="btn sm" data-act="insightno" data-id="${g.id}">違う</button>${
+          canReport() ? `<button class="btn sm" data-act="insightreport" data-id="${g.id}">報告</button>` : ""}</div></div>`).join("")}</div>`;
     if (canMakeInsight(now)) h += `<div class="row" style="margin-top:8px"><button class="btn" data-act="insight">今週の気づきを作る</button></div>`;
   }
 
@@ -6571,6 +6613,16 @@ async function act(a, id, el) {
   /* C：会話の下のカードから、今日の予定表へ。**`findItem` の門より上**に置く（id を持たない）。 */
   if (a === "openme") { showTab("p-me"); return; }
   if (a === "insight") { await makeInsights(); return; }
+  /* AI の文の報告（決まり18）。会話の返事は項目の id を持たないので、`findItem` の門より上で扱う */
+  if (a === "aireport") {
+    const txt = aiTextOf(findTurn(id)).join("\n");
+    if (!txt) { toast("報告できる AI の文が見つかりませんでした"); return; }
+    openReport(txt, "chat"); return;
+  }
+  if (a === "insightreport") {
+    const g = findItem(id); if (!g || g.kind !== "insight") { toast("この気づきが見つかりませんでした"); return; }
+    openReport(g.title, "insight"); return;   // 気づきの引用（本人の言葉）は送らない
+  }
   /* 古くなったかもしれないこと：「まだ合っている」。次の90日は聞かない。 */
   if (a === "stillok") {
     const p = findItem(id); if (!p) { toast("この項目が見つかりませんでした"); return; }
@@ -8626,6 +8678,7 @@ async function sendTurn(text) {
   await pushTurn({
     id: uid(), role: "assistant", text: reply, at: new Date().toISOString(),
     changes, plan: sn, ai: usedAI, aiQuiet: aiSaidNothing, error: err,
+    aiText: [quickText, habit].filter(x => typeof x === "string" && x.trim()),   // AI が書いた部分だけ（報告に使う・決まり18）
     habitDay: applied.habitDay || null,
     showTable: shouldShowTable(ctx)     // 毎回は出さない
   });

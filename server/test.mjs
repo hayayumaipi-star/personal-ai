@@ -4,7 +4,7 @@
    - Gemini は偽物（届いた中身を覚えておく）。 */
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
-import { handle, verifyIdToken, resetJwksCache, resetSweep, privacyHTML, cleanRequest, dayOf } from "./src/index.js";
+import { handle, verifyIdToken, resetJwksCache, resetSweep, privacyHTML, cleanRequest, cleanReport, dayOf } from "./src/index.js";
 
 const R = [];
 const ok = (name, cond, extra) => R.push((cond ? "PASS" : "FAIL") + " :: " + name + (extra != null && !cond ? "  [" + extra + "]" : ""));
@@ -185,6 +185,39 @@ const call = (path, o) => handle(req(path, o), env(), fetchImpl, NOW);
   ok("うまくいった1回は数える", cnt() === 2, cnt());
   const down = await handle(req("/v1/generate", { tok: t5 }), env(), async u => { if (String(u).includes("certs")) return fetchImpl(u); throw new Error("net"); }, NOW);
   ok("Gemini へつながらなかった1回は、数えない（502）", down.status === 502 && cnt() === 2, down.status + " / " + cnt());
+}
+
+// ⑧ AI の文の報告（Google Play の AI 生成コンテンツのポリシー）
+{
+  D1 = fakeD1(); sent.length = 0; resetSweep();
+  const t8 = await token(good("u8"));
+  const rp = (body, tok = t8, now = NOW) => handle(req("/v1/report", { tok, body }), env(), fetchImpl, now);
+  const r1 = await rp({ kind: "chat", reason: "offensive", text: "  不快な返事の例  " });
+  const rows = () => D1.raw.prepare("SELECT * FROM reports ORDER BY id").all();
+  ok("報告を受け取って残す（AI の文と理由だけ）", r1.status === 200 && rows().length === 1 && rows()[0].text === "不快な返事の例" && rows()[0].reason === "offensive" && rows()[0].kind === "chat", r1.status);
+  ok("報告には、だれが送ったかを入れない（列は id・at・kind・reason・text だけ）", Object.keys(rows()[0]).sort().join() === "at,id,kind,reason,text", Object.keys(rows()[0]).join());
+  ok("報告しても、Gemini は呼ばない・AI の回数は減らない", sent.length === 0 && D1.raw.prepare("SELECT COUNT(*) AS c FROM usage").get().c === 0);
+  ok("ログインしていなければ報告できない（401）", (await handle(req("/v1/report", { body: { kind: "chat", reason: "other", text: "x" } }), env(), fetchImpl, NOW)).status === 401);
+  ok("知らない理由は受け取らない（400）", (await rp({ kind: "chat", reason: "hack", text: "x" })).status === 400);
+  ok("知らない種類は受け取らない（400）", (await rp({ kind: "user_note", reason: "other", text: "x" })).status === 400);
+  ok("空の文・長すぎる文は受け取らない（400）", (await rp({ kind: "chat", reason: "other", text: "   " })).status === 400 && (await rp({ kind: "chat", reason: "other", text: "あ".repeat(2001) })).status === 400);
+  ok("報告の中身を絞る関数：余計な項目は落とす", JSON.stringify(cleanReport({ kind: "insight", reason: "wrong", text: "t", uid: "x", note: "私の話" })) === '{"kind":"insight","reason":"wrong","text":"t"}');
+  for (let i = 0; i < 19; i++) await rp({ kind: "chat", reason: "wrong", text: "例" + i });
+  const over = await rp({ kind: "chat", reason: "wrong", text: "21件目" });
+  ok("1人1日20件まで。超えたら 429（report_limit）で残さない", over.status === 429 && (await over.json()).error.code === "report_limit" && rows().length === 20, rows().length);
+  const dump = JSON.stringify(D1.raw.prepare("SELECT * FROM reports").all()) + JSON.stringify(D1.raw.prepare("SELECT * FROM report_count").all());
+  ok("報告の記録に、メールアドレスも Google の番号も無い", !/example\.com|u8/.test(dump));
+  // 90日たった報告は消す・新しいものは残す。報告の回数は2日で消す
+  D1.raw.prepare("INSERT INTO reports (at, kind, reason, text) VALUES ('2026-06-01T00:00:00.000Z','chat','other','古い報告')").run();
+  D1.raw.prepare("INSERT INTO report_count VALUES ('old','2026-09-20',3)").run();
+  resetSweep();
+  const later = await rp({ kind: "chat", reason: "other", text: "次の日の報告" }, await token(good("u9", { exp: nowSec + 9 * 86400 })), NOW + 86400000);
+  const texts = rows().map(r => r.text);
+  ok("90日より古い報告は消す（新しいものは残す）", later.status === 200 && !texts.includes("古い報告") && texts.includes("例0") && texts.includes("次の日の報告"), later.status + " " + texts.length);
+  ok("報告の回数の記録は2日で消す", !D1.raw.prepare("SELECT uid FROM report_count").all().some(r => r.uid === "old"));
+  const pv = privacyHTML(env());
+  ok("プライバシーポリシーに、報告で残すもの・だれが送ったかを入れないこと・90日で消すことを書く",
+    /AI の文を報告したとき/.test(pv) && /その AI の文と、選んだ理由だけ/.test(pv) && /だれが送ったかを入れません/.test(pv) && /90日たつと消えます/.test(pv));
 }
 
 const fails = R.filter(x => x.startsWith("FAIL"));
