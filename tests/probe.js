@@ -6877,6 +6877,37 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DB. 時刻を言った作業が、一日の終わりで1分はみ出して置けなかった（2026-09-28・実機で報告「埋まってないのに」） =====
+       21:30 に「22:00〜23:00 勉強」「23:00 からゲーム1時間」。ゲームが「23:00からと言っていましたが、そこは別の予定で埋まっています」。
+       既定の「一日じゅう」は 00:00〜23:59 なので、23:00＋1時間＝24:00 が1分はみ出していた。理由も取り違えていた（決まり6n）。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const K = "2026-09-28";
+      const mkT = (title, h, mi, min) => { const at = zoned(2026, 9, 28, h, mi, TZ).toISOString();
+        const it = { id: uid(), noteId: null, kind: "task", title, status: "open", origin: "user", confirmed: false, corrected: false, history: [],
+          createdAt: zoned(2026, 9, 28, 9, 0, TZ).toISOString(), updatedAt: "", evidence: { text: title }, dayKey: K, due: at, duePrecision: "exact",
+          dueIsDeadline: false, estimateMin: min, fixed: false };
+        it.dedupeKey = dedupeKey(it); state.items.push(it); return it; };
+      const fresh = (ws, we) => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ, workStart: ws || "00:00", workEnd: we || "23:59" }); };
+      const where = (it, now) => { const p = planFor(K, { nowMin: now }); const b = p.blocks.find(x => x.item && x.item.id === it.id);
+        if (b) return hhmm(b.s) + "〜" + hhmm(b.e); const u = p.unplaced.find(x => x.item.id === it.id); return u ? "置けない：" + u.reason : "なし"; };
+      const NOW = 21 * 60 + 30;
+      fresh(); mkT("勉強する", 22, 0, 60); const game = mkT("ゲーム", 23, 0, 60);
+      const gb = planFor(K, { nowMin: NOW }).blocks.find(x => x.item && x.item.id === game.id);
+      ok("DB. 22:00〜23:00 のあと、23:00 から1時間の作業を置ける（一日の終わりは 24:00）", !!gb && gb.s === 23 * 60 && gb.e === 24 * 60, where(game, NOW));
+      fresh(); const g2 = mkT("ゲーム", 23, 30, 60);
+      ok("DB. 日付をまたぐ長さなら、そう言う（「埋まっています」と言わない）", /日付をまたぐ/.test(where(g2, NOW)) && !/埋まって/.test(where(g2, NOW)), where(g2, NOW));
+      fresh("09:00", "21:00"); const g3 = mkT("ゲーム", 22, 0, 60);
+      ok("DB. 作業に使える時間帯の外なら、そう言う", /作業に使える時間帯（09:00〜21:00）の外です/.test(where(g3, 10 * 60)), where(g3, 10 * 60));
+      fresh("09:00", "21:00"); const g5 = mkT("ゲーム", 20, 30, 60);
+      ok("DB. 帯の終わりを1分でもはみ出すなら、帯の外と言う（23:59 のときだけ 24:00 まで）", /の外です/.test(where(g5, 10 * 60)), where(g5, 10 * 60));
+      fresh(); mkT("会議の準備", 23, 0, 30); const g4 = mkT("ゲーム", 23, 0, 60);
+      ok("DB. 本当に別の枠があるときは、今までどおり「埋まっています」", /別の予定で埋まっています/.test(where(g4, NOW)), where(g4, NOW));
+      fresh(); const g6 = mkT("ゲーム", 21, 0, 60);
+      ok("DB. 過ぎた時刻は「過ぎています」のまま", /21:00は過ぎています/.test(where(g6, NOW)), where(g6, NOW));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

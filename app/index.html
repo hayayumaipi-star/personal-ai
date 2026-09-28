@@ -4840,7 +4840,10 @@ function planFor(key, opts) {
   // 作業時間帯から固定枠を引いた残りが、動かせる枠を置ける場所。
   // 開始は「今」以降。過ぎた時間に新しい作業は置かない。
   const startFloor = nowMin >= 0 ? Math.max(winS, Math.ceil(nowMin / 5) * 5) : winS;
-  let free = [[startFloor, winE]];
+  /* **「23:59まで」は「その日の終わり（24:00）まで」**（2026-09-28・実機で報告）。既定の「一日じゅう」は 00:00〜23:59 なので、
+     「23:00からゲーム1時間」が1分はみ出して置けず、しかも「別の予定で埋まっています」と言っていた。 */
+  const dayEnd = winE === 23 * 60 + 59 ? 24 * 60 : winE;
+  let free = [[startFloor, dayEnd]];
   for (const b of blocks) {
     const nf = [];
     for (const [a, z] of free) {
@@ -4982,9 +4985,16 @@ function planFor(key, opts) {
         run.splice(i0, 1, ...rest.map(() => 0), ...(rest.length ? [] : [0]));
         put = true;
       } else {
+        /* 置けない理由を分ける（決まり6n・間違った理由は、理由を出さないより悪い）。「埋まっています」は、本当に別の枠があるときだけ。 */
         unplaced.push({ item: t, need,
           reason: (nowMin >= 0 && at0 < nowMin)
             ? `${hhmm(at0)}は過ぎています`
+            : (winCapped && at0 + need > winE)
+            ? `${hhmm(at0)}からと言っていましたが、「夜は予定を入れないで」と言っていたので${hhmm(winE)}より後には置いていません`
+            : (at0 + need > 24 * 60 && dayEnd === 24 * 60)
+            ? `${hhmm(at0)}から${durJa(need)}だと日付をまたぐので、この日の予定表には置けません`
+            : (at0 < winS || at0 + need > dayEnd)
+            ? `${hhmm(at0)}からと言っていましたが、作業に使える時間帯（${hhmm(winS)}〜${hhmm(winE)}）の外です`
             : `${hhmm(at0)}からと言っていましたが、そこは別の予定で埋まっています` });
         continue;
       }
