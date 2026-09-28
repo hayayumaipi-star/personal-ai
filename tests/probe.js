@@ -7750,6 +7750,59 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DR. テスター13周目：日記のような長い話・メモ書きの形・「空いてる？」・明日朝（2026-09-28・自律で進めた回） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (h, mi) => zoned(2026, 9, 15, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const hmOf = x => x && validISO(x) ? hhmm(minOfDay(x, TZ)) : "なし";
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, h, mi] of steps) r = await say(s, at(h, mi)); return r; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.start && !i.timeUnknown ? " " + hmOf(i.start) : ""}`).join(" ／ ");
+      const said = r => ((r && r.changes) || []).concat((r && r.asks) || []).join(" / ");
+      const title1 = async (s, h) => { await run([[s, h || 10]]); return state.items.filter(i => i.kind === "task" || i.kind === "event").map(i => i.title).join(); };
+      // --- 明日朝 ---
+      await run([["明日朝9時に出発", 7]]);
+      ok("DR. 朝7時の「明日朝9時に出発」は明日の9:00（今日の9時にしない）", state.items.length === 1 && state.items[0].dayKey === "2026-09-16" && hmOf(state.items[0].start || state.items[0].due) === "09:00", show(state.items));
+      await run([["明日朝イチでメール返す", 20]]);
+      ok("DR. 「明日朝イチでメール返す」は明日の朝の用事「メール返す」", state.items.length === 1 && state.items[0].title === "メール返す" && state.items[0].dayKey === "2026-09-16" && state.items[0].preferWindow === "morning", show(state.items));
+      // --- 日記のような話 ---
+      await run([["今日は朝から雨で、9時に起きて、10時から会議があって、そのあと資料を作った。夜は疲れたので早く寝る", 21]]);
+      ok("DR. 夜の「今日は…9時に起きて、10時から会議があって、そのあと資料を作った」は済んだ話（今日の過ぎた予定・用事を作らない）",
+        !state.items.some(i => i.kind === "event" || i.kind === "task") && state.items.some(i => i.kind === "condition"), show(state.items));
+      await run([["明日は9時に集合して、10時から会議って聞いた", 21]]);
+      ok("DR. 文の終わりが済んだ話（聞いた）でも、これから来る日時の話は予定にする（集合も会議も・見出しに「って聞いた」を残さない）",
+        state.items.filter(i => i.kind === "event" && i.dayKey === "2026-09-16").map(i => i.title).join() === "集合する,会議", show(state.items));
+      await run([["明日は9時に起きて、10時から会議があって、そのあと資料を作る", 21]]);
+      ok("DR. これからの話（「明日は…10時から会議があって、そのあと資料を作る」）は今までどおり予定にする", state.items.some(i => i.kind === "event" && i.dayKey === "2026-09-16" && hmOf(i.start) === "10:00"), show(state.items));
+      // --- メモ書きの形 ---
+      ok("DR. 「〆切 金曜 企画書」の見出しは「企画書」（金曜まで）", await title1("〆切 金曜 企画書") === "企画書" && state.items[0].dayKey === "2026-09-18", show(state.items));
+      ok("DR. 「ミーティング15時〜」の見出しは「ミーティング」", await title1("ミーティング15時〜") === "ミーティング", show(state.items));
+      ok("DR. 「あとで銀行」の見出しは「銀行」（「で銀行」にしない）", await title1("あとで銀行") === "銀行", show(state.items));
+      ok("DR. 「明日の会議、Zoomで」の見出しは「会議（Zoom）」", await title1("明日の会議、Zoomで", 20) === "会議（Zoom）", show(state.items));
+      ok("DR. 「スーパー」だけでも用事", await title1("スーパー") === "スーパー" && state.items[0].kind === "task", show(state.items));
+      // --- 時期の言い方 ---
+      await run([["今週末は実家に帰る", 10]]);
+      ok("DR. 「今週末は実家に帰る」は「9/19ごろ」ではなく「今週末ごろ」", periodText(state.items[0]) === "今週末ごろ", periodText(state.items[0]));
+      await run([["今週中に返信する", 10]]);
+      ok("DR. 「今週中に返信する」は「今週中」", periodText(state.items[0]) === "今週中", periodText(state.items[0]));
+      await run([["来週どこか飲みに行きたい", 10]]);
+      ok("DR. 「来週〜」は「来週ごろ」", periodText(state.items[0]) === "来週ごろ", periodText(state.items[0]));
+      let r = await run([["来月の10日から12日まで旅行", 10]]);
+      ok("DR. 何日も続く予定の返事は「10/10〜10/12・終日」（「10/10 00:00」と言わない）", /旅行（10\/10〜10\/12・終日）/.test(said(r)), said(r));
+      // --- 空いてる？ ---
+      await run([["金曜14時から会議", 9]]);
+      let an = answerQuestion("金曜何時まで空いてる？", planFor("2026-09-18", { nowMin: -1 }), "2026-09-18", "09/18") || "";
+      ok("DR. 「金曜何時まで空いてる？」は最初の予定の始まりまで（予定の終わりで答えない）", /14:00まで空いている/.test(an) && /会議/.test(an), an);
+      an = answerQuestion("金曜何時から空いてる？", planFor("2026-09-18", { nowMin: -1 }), "2026-09-18", "09/18") || "";
+      ok("DR. 「金曜何時から空いてる？」も空き時間で答える（予定のはじめで答えない）", /空いている/.test(an) && !/はじめ/.test(an), an);
+      an = answerQuestion("明後日空いてる？", planFor("2026-09-17", { nowMin: -1 }), "2026-09-17", "明後日") || "";
+      ok("DR. 何も無い日の「明後日空いてる？」は「まるごと空いている」", /まるごと空いている/.test(an), an);
+      an = answerQuestion("金曜空いてる？", planFor("2026-09-18", { nowMin: -1 }), "2026-09-18", "09/18") || "";
+      ok("DR. 予定がある日の「金曜空いてる？」は空いている時間で答える", /空いているのは/.test(an) && /14:00/.test(an), an);
+      an = answerQuestion("駅前のカフェ空いてる？", planFor("2026-09-15", { nowMin: 600 }), "2026-09-15", "今日") || "";
+      ok("DR. 「駅前のカフェ空いてる？」（日にちも時刻も言わない）は空き時間で答えない", !/空いている/.test(an), an);
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
