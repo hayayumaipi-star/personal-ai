@@ -2956,14 +2956,14 @@
          だから見るのは関数の字面ではなく、**実際に出ていく中身**。
          `aiPost` を差し替えて捕まえる。 */
       {
-        const keepPost = aiPost, keepPlain = geminiPlain;
+        const keepPost = aiPost, keepPlain = geminiPlain, keepQL = geminiQuickLow;
         const good = { ok: true, status: 200,
                        data: { candidates: [{ content: { parts: [{ text: '{"ops":[]}' }] } }] } };
         let sent = [];
         aiPost = async (url, head, body) => { sent.push(body); return good; };
         const g = ownAI({ provider: "gemini", key: "k", model: "gemini-3.5-flash-lite" });
 
-        geminiPlain = false; sent = [];
+        geminiPlain = false; geminiQuickLow = false; sent = [];
         await g("やあ", { modelTier: "quick" });
         ok("BF. 速い返事には、軽く考える指示を渡す",
            sent.length === 1 && sent[0].generationConfig && sent[0].generationConfig.thinkingConfig
@@ -2972,6 +2972,8 @@
         /* 深さは thinkingConfig の中に書く（Gemini の決まり）。直下に書くと毎回 400 で断られ、素の形に落ちていた（2026-09-28） */
         ok("BF. 考える深さは thinkingConfig の中に書く（generationConfig の直下に書かない）",
            !("thinkingLevel" in (sent[0].generationConfig || {})), JSON.stringify(sent[0] && sent[0].generationConfig));
+        ok("BF. 受け止めの一言は minimal（考えない・2026-09-28 本人「最小を採用する」）",
+           ((sent[0].generationConfig || {}).thinkingConfig || {}).thinkingLevel === "minimal", JSON.stringify(sent[0] && sent[0].generationConfig));
         ok("BF. 速い返事に、JSONで返せとは言わない",
            !(sent[0].generationConfig || {}).responseMimeType, "言っている");
 
@@ -2989,7 +2991,7 @@
         /* **400（送り方が違う）なら、調整をやめて1回だけ入れ直す。**
            受け取る名前はモデルで違うので、名前を1つ間違えただけで
            AIがまるごと死ぬ状態にしてはいけない（画面から直す道が無い・決まり13c）。 */
-        geminiPlain = false; sent = [];
+        geminiPlain = false; geminiQuickLow = false; sent = [];
         let n = 0;
         aiPost = async (url, head, body) => {
           sent.push(body); n++;
@@ -3010,8 +3012,32 @@
         ok("BF. 一度断られたら、その後は最初から素で送る（毎回2回呼ばない）",
            sent.length === 1 && !sent[0].generationConfig, JSON.stringify(sent[0]));
 
+        /* **minimal を断られたら、素ではなく low へ一段だけ戻す**（2026-09-28）。素（モデル任せの深さ）に落ちると、
+           受け止めの一言がかえって重くなり、読み取りまで素になる——minimal を避けていた理由はこれだった。 */
+        geminiPlain = false; geminiQuickLow = false; sent = []; n = 0;
+        aiPost = async (url, head, body) => {
+          sent.push(body); n++;
+          const lv = ((body.generationConfig || {}).thinkingConfig || {}).thinkingLevel;
+          return lv === "minimal" ? { ok: false, status: 400, data: { error: { message: "minimal is not supported" } } } : good;
+        };
+        let q1 = null, q1err = ""; try { q1 = await g("やあ", { modelTier: "quick" }); } catch (e) { q1err = String(e.message || e); }
+        const lvOf = b => ((b && b.generationConfig || {}).thinkingConfig || {}).thinkingLevel || "素";
+        ok("BF. minimal を断られたら、low で1回だけ入れ直して通す（素に落とさない）",
+           !!q1 && !q1err && sent.length === 2 && lvOf(sent[1]) === "low" && geminiPlain === false,
+           sent.map(lvOf).join("→") + " / " + (q1err || JSON.stringify(q1)));
+        sent = [];
+        await g("もう一度", { modelTier: "quick" });
+        await g.json("読み取って", { modelTier: "default" });
+        ok("BF. そのあとの受け止めの一言は最初から low・読み取りは low のまま（巻き込まない・毎回2回呼ばない）",
+           sent.length === 2 && lvOf(sent[0]) === "low" && lvOf(sent[1]) === "low", sent.map(lvOf).join(" / "));
+        // low まで断られるモデルなら、そのときは今までどおり素へ
+        sent = []; n = 0;
+        aiPost = async (url, head, body) => { sent.push(body); return body.generationConfig ? { ok: false, status: 400, data: { error: { message: "Unknown name" } } } : good; };
+        await g("やあ", { modelTier: "quick" });
+        ok("BF. low まで断られたら、素の形で入れ直す", sent.length === 2 && lvOf(sent[1]) === "素" && geminiPlain === true, sent.map(lvOf).join("→"));
+
         /* 400 以外は「送り方」の話ではない。入れ直さず、理由をそのまま出す。 */
-        geminiPlain = false; sent = [];
+        geminiPlain = false; geminiQuickLow = false; sent = [];
         aiPost = async (url, head, body) => { sent.push(body);
           return { ok: false, status: 401, data: { error: { message: "API key not valid" } } }; };
         let msg = "";
@@ -3019,7 +3045,7 @@
         ok("BF. 401 は入れ直さない（送り方の話ではない）", sent.length === 1, sent.length + "回");
         ok("BF. 401 の理由は、そのまま残る", /Gemini 401/.test(msg), msg);
 
-        aiPost = keepPost; geminiPlain = keepPlain;
+        aiPost = keepPost; geminiPlain = keepPlain; geminiQuickLow = keepQL;
       }
 
       /* 既定のモデルは、**1日に使える回数が多いほう**（2026-09-24・実機の使用状況で判明）。
@@ -6448,6 +6474,7 @@
         if (S.mode === "limit") return out(429, { error: { code: "daily_limit", message: "今日のAIの回数（40回）を使い切りました。明日また使えます" } });
         if (S.mode === "expired") { S.signed = false; return out(401, { error: { code: "login_required", message: "ログインを確かめられませんでした" } }); }
         if (S.mode === "g400" && b.body.generationConfig) return out(400, { error: { code: 400, message: "Invalid JSON payload received. Unknown name" } });
+        if (S.mode === "g400min" && ((b.body.generationConfig || {}).thinkingConfig || {}).thinkingLevel === "minimal") return out(400, { error: { code: 400, message: "thinking level minimal is not supported" } });
         if (S.mode === "bad") return out(400, { error: { code: "bad_request", message: "送る中身が足りません" } });
         S.used++;
         const text = b.tier === "quick" ? "受け止めました。" : JSON.stringify({ ops: [{ op: "add", kind: "task", title: "郵便局に行く", dueDate: null, duePrecision: "none", quote: "郵便局に行く" }], habit: S.habit || "" });
@@ -6567,14 +6594,18 @@
         ok("CW. 日が変われば、また頼む", aiOutToday() === false);
         aiOutDay = "";
         // ⑧ Gemini が送り方を断った（数字の 400）ときだけ素で入れ直す。サーバー自身の断り（文字の code）は入れ直さない
-        S.mode = "g400"; S.gen = []; geminiPlain = false;
+        S.mode = "g400"; S.gen = []; geminiPlain = false; geminiQuickLow = false;
         let got = null, why0 = "";
+        try { got = await ownAICall(builtInAI(), "やあ", { modelTier: "default" }); } catch (e) { why0 = String(e.message); }
+        ok("CW. Gemini が送り方を断ったら（400）、素の形で1回だけ入れ直す", typeof got === "string" && /郵便局/.test(got) && S.gen.length === 2 && !S.gen[1].body.generationConfig, S.gen.length + "回 / " + why0);
+        S.mode = "g400min"; S.gen = []; geminiPlain = false; geminiQuickLow = false; got = null;
         try { got = await ownAICall(builtInAI(), "やあ", { modelTier: "quick" }); } catch (e) { why0 = String(e.message); }
-        ok("CW. Gemini が送り方を断ったら（400）、素の形で1回だけ入れ直す", got === "受け止めました。" && S.gen.length === 2 && !S.gen[1].body.generationConfig, S.gen.length + "回 / " + why0);
-        S.mode = "bad"; S.gen = []; geminiPlain = false;
+        ok("CW. 受け止めの一言（minimal）を断られたら、中継サーバーの道でも low で1回だけ入れ直す",
+          got === "受け止めました。" && S.gen.length === 2 && ((S.gen[1].body.generationConfig || {}).thinkingConfig || {}).thinkingLevel === "low", S.gen.length + "回 / " + why0);
+        S.mode = "bad"; S.gen = []; geminiPlain = false; geminiQuickLow = false;
         let why = ""; try { await ownAICall(builtInAI(), "やあ", { modelTier: "quick" }); } catch (e) { why = String(e.message); }
         ok("CW. サーバー自身の断り（bad_request）は入れ直さない・理由を言う", S.gen.length === 1 && /AIのサーバー 400/.test(why) && /送る中身が足りません/.test(why), S.gen.length + "回 / " + why);
-        geminiPlain = false;
+        geminiPlain = false; geminiQuickLow = false;
         // ⑨ カレンダー：ログイン済みならログインし直さない・同期をやめても AI のログインは残す
         window.askConfirm = async () => true;
         S.calls = []; await gcalConnect(); await settle();

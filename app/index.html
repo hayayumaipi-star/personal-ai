@@ -3590,17 +3590,27 @@ async function ownAICall(cfg, prompt, opts) {
 /* **読み取りにも深く考えさせない**（2026-09-28・本人の指示「本体のAIに深く考えてと頼むのをやめる」）。
    Gemini は考えた量も「返ってきた量」として料金に数える。日付・時刻・置き場所はもともとコードが決めて検算する（決まり8・4i・6q）ので、
    AIに要るのは「何の話か」を読むところだけ。前は読み取りを "medium" にしていた（2026-09-24）。
-   "minimal" は選ばない：受け付けないモデルだと 400 → 素の形（＝モデル任せの深さ・かえって高い）に落ちるため。 */
-const GEMINI_THINK = { quick: "low", deep: "low" };
-let geminiPlain = false;
+   **受け止めの一言は "minimal"**（2026-09-28・本人「最小を採用する」）。本物の Gemini（3.5 Flash-Lite）で測ると、"low" は真ん中の値で1.2〜2.0秒・
+   30件中12件が2秒を超え（決まり7b は1〜2秒）、"minimal" は考えた量0・約1秒だった。受け止めの一言に考えることは要らない。
+   前に "minimal" を避けた理由（受け付けないモデルだと 400 → 素の形＝モデル任せの深さに落ち、読み取りまで巻き込む）は、
+   **断られたら "low" へ一段だけ戻す**ことで塞ぐ（`geminiStepBack`）。素に落ちるのは "low" まで断られたときだけ。 */
+const GEMINI_THINK = { quick: "minimal", deep: "low" };
+let geminiPlain = false, geminiQuickLow = false;
 function geminiBody(prompt, opts) {
   const body = { contents: [{ parts: [{ text: prompt }] }] };
   if (geminiPlain) return body;
   const g = { thinkingConfig: { thinkingLevel: (opts && opts.modelTier === "quick")
-                ? GEMINI_THINK.quick : GEMINI_THINK.deep } };
+                ? (geminiQuickLow ? "low" : GEMINI_THINK.quick) : GEMINI_THINK.deep } };
   if (opts && opts.wantJSON) g.responseMimeType = "application/json";
   body.generationConfig = g;
   return body;
+}
+/* 送り方を断られた（400）ときの、一歩の下がり方（1か所・決まり7e）。"minimal" を断られたら "low" へ、それ以外は素の形へ。
+   どちらも入れ直しは1回だけ（呼ぶ側）。以後その回は下げたまま送る。 */
+function geminiStepBack(sent) {
+  const lv = sent && sent.generationConfig && sent.generationConfig.thinkingConfig && sent.generationConfig.thinkingConfig.thinkingLevel;
+  if (lv === "minimal" && !geminiQuickLow) geminiQuickLow = true;
+  else geminiPlain = true;
 }
 async function ownAICallOnce(cfg, prompt, opts) {
   const quick = !!(opts && opts.modelTier === "quick");
@@ -3620,7 +3630,7 @@ async function ownAICallOnce(cfg, prompt, opts) {
     // サーバー自身の断り（文字の code）は送り方の話ではない。Gemini の 400 のときだけ調整を外して入れ直す
     const scode = x => x && x.data && x.data.error && typeof x.data.error.code === "string" ? x.data.error.code : "";
     if (!r.ok && r.status === 400 && sent.generationConfig && !scode(r)) {
-      geminiPlain = true;
+      geminiStepBack(sent);
       r = await go(geminiBody(prompt, opts));
     }
     const d = r.data;
@@ -3644,7 +3654,7 @@ async function ownAICallOnce(cfg, prompt, opts) {
        キーが違うときも 400 なので空振りすることがあるが、そのときは
        今までとまったく同じ送り方に戻るだけで、失う機能は無い。 */
     if (!r.ok && r.status === 400 && sent.generationConfig) {
-      geminiPlain = true;
+      geminiStepBack(sent);
       try { r = await aiPost(url, head, geminiBody(prompt, opts), sig); }
       catch (e) { throw new Error(ownAIError(e, P.host)); }
     }
