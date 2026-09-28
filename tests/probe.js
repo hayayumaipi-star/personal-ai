@@ -1046,15 +1046,16 @@
            state.items.length + " / " + before);
         ok("AE. 書き出しを戻す道がある", typeof importJSON === "function" && !!document.querySelector("#btnImport"));
         ok("AE. 古い記録だけ整理する道がある", !!document.querySelector("#btnTidy"));
-        ok("AE. 記録をさがす道がある", !!document.querySelector("#findQ"));
         ok("AE. 読み込めていないぶんまで消し切る関数がある", typeof wipeCollection === "function");
-        ok("AE. カレンダーの読み書きがある", typeof parseICS === "function" && typeof buildICS === "function");
-        const ics = parseICS([
-          "BEGIN:VCALENDAR", "BEGIN:VEVENT", "SUMMARY:健康診断",
-          "DTSTART;TZID=Asia/Tokyo:20260915T093000", "DTEND;TZID=Asia/Tokyo:20260915T103000",
-          "END:VEVENT", "END:VCALENDAR"].join("\r\n"), TZ);
-        ok("AE. .ics を1件読める", ics.length === 1 && ics[0].title === "健康診断", JSON.stringify(ics));
-        ok("AE. .ics の時刻を正しく読む", ics[0] && fmtDT(ics[0].start, TZ) === "9/15 09:30", ics[0] && fmtDT(ics[0].start, TZ));
+        /* 2026-09-28 本人の指示で「記録をさがす」と .ics の読み書きを外した（Googleカレンダーと自動で同期するので .ics は役目が重なった）。
+           **書き出す・読み込むは残す**（記録はスマホの中にしか無く、なくしたときに戻せる道はここだけ）。 */
+        ok("AE. 「記録をさがす」と .ics の読み書きは外した（戻っていない）",
+           !document.querySelector("#findQ") && !document.querySelector("#btnIcsIn") && !document.querySelector("#btnIcsOut") && !document.querySelector("#icsFile")
+           && typeof parseICS === "undefined" && typeof importICS === "undefined");
+        const dataCard = document.querySelector("#btnExport") && document.querySelector("#btnExport").closest(".card");
+        ok("AE. 記録の置き場所・件数の注意は「持ち出す・持ち込む」の欄へ、作業時間の直し方は設定の欄へ引っ越した（知らせを捨てていない）",
+           !!dataCard && !!dataCard.querySelector("#whereNote") && !!dataCard.querySelector("#dataWarn")
+           && !!document.querySelector("#windowWarn") && !!document.querySelector("#windowWarn").closest(".card") && !!document.querySelector("#windowWarn").closest(".card").querySelector("#theme"));
       }
 
       /* ===== AF群：長すぎる入力・時間切れ・オフライン（v4.3） ===== */
@@ -1606,47 +1607,6 @@
           }
         }
 
-        /* AS. 外部ファイル（.ics）は、壊れていると思って読む（v5.6・調査で発見）。
-           他所から来るファイルなのに、テストが1件も無かった。
-           とくに `TZID` は検算せず `zoned()` に渡していたので、
-           **壊れた1件でファイルまるごと読めなくなる**（例外が for を抜ける）。 */
-        {
-          const ics = body => "BEGIN:VCALENDAR" + String.fromCharCode(13,10) + body
-            + String.fromCharCode(13,10) + "END:VCALENDAR";
-          const ev = lines => "BEGIN:VEVENT" + String.fromCharCode(13,10)
-            + lines.join(String.fromCharCode(13,10)) + String.fromCharCode(13,10) + "END:VEVENT";
-          const nl = String.fromCharCode(13,10);
-
-          let got = null, threw = null;
-          try {
-            got = parseICS(ics(ev(["SUMMARY:壊れたほう", "DTSTART;TZID=Invalid/Zone:20260915T093000"]) + nl
-                             + ev(["SUMMARY:ちゃんとしたほう", "DTSTART:20260915T100000Z"])), TZ);
-          } catch (e) { threw = e.name + ": " + String(e.message).slice(0, 40); }
-          ok("AS. 壊れた TZID があっても、例外で止まらない", threw === null, String(threw));
-          ok("AS. 壊れた TZID は、こちらの設定で読む（捨てない）",
-             !!got && got.length === 2
-             && got[0].title === "壊れたほう"
-             && fmtDT(got[0].start, TZ) === fmtDT(zoned(2026, 9, 15, 9, 30, TZ).toISOString(), TZ),
-             got ? JSON.stringify(got.map(x => x.title + "@" + fmtDT(x.start, TZ))) : "（読めない）");
-
-          const safe = t => { try { return parseICS(t, TZ); } catch { return "★例外"; } };
-          ok("AS. 題名の無い予定は捨てる",
-             JSON.stringify(safe(ics(ev(["DTSTART:20260915T100000Z"])))) === "[]");
-          ok("AS. 日時の無い予定は捨てる",
-             JSON.stringify(safe(ics(ev(["SUMMARY:題名だけ"])))) === "[]");
-          ok("AS. 日付の形が違うものは捨てる",
-             JSON.stringify(safe(ics(ev(["SUMMARY:x", "DTSTART:きょう"])))) === "[]");
-          ok("AS. 空・null・数値でも落ちない",
-             JSON.stringify(safe("")) === "[]" && JSON.stringify(safe(null)) === "[]"
-             && JSON.stringify(safe(12345)) === "[]");
-          ok("AS. END:VEVENT が無くても落ちない",
-             JSON.stringify(safe("BEGIN:VEVENT" + nl + "SUMMARY:途中で終わる")) === "[]");
-          // 折り返し（行頭の空白で続く）を戻せること
-          const folded = safe(ics(ev(["SUMMARY:とても長い題" + nl + " 名のつづき", "DTSTART:20260915T100000Z"])));
-          ok("AS. 折り返した行をつなげて読む",
-             Array.isArray(folded) && folded.length === 1 && /つづき/.test(folded[0].title),
-             JSON.stringify(folded));
-        }
 
         /* AT. 「日付の言葉があったか」の判定が、2か所に分かれていないこと（v5.7）。
            v5.3 で `applyFields` に同じ式を書いてしまい、アプリは `dateWasSpoken` を
@@ -3370,8 +3330,8 @@
       ok("BI. 折りたたみは閉じた状態から始まる", !!fold && !fold.open);
       ok("BI. 消す道は1つも塞いでいない",
          !!document.querySelector("#btnWipe") && !!document.querySelector("#btnTidy"));
-      ok("BI. 「さがす」が「全部消す」より上にある",
-         !!wipe && document.querySelector("#findQ").compareDocumentPosition(wipe)
+      ok("BI. 「書き出す」が「全部消す」より上にある",
+         !!wipe && document.querySelector("#btnExport").compareDocumentPosition(wipe)
            === Node.DOCUMENT_POSITION_FOLLOWING);
     }
 
@@ -6060,19 +6020,8 @@
                         ["明日歯医者😭", "歯医者"], ["近々引っ越す", "引っ越す"], ["明日締め切りのレポート", "レポート"], ["レポートは明日が締め切り", "レポート"], ["絶対に明日10時に病院", "病院"]]
           .map(([t, want]) => { const x = one(t); return x && x.title === want ? null : t + "→" + (x ? show([x]) : "なし"); }).filter(Boolean);
         ok("CS. 見出しに言い方の跡（正午に・過ぎに・(月)・頭に・TODO・ｗ・箇条書きの印・絵文字・近々・締め切りの・絶対に）を残さない", titles.length === 0, titles.join(" ／ ")); }
-      // ⑨ 取り込むカレンダー・AIの ops
-      { const keepAC = window.askConfirm; window.askConfirm = async () => true;
-        const ics = (body) => "BEGIN:VCALENDAR\nBEGIN:VEVENT\n" + body + "\nEND:VEVENT\nEND:VCALENDAR";
-        reset(); await importICS(ics("SUMMARY:休み\nDTSTART;VALUE=DATE:20261001\nDTEND;VALUE=DATE:20261004"), "t.ics");
-        const a = state.items[0];
-        reset(); await importICS(ics("SUMMARY:定例\nDTSTART:20261001T100000\nRRULE:FREQ=WEEKLY;BYDAY=TH"), "t.ics");
-        const b = state.items[0];
-        reset(); await importICS(ics("SUMMARY:逆\nDTSTART:20261001T100000\nDTEND:20261001T090000"), "t.ics");
-        const c = state.items[0];
-        window.askConfirm = keepAC;
-        ok("CS. カレンダーの何日も続く終日は全部の日に（10/1〜10/3）", !!a && a.allDay && a.spanEndKey === "2026-10-03", a ? JSON.stringify([a.dayKey, a.spanEndKey]) : "なし");
-        ok("CS. カレンダーの毎週のくり返しは、くり返しとして入る", !!b && b.repeat && b.repeat.kind === "weekly" && b.repeat.dow === 4, b ? JSON.stringify(b.repeat) : "なし");
-        ok("CS. 終わりが始まりより前の予定は、1時間の仮置きに直す", !!c && new Date(c.end) > new Date(c.start), c ? c.start + "〜" + c.end : "なし");
+      // ⑨ AIの ops（取り込むカレンダー＝.ics は 2026-09-28 に外した）
+      {
         reset(); let threw = null; const n = mkNote("明日10時に会議");
         try { await applyOps({ op: "add", kind: "task", title: "牛乳を買う" }, n); } catch (e) { threw = e.message; }
         ok("CS. AIの ops が1件の物でも落ちない", !threw && state.items.length === 1, threw || "");
@@ -7093,8 +7042,6 @@
         if (replaced) delete window.indexedDB;
       }
       idbP = keepIdbP;
-      ok("CJ. カレンダーの取り込みの1000件の知らせは、claude.ai の保存先があるときだけ",
-         /const over = !!DB && /.test(String(importICS)));
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
       lsWrite();
     }

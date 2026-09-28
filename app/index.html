@@ -714,6 +714,11 @@ try { if (window.ReactNativeWebView) document.documentElement.classList.add("in-
           <select id="revDow" aria-label="見直しの曜日"><option value="-1">知らせない</option><option value="0">毎週日曜</option><option value="1">毎週月曜</option><option value="2">毎週火曜</option><option value="3">毎週水曜</option><option value="4">毎週木曜</option><option value="5">毎週金曜</option><option value="6">毎週土曜</option></select>
           <select id="revHour" aria-label="見直しの時刻"></select>
         </div></div>
+      <!-- 作業に使える時間帯が狭いまま保存されている人の逃げ道（v6.3・実機で報告）。
+           設定欄は v3.9 で外したので、古い値のままだと**画面から直す道が無かった**。
+           入力欄は戻さない。戻すのは「一日じゅうに戻す」の1手だけ。
+           （2026-09-28「記録をさがす」を外したので、この欄へ引っ越した） -->
+      <div class="note warn" id="windowWarn" hidden></div>
       <span id="setMsg" class="hint"></span>
     </div>
 
@@ -724,41 +729,25 @@ try { if (window.ReactNativeWebView) document.documentElement.classList.add("in-
       <div id="gcalOut"></div>
     </div>
 
-    <!-- 「データ」の1枚に操作が8つ並んでいたのを、性質で3つに割った
-         （2026-09-20・本人の指示「わちゃわちゃしているのでシンプルに」）。
-         **さがす**（毎日の操作）を上へ、**持ち出す・持ち込む**を次へ、
-         **消す**（取り返しがつかない）は折りたたみの中へ。
+    <!-- 「データ」の1枚に操作が8つ並んでいたのを、性質で割った（2026-09-20・本人の指示「わちゃわちゃしているのでシンプルに」）。
+         **持ち出す・持ち込む**を上へ、**消す**（取り返しがつかない）は折りたたみの中へ。
          「全部消す」が「書き出す」の隣にあったので、指が滑ると終わりだった。
-         **道は1つも塞いでいない**（消す道を減らさない・決まり）。 -->
+         2026-09-28 本人の指示で「記録をさがす」と「カレンダーから読み込む／へ書き出す」（.ics）を外した
+         （Googleカレンダーと自動で同期するようになり、.ics は役目が重なった）。**書き出す・読み込むは残す**——
+         記録はスマホの中にしか無く、なくす・壊す・機種変更のときに戻せる道はここだけ。 -->
     <div class="card stack">
-      <h3 class="cardttl">記録をさがす</h3>
-      <div><label class="sr" for="findQ">記録をさがす</label>
-        <input type="search" id="findQ" placeholder="言葉を入れる（例：歯医者）"></div>
-      <div id="findOut"></div>
+      <h3 class="cardttl">持ち出す・持ち込む</h3>
       <!-- 記録がどこにあるかは、**開き方で変わる**（2026-09-20・APKを本物にした日）。
            `renderWhere()` が、いまつながっている先を見て書く。
            **共有の場所につながっているときだけ出す**（2026-09-26）——
            端末の中だけ（Android アプリ）なら、それはアプリとしてふつうのことで、知らせる事実が無い。 -->
       <div class="note info" id="whereNote" hidden></div>
       <div class="note warn" id="dataWarn" hidden></div>
-      <!-- 作業に使える時間帯が狭いまま保存されている人の逃げ道（v6.3・実機で報告）。
-           設定欄は v3.9 で外したので、古い値のままだと**画面から直す道が無かった**。
-           入力欄は戻さない。戻すのは「一日じゅうに戻す」の1手だけ。 -->
-      <div class="note warn" id="windowWarn" hidden></div>
-    </div>
-
-    <div class="card stack">
-      <h3 class="cardttl">持ち出す・持ち込む</h3>
       <div class="row">
         <button class="btn" id="btnExport">記録を書き出す</button>
         <button class="btn" id="btnImport">記録を読み込む</button>
       </div>
-      <div class="row">
-        <button class="btn" id="btnIcsIn">カレンダーから読み込む</button>
-        <button class="btn" id="btnIcsOut">カレンダーへ書き出す</button>
-      </div>
       <input type="file" id="impFile" accept=".json,application/json,text/plain" class="sr">
-      <input type="file" id="icsFile" accept=".ics,text/calendar,text/plain" class="sr">
       <p class="hint"><strong>いまの記録は消えず</strong>、同じものは二重に足しません。</p>
       <div id="expOut"></div>
     </div>
@@ -3023,7 +3012,7 @@ async function gcalReq(method, path, query, body) {
 const gcalQS = o => Object.keys(o).filter(k => o[k] != null && o[k] !== "").map(k => k + "=" + encodeURIComponent(o[k])).join("&");
 const gcalYmd = k => k.replace(/-/g, "");
 const gcalEvPath = id => GCAL_PRIMARY + "/" + encodeURIComponent(id);
-/* Google の予定1件 → この予定表の項目の中身（`importICS` の `mk` と同じ形・決まり4g の終日も同じ扱い）。 */
+/* Google の予定1件 → この予定表の項目の中身（決まり4g の終日も同じ扱い）。 */
 function gcalToItem(ev, tz) {
   const s = ev.start || {}, e = ev.end || {};
   const allDay = !!s.date;
@@ -7092,20 +7081,16 @@ async function act(a, id, el) {
 
 /* サンドボックス内では window.confirm が表示されず false になる。
    確認は必ずこのページ内のシートで行う。ブラウザのダイアログを使わない。 */
-/* `alt` を渡すと3つ目の道が出る（返り値は `"alt"`）。**渡さなければ今までどおり** true/false。
-   「全部足す／一部だけ足す／やめる」のように、**やめる以外の逃げ道**が要るときだけ使う。 */
-function askConfirm({ title, body, yes, danger, alt }) {
+function askConfirm({ title, body, yes, danger }) {
   return new Promise(resolve => {
     let done = false;
     const finish = v => { if (done) return; done = true; closeSheet(); resolve(v); };
     openSheet(`<h3>${esc(title)}</h3><p class="hint">${body}</p>
       <div class="foot">
         <button class="btn ${danger ? "danger" : "pri"} wide" id="cfYes">${esc(yes)}</button>
-        ${alt ? `<button class="btn" id="cfAlt">${esc(alt)}</button>` : ""}
         <button class="btn" id="cfNo" style="margin-left:auto">やめる</button>
       </div>`);
     $("#cfYes").addEventListener("click", () => finish(true));
-    if (alt) $("#cfAlt").addEventListener("click", () => finish("alt"));
     $("#cfNo").addEventListener("click", () => finish(false));
     $("#sheetHost .sheet").addEventListener("click", e => { if (e.target === e.currentTarget) finish(false); });
   });
@@ -9117,15 +9102,6 @@ document.addEventListener("change", e => {
     r.readAsText(f, "utf-8");
     return;
   }
-  if (e.target && e.target.id === "icsFile") {
-    const f = e.target.files && e.target.files[0]; e.target.value = "";
-    if (!f) return;
-    const r = new FileReader();
-    r.onload = () => { importICS(String(r.result || ""), f.name).catch(err => {
-      lastError = describeError(err); $("#expOut").innerHTML = '<p class="hint" style="color:var(--alert-ink)">読み込めませんでした：' + esc(lastError) + "</p>"; renderSettings(); }); };
-    r.readAsText(f, "utf-8");
-    return;
-  }
   if (e.target && e.target.id === "docFile") {
     const f = e.target.files && e.target.files[0]; if (!f) return;
     const r = new FileReader();
@@ -9348,156 +9324,6 @@ async function importJSON(text, name) {
   toast("控えを読み込みました");
 }
 
-/* カレンダーの読み書き（v4.3・.ics ファイル経由）。
-   本物のカレンダーには一切つながない。外へ送らない。ファイルを読む・書くだけ。 */
-function icsFold(s) { return String(s).replace(/[\\;,]/g, m => "\\" + m).replace(/\n/g, "\\n"); }
-function icsStamp(iso, tz) {
-  const p = parts(new Date(iso), tz);
-  return `${p.y}${pad2(p.mo)}${pad2(p.d)}T${pad2(p.h)}${pad2(p.mi)}00`;
-}
-function buildICS() {
-  const tz = state.settings.timezone;
-  const from = dayKey(new Date(Date.now() - 30 * 86400000), tz);
-  const evs = liveItems().filter(i => i.kind === "event" && validISO(i.start) && !i.timeUnknown
-    && dayKey(new Date(i.start), tz) >= from);
-  const L = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//AI秘書//JA//", "CALSCALE:GREGORIAN"];
-  for (const i of evs) {
-    const end = validISO(i.end) ? i.end : new Date(new Date(i.start).getTime() + 3600000).toISOString();
-    L.push("BEGIN:VEVENT", `UID:${i.id}@hitohi`, `DTSTAMP:${icsStamp(new Date().toISOString(), "UTC")}Z`,
-      `DTSTART;TZID=${tz}:${icsStamp(i.start, tz)}`, `DTEND;TZID=${tz}:${icsStamp(end, tz)}`,
-      `SUMMARY:${icsFold(i.title)}`, "END:VEVENT");
-  }
-  L.push("END:VCALENDAR");
-  return { text: L.join("\r\n"), count: evs.length };
-}
-function parseICS(text, tz) {
-  // 折り返し（行頭の空白で続く）を戻してから読む
-  const lines = String(text).replace(/\r\n/g, "\n").replace(/\n[ \t]/g, "").split("\n");
-  const out = [];
-  let cur = null;
-  const when = (v, param) => {
-    const m = String(v).match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$/);
-    if (!m) return null;
-    const [, y, mo, d, h, mi, , z] = m;
-    if (h == null) return { iso: zoned(+y, +mo, +d, 0, 0, tz).toISOString(), allDay: true };
-    if (z) return { iso: new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi)).toISOString(), allDay: false };
-    /* `TZID` は**外から来た文字列**。使えないものを `zoned` に渡すと `Intl` が
-       RangeError を投げ、**その1件どころかファイルまるごと読めなくなる**（v5.6・調査で発見）。
-       使えなければ、こちらの設定のタイムゾーンで読む（捨てるより残すほうが良い）。 */
-    const zid = (String(param || "").match(/TZID=([^;:]+)/) || [])[1];
-    const zone = usableTz(zid) ? zid : tz;
-    return { iso: zoned(+y, +mo, +d, +h, +mi, zone).toISOString(), allDay: false };
-  };
-  /* **壊れた1件で全部を落とさない。** 1行ずつ守り、読めない行は飛ばす。 */
-  for (const raw of lines) {
-   try {
-    const line = raw.trim();
-    if (line === "BEGIN:VEVENT") { cur = {}; continue; }
-    if (line === "END:VEVENT") { if (cur && cur.start && cur.title) out.push(cur); cur = null; continue; }
-    if (!cur) continue;
-    const i = line.indexOf(":");
-    if (i < 0) continue;
-    const key = line.slice(0, i), val = line.slice(i + 1);
-    const name = key.split(";")[0].toUpperCase();
-    if (name === "SUMMARY") cur.title = val.replace(/\\n/g, " ").replace(/\\([\\;,])/g, "$1").trim().slice(0, 80);
-    else if (name === "DTSTART") { const w = when(val, key); if (w) { cur.start = w.iso; cur.allDay = w.allDay; } }
-    else if (name === "DTEND") { const w = when(val, key); if (w) cur.end = w.iso; }
-    else if (name === "RRULE") cur.rrule = val;
-   } catch { /* この行は読めない。次へ進む（ファイル全体は捨てない） */ }
-  }
-  return out;
-}
-$("#btnIcsIn").addEventListener("click", () => $("#icsFile").click());
-$("#btnIcsOut").addEventListener("click", async () => {
-  const { text, count } = buildICS();
-  if (!count) { toast("出せる予定がありません"); return; }
-  const name = `hitohi-${dayKey(new Date(), state.settings.timezone)}.ics`;
-  if (DL) { try { await DL.save({ filename: name, data: text }); $("#expOut").innerHTML = `<p class="hint">${count}件の予定を書き出しました。</p>`; return; } catch {} }
-  $("#expOut").innerHTML = `<p class="hint">下をコピーして <code>${esc(name)}</code> として保存してください（${count}件）。</p><textarea readonly style="min-height:140px">${esc(text)}</textarea>`;
-});
-async function importICS(text, name) {
-  const tz = state.settings.timezone;
-  let found = [];
-  try { found = parseICS(text, tz); } catch (e) { lastError = describeError(e); }
-  if (!found.length) { $("#expOut").innerHTML = '<p class="hint" style="color:var(--alert-ink)">予定が見つかりませんでした。.ics ファイルを選んでください。</p>'; return; }
-  /* **くり返しを、くり返しとして取り込む**（2026-09-27・テスター2周目。前は全部「最初の1回だけ」だった）。
-     このアプリのくり返し（毎日・平日・毎週・隔週・毎月）に**そのまま写せるものだけ**。終わりのあるもの（UNTIL・COUNT）や
-     曜日が複数のものは、今までどおり最初の1回だけにして、そう言う。 */
-  const icsRepeat = r => {
-    if (!r || /(UNTIL|COUNT)=/.test(r)) return null;
-    const f = (/FREQ=(\w+)/.exec(r) || [])[1], iv = +((/INTERVAL=(\d+)/.exec(r) || [])[1] || 1), bd = (/BYDAY=([A-Z,0-9+-]+)/.exec(r) || [])[1];
-    const DW = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
-    if (f === "DAILY" && iv === 1 && !bd) return { kind: "daily" };
-    if (f === "WEEKLY" && bd === "MO,TU,WE,TH,FR" && iv === 1) return { kind: "weekday" };
-    if (f === "WEEKLY" && (!bd || /^[A-Z]{2}$/.test(bd)) && (iv === 1 || iv === 2)) return iv === 2 ? { kind: "biweekly" } : { kind: "weekly", dow: bd ? DW[bd] : null };
-    if (f === "MONTHLY" && iv === 1 && !bd) { const dm = (/BYMONTHDAY=(\d{1,2})$/.exec(r) || [])[1]; return { kind: "monthly", dom: dm ? +dm : null }; }
-    return null;
-  };
-  const rep = found.filter(f => f.rrule && !icsRepeat(f.rrule)).length;
-  const mk = f => {
-    const it = {
-      id: uid(), noteId: null, kind: "event", title: f.title, fixed: true,
-      origin: "user", confirmed: true, corrected: false, status: "open",
-      evidence: { text: `（${name || "カレンダー"}から取り込み）` },
-      start: f.start, end: f.end || new Date(new Date(f.start).getTime() + 3600000).toISOString(),
-      timeUnknown: !!f.allDay, allDay: !!f.allDay,
-      dayKey: dayKey(new Date(f.start), tz), duePrecision: f.allDay ? "day" : "exact",
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-      history: [{ at: new Date().toISOString(), by: "user", what: "カレンダーから取り込み" }]
-    };
-    // 終わりが始まりより前・同じ（壊れたファイル）なら、1時間の仮置きにする（2026-09-27・逆向きの枠が入っていた）
-    if (!(new Date(it.end) > new Date(it.start))) { it.end = new Date(new Date(it.start).getTime() + 3600000).toISOString(); it.endUnknown = true; }
-    /* 何日も続く終日（DTEND はその次の日を指す）——全部の日に出す（決まり4g・2026-09-27 まで1日目だけだった） */
-    if (it.allDay && f.end) {
-      const last = dayKey(new Date(new Date(f.end).getTime() - 43200000), tz);
-      if (last > it.dayKey) { it.spanEndKey = last; it.timeUnknown = false; it.end = zoned(...last.split("-").map(Number), 23, 59, tz).toISOString(); }
-      else it.end = zoned(...it.dayKey.split("-").map(Number), 23, 59, tz).toISOString();
-      it.timeUnknown = false;
-    }
-    const rp = icsRepeat(f.rrule);
-    if (rp) {
-      if (rp.kind === "weekly" && rp.dow == null) rp.dow = parts(new Date(f.start), tz).dow;
-      if (rp.kind === "monthly" && rp.dom == null) rp.dom = parts(new Date(f.start), tz).d;
-      it.repeat = rp;
-    }
-    it.dedupeKey = dedupeKey(it);
-    return it;
-  };
-  const cand = found.map(mk).filter(it => !state.items.some(x => x.dedupeKey === it.dedupeKey));
-  if (!cand.length) { $("#expOut").innerHTML = '<p class="hint">すべて既に入っていました。</p>'; return; }
-  /* **件数の上限を、足す前に言う**。本物のカレンダーの書き出しには何年ぶんも入っていて、
-     数千件が一度に入ることがある。読み込めるのは `READ_LIMIT` 件までなので、
-     超えたぶんは**保存はされるのに画面から消える**——いちばん気づきにくい壊れ方になる。
-     だから「足りるかどうか」を先に数えて出し、**この先1年ぶんだけ**という逃げ道を用意する。
-     勝手にしぼらない。しぼるかどうかは本人が決める。 */
-  const todayKey = dayKey(new Date(), tz);
-  const tp = parts(new Date(), tz);
-  const yearKey = dayKey(zoned(tp.y + 1, tp.mo, tp.d, 0, 0, tz), tz);
-  const near = cand.filter(it => it.dayKey >= todayKey && it.dayKey <= yearKey);
-  const have = Math.max(state.notes.length, state.items.length);
-  const over = !!DB && have + cand.length > READ_LIMIT;   // 1000件は claude.ai の保存先だけの上限
-  const canNarrow = near.length > 0 && near.length < cand.length;
-  const yes = await askConfirm({
-    title: "カレンダーの予定を足しますか？",
-    body: `${esc(name || "選んだファイル")}から <strong>${cand.length.toLocaleString()}件</strong>の予定を足します（重なっているものは除きました）。<br>
-      ${rep ? `<strong>くり返しの予定 ${rep}件は、最初の1回だけ</strong>入ります。<br>` : ""}
-      ${over ? `<strong>いまの記録 ${have.toLocaleString()}件と合わせると ${(have + cand.length).toLocaleString()}件になり、
-        1回に読み込める ${READ_LIMIT.toLocaleString()}件を超えます。</strong>
-        超えたぶんは保存されていますが、<strong>画面に出なくなります</strong>。<br>` : ""}
-      ${canNarrow ? `いまより前の予定や、1年より先の予定が ${(cand.length - near.length).toLocaleString()}件あります。<br>` : ""}
-      いまの記録は消しません。`,
-    yes: "全部足す",
-    alt: canNarrow ? `この先1年ぶんだけ（${near.length.toLocaleString()}件）` : null
-  });
-  if (!yes) return;
-  const add = yes === "alt" ? near : cand;
-  for (const it of add) await putItem(it);
-  renderAll();
-  const tail = yes === "alt" ? `（この先1年ぶんだけ。残り ${(cand.length - near.length).toLocaleString()}件は足していません）` : "";
-  $("#expOut").innerHTML = `<p class="hint">${add.length.toLocaleString()}件を足しました。${tail}</p>`;
-  toast(`カレンダーから${add.length.toLocaleString()}件を足しました`);
-}
-
 $("#btnWipe").addEventListener("click", async () => {
   const yes = await askConfirm({
     title: "すべて消しますか？",
@@ -9592,24 +9418,6 @@ $("#btnTidy").addEventListener("click", async () => {
   } else {
     toast(`${done}件を整理しました`);
   }
-});
-
-/* 記録をさがす（v4.3）。タブは増やさない。原文と項目を、ここから一度に見る。 */
-$("#findQ").addEventListener("input", () => {
-  const q = $("#findQ").value.trim();
-  const out = $("#findOut");
-  if (q.length < 2) { out.innerHTML = q ? '<p class="hint">2文字以上で探します。</p>' : ""; return; }
-  const tz = state.settings.timezone, n = norm(q);
-  const hit = s => norm(String(s || "")).includes(n);
-  const items = state.items.filter(i => hit(i.title) || hit(i.selfReport)).slice(0, 20);
-  const notes = state.notes.filter(x => hit(x.text)).slice(0, 10);
-  out.innerHTML = (items.length || notes.length)
-    ? `<p class="hint">項目 ${items.length}件・原文 ${notes.length}件（多いときは先頭だけ）</p>
-       <div class="stack">${items.map(i => itemHTML(i)).join("")}</div>
-       ${notes.map(x => `<div class="item"><div class="meta"><span class="chip">原文</span>
-          <span class="mono">${fmtDT(x.capturedAt, tz)}</span></div>
-          <div class="evid">${esc(x.text.slice(0, 200))}</div></div>`).join("")}`
-    : '<p class="hint">見つかりませんでした。</p>';
 });
 
 /* 開きっぱなしでも時計に追いつく（v4.2）。
