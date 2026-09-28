@@ -5795,7 +5795,7 @@
         const c = read("資料を作らないと。明日までに相手に送るやつ。");
         ok("CQ. 続きの言い足し（「明日までに相手に送るやつ」）は分けず、締切を明日のまま持つ", c.length === 1 && c[0].dayKey === "2026-09-16", show(c)); }
       // ⑦ 見出し
-      { const titles = [["電気代を払い忘れてた、今日中に払う", "電気代を払う"], ["病院の予約、木曜の11時に取れた", "病院の予約"], ["美容院は来月でいいや", "美容院"],
+      { const titles = [["電気代を払い忘れてた、今日中に払う", "電気代を払う"], ["病院の予約、木曜の11時に取れた", "病院"], ["美容院は来月でいいや", "美容院"],
                         ["お母さんに電話するの忘れないようにしておいて", "お母さんに電話する"], ["あ、そういえば傘を返さなきゃ", "傘を返す"], ["夫の誕生日が来週の火曜", "夫の誕生日"],
                         ["明日の朝ゴミ出し", "ゴミ出し"], ["明日の朝イチで先生にメールする", "先生にメールする"], ["明後日の夜は友達と焼肉", "友達と焼肉"],
                         ["明日は6時起き", "起きる"], ["今日の会議、15時から16時に変わった", "会議"], ["明日の夜景を見に行く", "夜景を見に行く"]]
@@ -5984,8 +5984,8 @@
           .map(t => { const x = read(t); return x.length ? t + "→" + show(x) : null; }).filter(Boolean);
         ok("CS. 済んだ話・その日の様子を、予定や用事にしない（7通り）", none.length === 0, none.join(" ／ "));
         const a = one("歯医者の予約を明日の10時に入れた"), b = one("来週出張することになった"), c = read("明日会議じゃなかった");
-        ok("CS. 「明日の10時に予約を入れた」「出張することになった」はこれからのこと（見出しは「歯医者の予約」「出張」）",
-          !!a && a.kind === "event" && a.title === "歯医者の予約" && hm(a.start) === "10:00" && !!b && b.title === "出張", show([a, b].filter(Boolean)));
+        ok("CS. 「明日の10時に予約を入れた」「出張することになった」はこれからのこと（見出しは「歯医者」「出張」——予約が取れたのは歯医者の予定・DF群とそろえた 2026-09-28）",
+          !!a && a.kind === "event" && a.title === "歯医者" && hm(a.start) === "10:00" && !!b && b.title === "出張", show([a, b].filter(Boolean)));
         ok("CS. 「明日会議じゃなかった」は予定にしない", c.every(i => i.kind !== "event"), show(c));
         ok("CS. 「今日は疲れた」は今までどおり体調（済んだ言い方でも）", opsOf("今日は疲れた").some(o => o.op === "condition")); }
       // ⑥ 会話の流れ
@@ -7249,6 +7249,98 @@
       ok("DH. 「明日の夜は予定を入れないで」は今までどおり明日の夜の希望（枠にしない）", its.length === 1 && its[0].kind === "preference", show(its));
       its = await one("午後は空けておいて");
       ok("DH. 日付の無い「午後は空けておいて」は枠にしない", !its.some(i => i.kind === "event"), show(its));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
+    /* ===== DI. テスター4周目：記録が壊れる・返事がうその読み違いと、完了・言い足し（2026-09-28・自律で進めた回） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const hmOf = x => x && validISO(x) ? hhmm(minOfDay(x, TZ)) : "なし";
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, h, mi] of steps) r = await say(s, at(15, h, mi)); return r || { changes: [], asks: [] }; };
+      const all = () => state.items.filter(i => i.kind !== "memo" || true);
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.start && !i.timeUnknown ? " " + hmOf(i.start) + "〜" + hmOf(i.end) : ""}/${i.duePrecision || ""}`).join(" ／ ");
+      const said = r => (r.changes || []).concat(r.asks || []).join(" / ");
+      // --- Y1 ---
+      let r = await run([["明日14時に歯医者", 9], ["歯医者、再来週の火曜に延期", 10]]);
+      let ev = state.items.filter(i => i.kind === "event");
+      ok("DI. 「延期」は取り消しではない：再来週の火曜の同じ時刻へ動かす（1件のまま）", ev.length === 1 && ev[0].status === "open" && ev[0].dayKey === "2026-09-29" && hmOf(ev[0].start) === "14:00", show(ev));
+      ok("DI. 日付だけ動いて時刻が同じなら「日付を」だけ言う（「時刻を 9/29 14:00 に / 日付を」と重ねない）", /日付を 09\/29/.test(said(r)) && !/時刻を/.test(said(r)), said(r));
+      r = await run([["来週の火曜に打ち合わせ", 9], ["打ち合わせは再来週の水曜に変更", 10]]);
+      ev = state.items.filter(i => i.kind === "event");
+      ok("DI. 「再来週の水曜に変更」は再来週の水曜（元の予定と同じ週の水曜に読み替えない）", ev.length === 1 && ev[0].dayKey === "2026-09-30", show(ev));
+      r = await run([["毎朝7時にジョギング", 9], ["明日はジョギング休み", 10]]);
+      ok("DI. 「明日はジョギング休み」はその回を外すだけ（「ジョギング休み」という予定を作らない）",
+        state.items.length === 1 && (state.items[0].skipDays || []).includes("2026-09-16"), show(state.items));
+      r = await run([["明日19時から飲み会", 9], ["飲み会20時からに変わった", 10]]);
+      ev = state.items.filter(i => i.kind === "event");
+      ok("DI. 「飲み会20時からに変わった」は20時へ直す（何も起きていなかった）", ev.length === 1 && hmOf(ev[0].start) === "20:00", show(ev) + " " + said(r));
+      r = await run([["明日銀行に行く", 9], ["銀行は午後にする", 10]]);
+      ok("DI. 「銀行は午後にする」で「銀行はする」という2件目を作らない", state.items.filter(i => /銀行/.test(i.title)).length === 1, show(state.items));
+      r = await run([["明日7時に起きる", 9], ["やっぱり6時半に起きる", 10]]);
+      ok("DI. 用事の時刻を直したら「時刻を」と言う（「変更なし」と返していた）", /時刻を .*06:30/.test(said(r)) && !/変更なし/.test(said(r)), said(r) + " " + show(state.items));
+      // --- Y2：完了 ---
+      r = await run([["夜に薬を飲む", 9], ["薬飲んだ", 21]]);
+      ok("DI. 「薬飲んだ」で「薬を飲む」を完了（1文字の漢字の語でも当てる）", state.items.length === 1 && state.items[0].status === "done", show(state.items));
+      r = await run([["牛乳を買う", 9], ["パンを買う", 9, 1], ["牛乳とパン買った", 18]]);
+      ok("DI. 「牛乳とパン買った」は2つとも完了", state.items.length === 2 && state.items.every(i => i.status === "done"), show(state.items));
+      r = await run([["牛乳を買う", 9], ["牛乳とパン買った", 18]]);
+      ok("DI. 「牛乳とパン買った」でパンの用事が無ければ、牛乳だけ完了（無いものを作らない）", state.items.length === 1 && state.items[0].status === "done", show(state.items));
+      r = await run([["歯医者の予約を取る", 9], ["歯医者の予約、来週の水曜14時に取れた", 12]]);
+      ev = state.items.filter(i => i.kind === "event"); let tk = state.items.filter(i => i.kind === "task");
+      ok("DI. 「歯医者の予約、来週の水曜14時に取れた」は予定「歯医者」を足し、予約を取る用事を完了",
+        ev.length === 1 && ev[0].title === "歯医者" && ev[0].dayKey === "2026-09-23" && hmOf(ev[0].start) === "14:00" && tk.length === 1 && tk[0].status === "done", show(state.items));
+      r = await run([["今日ジムに行く", 9], ["ジムはやめた", 12], ["やっぱりジム行く", 13]]);
+      ev = state.items.filter(i => i.kind === "event" || i.kind === "task");
+      ok("DI. 「やっぱりジム行く」は取り消したものを戻す（「ジム行く」をもう1件作らない）", ev.length === 1 && ev[0].status === "open" && /戻す/.test(said(r)) && !/AIを使っていない/.test(said(r)), show(ev) + " " + said(r));
+      r = await run([["明日ジムに行く", 9], ["ジムはやめた", 12], ["やっぱり来週ジム行く", 13]]);
+      ok("DI. 別の日を言ったら戻さず新しく足す（取り消したものはそのまま）", state.items.filter(i => /ジム/.test(i.title) && i.kind !== "memo" && i.status === "dropped").length === 1
+        && state.items.some(i => /ジム/.test(i.title) && i.status === "open" && i.kind !== "memo"), show(state.items));
+      // --- Y2：言い足し ---
+      r = await run([["明日10時から打ち合わせ", 9], ["打ち合わせ1時間半かかる", 9, 5]]);
+      ok("DI. 「打ち合わせ1時間半かかる」は長さの言い直し（「打ち合わせ」という用事を足さない・終わりを言う）",
+        state.items.length === 1 && hmOf(state.items[0].end) === "11:30" && /終わりを 11:30/.test(said(r)), show(state.items) + " " + said(r));
+      r = await run([["資料作成に2時間かかる", 9]]);
+      ok("DI. 当てる相手が無ければ今までどおり足す・見出しは「資料作成」（「資料作成に」ではない）", state.items.length === 1 && state.items[0].title === "資料作成" && state.items[0].estimateMin === 120, show(state.items));
+      r = await run([["明日10時から打ち合わせ", 9], ["打ち合わせの場所は会議室B", 9, 5]]);
+      ok("DI. 「打ち合わせの場所は会議室B」はメモ（用事にしない）", state.items.length === 2 && state.items.some(i => i.kind === "memo") && !state.items.some(i => i.kind === "task"), show(state.items));
+      r = await run([["今日14時から会議", 9], ["会議長引いてる", 15, 10]]);
+      ok("DI. 「会議長引いてる」を用事にしない", state.items.length === 1, show(state.items));
+      r = await run([["レポートを書く", 9], ["レポートは今日中", 9, 5]]);
+      ok("DI. 日付の無い用事に「今日中」は、日付を今日に・確かさは日（「後ろへ」と言わない）",
+        state.items.length === 1 && state.items[0].dayKey === "2026-09-15" && state.items[0].duePrecision === "day" && /日付を 09\/15/.test(said(r)) && !/後ろへ/.test(said(r)), show(state.items) + " " + said(r));
+      r = await run([["掃除する", 9], ["掃除は明日にする", 9, 5]]);
+      ok("DI. 「掃除は明日にする」も同じ（日付を明日に）", state.items.length === 1 && state.items[0].dayKey === "2026-09-16" && state.items[0].duePrecision === "day", show(state.items) + " " + said(r));
+      r = await run([["明日10時に病院", 9], ["病院の後に買い物", 9, 5]]);
+      tk = state.items.filter(i => i.kind === "task");
+      ok("DI. 「病院の後に買い物」は病院の日の用事「買い物」で、病院が終わってから（11:00〜）",
+        tk.length === 1 && tk[0].title === "買い物" && tk[0].dayKey === "2026-09-16" && tk[0].winFrom === 11 * 60, show(state.items) + " win=" + (tk[0] && tk[0].winFrom));
+      // --- Y2：済んだか聞く ---
+      r = await run([["友達に連絡する", 9]]);
+      const K = "2026-09-15", pl = planFor(K, { nowMin: 13 * 60 });
+      let an = answerQuestion("友達に連絡した？", pl, K, "今日") || "";
+      ok("DI. 「友達に連絡した？」には、まだ済んでいないと答える", /まだ済んでいない/.test(an), an);
+      await say("友達に連絡した", at(15, 14));
+      an = answerQuestion("友達に連絡したっけ？", planFor(K, { nowMin: 15 * 60 }), K, "今日") || "";
+      ok("DI. 済ませたあとは、済んでいると答える", /済んでいる/.test(an), an);
+      // --- AIの道：取り消しを戻す op は検算してから ---
+      r = await run([["明日ジムに行く", 9]]);
+      const g = state.items[0], n0 = { id: "di-n", text: "やっぱりジム行く", capturedAt: at(15, 13), createdAt: at(15, 13) };
+      r = await applyOps([{ op: "undrop", id: g.id, quote: "x" }], n0);
+      ok("DI. 取り消していないものへの undrop は何もしない", g.status === "open" && !(r.changes || []).length, said(r));
+      ok("DI. undrop は OPS にある（AIの返事から落とさない）・内部の印は今までどおり落とす", OPS.includes("undrop"));
+      // AIの道：AIが「ジム行く」を新しく足してきても、ルールの「戻す」を使い、足しは捨てる（本物の sendTurn を1回流す）
+      { const keepAI = SAMPLEFN, keepView = view.day, keepChat = view.chatDay, today = dayKey(new Date(), TZ);
+        reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+        state.items.push({ id: "di-gym", noteId: null, kind: "event", title: "ジムに行く", status: "dropped", origin: "rule", confirmed: true, corrected: false, history: [],
+          createdAt: new Date().toISOString(), dayKey: today, duePrecision: "day", timeUnknown: true, start: zoned(...today.split("-").map(Number), 23, 59, TZ).toISOString() });
+        const stub = () => Promise.resolve({ text: "うん。" });
+        stub.json = () => Promise.resolve({ ops: [{ op: "add", kind: "task", title: "ジム行く", quote: "やっぱりジム行く" }], habit: "" });
+        SAMPLEFN = stub;
+        await sendTurn("やっぱりジム行く");
+        SAMPLEFN = keepAI; view.day = keepView; view.chatDay = keepChat;
+        const gym = state.items.filter(i => /ジム/.test(i.title) && i.kind !== "memo");
+        ok("DI. AIの道でも、取り消したものを戻し、AIが足した同じもの（「ジム行く」）は捨てる", gym.length === 1 && gym[0].id === "di-gym" && gym[0].status === "open", show(gym)); }
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
