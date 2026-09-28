@@ -1111,10 +1111,10 @@ function parseWhen(rawText, baseISO, tz) {
   grab(/(\d{1,3})\s*日\s*後/, m => (+m[1] >= 1 && +m[1] <= 365) ? { off: +m[1], prec: "day" } : null);
   grab(/(\d{1,2})\s*週間\s*後/, m => (+m[1] >= 1 && +m[1] <= 52) ? { off: +m[1] * 7, prec: "day" } : null);
   /* 「土日は実家に帰る」——今度の土曜から日曜まで（何日も続く予定・決まり4g）。「来週の土日」は来週 */
-  grab(/(来週の?|再来週の?)?\s*土日/, m => {
+  grab(/(今週の?|来週の?|再来週の?)?\s*土日/, m => {       // 「今週の土日」も（2026-09-28・「今週中」のあいまいな用事になっていた）
     const curIdx = (bp.dow + 6) % 7;
     let off = 5 - curIdx; if (off < 0) off += 7;
-    if (m[1]) off += /再来週/.test(m[1]) ? 14 : 7;
+    if (m[1] && !/今週/.test(m[1])) off += /再来週/.test(m[1]) ? 14 : 7;
     return { off, prec: "day", twoDay: true };
   });
   /* 時期の言葉（2026-09-27）。どれも**はっきりしない時期**（`week`）で、画面にはその言葉のまま出す（決まり0j の `label`）。 */
@@ -2289,6 +2289,7 @@ function classify(rawS, lineWhen) {
      外すと質問として捨てられ、前は「気になっていること」として残っていたものが消える（外して測って見つけた）。 */
   const full = plainForm(halfWidth(rawS)), cut = stripTail(full);
   const asks = x => RE_QUESTION_END.test(x) || RE_ASK.test(x);
+  if (RE_REST_DAY.test(full) && restWindowOf(full) && !RE_CLOCK.test(full)) return "event";   // 「明日の午後は空けておいて」（日付が無ければ extractByRule が枠にしない）
   /* 話題を「〜して、」で分けた前半（「掃除して、夜は映画」の「掃除して、」）は、**判定のときだけ**言い切り（〜する）として読む（決まり0e ⑦・0d と同じ考え方） */
   const s = (asks(cut) && !asks(full) ? full : cut).replace(/([一-鿿ァ-ヴー])して[、，,]\s*$/, "$1する")
     .replace(/(?<=[^\sA-Za-z])(?:[wｗ]{1,5}|（笑）|\(笑\)|笑)[。！!]*$/, "");      // 「牛乳買うｗ」——語尾の笑いで言い切りが隠れていた
@@ -2785,6 +2786,12 @@ function extractByRule(note, settings) {
         base.start = zoned(sy, sm, sd, 0, 0, tz).toISOString();
         base.end = zoned(sy, sm, sd, 23, 59, tz).toISOString();
       }
+      { const wk = RE_REST_DAY.test(halfWidth(s)) && !w?.hasTime ? restWindowOf(halfWidth(s)) : null;
+        if (wk && isDate(base.dayKey)) {                  // 「明日の午後は空けておいて」＝その時間帯をふさぐ枠
+          const [yy, mm, dd] = base.dayKey.split("-").map(Number), [a, b] = WIN_RANGE[wk];
+          Object.assign(base, { title: "空けておく", start: zoned(yy, mm, dd, Math.floor(a / 60), a % 60, tz).toISOString(),
+            end: zoned(yy, mm, dd, Math.floor(b / 60), b % 60, tz).toISOString(), timeUnknown: false, endUnknown: false, fixed: true });
+        } }
       if (RE_BOOKED.test(s)) { const t2 = base.title.replace(/の?予約(?:を|が)?(?:取った|とった|取れた|とれた|入れた|した|できた|済んだ)?$/, ""); if (t2.length >= 2) base.title = t2; }   // 「病院の予約取った」→ 予定「病院」
       const mtE = mealTitle(s, note.capturedAt, tz);   // 「12時からランチ」も名前を揃える
       if (mtE) { base.title = mtE; base.isMeal = true; }
@@ -5017,7 +5024,7 @@ function planFor(key, opts) {
   /* 「午前中」の始まりは 0:00 ではない（v4.4）。一日じゅう使える設定にしたので、
      [0,720] のままだと「午前中にやる」が **深夜0時**に置かれる。
      これは本人の起床時刻の推測ではなく、**言葉の意味**として 6時からにする。 */
-  const WINDOWS = { morning: [6 * 60, 12 * 60], afternoon: [12 * 60, 18 * 60], evening: [17 * 60, 24 * 60] };
+  const WINDOWS = WIN_RANGE;
   const WINDOW_JA = { morning: "午前中", afternoon: "午後", evening: "夕方以降" };
 
   const exactAt = t => {
@@ -7277,6 +7284,12 @@ function restScope(sx, note) {
   if (to && to > add(from, 31)) to = add(from, 31);
   return { from, to: to && to > from ? to : null };
 }
+/* 時間帯の範囲（分）。予定表づくり（planFor）と、「明日の午後は空けておいて」の読み取りで同じものを使う（2か所に書かない） */
+const WIN_RANGE = { morning: [6 * 60, 12 * 60], afternoon: [12 * 60, 18 * 60], evening: [17 * 60, 24 * 60] };
+/* 「明日の午後は空けておいて」「金曜の午前中は予定入れないで」——**日付と、午前か午後を言って空けてほしい**（2026-09-28）。
+   その時間帯をふさぐ予定「空けておく」にする（時刻で言った「15時〜16時は空けておいて」と同じ扱い）。夜は今までどおりその日の希望（noEveningWork）。 */
+const RE_REST_WIN = /(午前中|午前|朝のうち|午後)(は|に|の間|中)/;
+function restWindowOf(s) { const m = RE_REST_WIN.exec(s); return m ? (/午後/.test(m[1]) ? "afternoon" : "morning") : null; }
 const RE_NOEVENING = /(夜まで.{0,6}(したくない|やりたくない|作業)|早めに寝|早く寝|夜は.{0,6}(やらない|入れない|空けて|空けと)|寝る前に.{0,8}始めないように)/;
 /* 「18時以降は予定を入れないで」——**何時からか**を言った夜の希望（2026-09-27・何も記録されていなかった）。
    午前か午後かを言っていない1〜11時は、夜の話なので午後（「9時以降は」＝21時）。 */
@@ -7615,6 +7628,8 @@ function ruleOpsRead(note) {
   for (const sx of sents) {
     if (!/(ないで|ないでね|ないでください|ないでほしい|てほしい)[。！!]*$/.test(sx) || /忘れないで/.test(sx)) continue;
     if (ops.some(o => o.op === "prefer" || o.op === "unsuggest") || inWish(sx)) continue;
+    // 「金曜の午前中は予定入れないで」は、その時間帯をふさぐ枠にした（classify）。効かない希望の文を重ねて作らない
+    if (ops.some(o => o.op === "add" && o._built && o._built.title === "空けておく" && sx.includes(o._built.evidence.text.trim().slice(0, 4)))) continue;
     ops.push({ op: "prefer", key: "free", value: true, scopeDay: scope, text: sx.slice(0, 80), quote: sx.slice(0, 60) });
   }
   // 言い直し・見積もり直しは、ルールだけでは「どれのことか」を決められない。黙って無視せず伝える。

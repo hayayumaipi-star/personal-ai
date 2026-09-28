@@ -7230,6 +7230,28 @@
       state.items = keepIt;
     }
 
+    /* ===== DH. 「今週の土日」と、時間帯で言った「空けておいて」（2026-09-28・自律で進めた回） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi, TZ).toISOString();   // 9/15 は火曜
+      const hmOf = x => x ? hhmm(minOfDay(x, TZ)) : "なし";
+      const one = async s => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); await say(s, at(15, 9, 0)); return state.items.filter(i => i.status === "open"); };
+      const show = its => its.map(i => `${i.kind}「${i.title}」${i.dayKey || ""}${i.start && !i.timeUnknown ? " " + hmOf(i.start) + "〜" + hmOf(i.end) : ""}${i.spanEndKey ? "→" + i.spanEndKey : ""}`).join(" ／ ");
+      let its = await one("今週の土日は実家に帰る");
+      ok("DH. 「今週の土日は実家に帰る」は土日の予定（今週中のあいまいな用事にしない）", its.length === 1 && its[0].kind === "event" && its[0].dayKey === "2026-09-19" && its[0].spanEndKey === "2026-09-20", show(its));
+      its = await one("来週の土日は旅行");
+      ok("DH. 「来週の土日」は今までどおり次の週の土日", its.length === 1 && its[0].dayKey === "2026-09-26", show(its));
+      its = await one("明日の午後は空けておいて");
+      ok("DH. 「明日の午後は空けておいて」は、明日の12:00〜18:00をふさぐ「空けておく」", its.length === 1 && its[0].kind === "event" && its[0].title === "空けておく" && its[0].dayKey === "2026-09-16" && hmOf(its[0].start) === "12:00" && hmOf(its[0].end) === "18:00", show(its));
+      its = await one("金曜の午前中は予定入れないで");
+      ok("DH. 「金曜の午前中は予定入れないで」は6:00〜12:00をふさぐ枠だけ（効かない希望の文を重ねない）", its.length === 1 && its[0].title === "空けておく" && hmOf(its[0].start) === "06:00", show(its));
+      its = await one("明日の夜は予定を入れないで");
+      ok("DH. 「明日の夜は予定を入れないで」は今までどおり明日の夜の希望（枠にしない）", its.length === 1 && its[0].kind === "preference", show(its));
+      its = await one("午後は空けておいて");
+      ok("DH. 日付の無い「午後は空けておいて」は枠にしない", !its.some(i => i.kind === "event"), show(its));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
