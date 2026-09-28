@@ -7678,6 +7678,8 @@
       ok("DP. 「今日はジョギング休み」を終日の予定にしない", !state.items.some(i => i.kind === "event"), show(state.items));
       await run([["今日はジョギング休み、代わりに散歩する", 7]]);
       ok("DP. 「〜休み、代わりに散歩する」は今日の用事「散歩する」", state.items.length === 1 && state.items[0].title === "散歩する" && state.items[0].dayKey === "2026-09-15", show(state.items));
+      await run([["今夜ジョギング", 9]]);
+      ok("DP. 「今夜ジョギング」は夜の用事（「毎朝」を外した決まりで「今夜」まで外さない）", state.items[0] && state.items[0].preferWindow === "evening", show(state.items));
       await run([["朝ヨガ", 6]]);
       ok("DP. 「朝ヨガ」は朝の用事「ヨガ」", state.items.length === 1 && state.items[0].kind === "task" && state.items[0].title === "ヨガ" && state.items[0].preferWindow === "morning", show(state.items));
       await run([["皿洗い", 9]]);
@@ -7688,7 +7690,7 @@
       await run([["来週の水曜にテスト、それまでに単語100個覚える", 10]]);
       const tt = one("task");
       ok("DP. 「来週の水曜にテスト、それまでに単語100個覚える」は予定「テスト」と、その日までの用事",
-        state.items.length === 2 && one("event", "テスト") && tt && tt.title === "単語100個覚える" && tt.dayKey === "2026-09-23", show(state.items));
+        state.items.length === 2 && one("event", "テスト") && tt && tt.title === "単語100個覚える" && tt.dayKey === "2026-09-23" && tt.dueIsDeadline, show(state.items));
       await run([["明日は保育園の遠足、お弁当作らないと", 20]]);
       ok("DP. 「明日は保育園の遠足、お弁当作らないと」は予定「保育園の遠足」と、明日の用事",
         state.items.length === 2 && one("event", "保育園の遠足") && one("task") && one("task").dayKey === "2026-09-16", show(state.items));

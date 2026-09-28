@@ -2048,7 +2048,7 @@ const RE_REPEAT_WORD = /(毎週\s*(?:の)?\s*[日月火水木金土]曜?日?|毎
 // 「朝ヨガ」「夜ジョギング」——助詞の無い「朝・夜」は、すぐ後がカタカナの語のときだけ時間帯（「夜景」「朝食」は中身・2026-09-28）
 const RE_WIN_MORNING   = /(午前中|午前|朝のうち|朝一番|朝一|朝イチ|朝に|(?<!毎)朝(?=[ァ-ヴ][ァ-ヴー]))/;     // 「毎朝ランニング」の朝はくり返し（「毎ランニング」になっていた・2026-09-28）
 const RE_WIN_AFTERNOON = /(午後イチ|午後一番|午後一|午後|お昼過ぎ|昼過ぎ|昼から)/;     // 「お昼過ぎ」を先に（「昼過ぎ」だけ落とすと「お郵便局」が残った・2026-09-28）
-const RE_WIN_EVENING   = /(夕方以降|夕方|夜に|晩に|(?<![毎今])夜(?=[ァ-ヴ][ァ-ヴー]))/;
+const RE_WIN_EVENING   = /(夕方以降|夕方|夜に|晩に|(?<!毎)夜(?=[ァ-ヴ][ァ-ヴー]))/;     // 「今夜ジョギング」は夜（「今」まで外して時間帯が消えていた・2026-09-28 旧版と比べて見つけた）
 const RE_CUT_WINDOW = new RegExp(
   "(?:" + [RE_WIN_MORNING, RE_WIN_AFTERNOON, RE_WIN_EVENING]
     .map(r => r.source.replace(/^\(|\)$/g, "")).join("|") + ")(?:には|には|に|は|から|で)?", "g");
@@ -2711,7 +2711,8 @@ function extractByRule(note, settings) {
     const [y, m, d] = dk.split("-").map(Number);
     const w2 = parseWhen(`${y}年${m}月${d}日 ` + text, note.capturedAt, tz);
     if (!w2 || w2.dayKey !== dk) return orig;            // 読めなければ元のまま
-    return Object.assign(w2, { span: orig ? orig.span : null, carried: true, isDeadline: orig ? orig.isDeadline : false });
+    // 「それまでに」「その前に」は、渡した日付が締切（「テスト、それまでに単語を覚える」の「まで」が消えていた・2026-09-28 旧版と比べて見つけた）
+    return Object.assign(w2, { span: orig ? orig.span : null, carried: true, isDeadline: orig ? orig.isDeadline : /^(それまでに|その前に)/.test(text.trim()) });
   };
   const rawWhens = topics.map((l, i) => carryDay(l.text, carryFrom[i], parseWhen(l.text, note.capturedAt, tz), l.carry));
   const lineWhens = orderByLine(topics.map((l, i) => ({ line: l.lineNo, w: rawWhens[i] })), tz);

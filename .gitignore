@@ -20,3 +20,6 @@ desktop.ini
 .DS_Store
 .vscode/
 .idea/
+
+# Python が自動で作るもの（2026-09-28・tools/ai-eval の分が入っていた）
+__pycache__/
