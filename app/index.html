@@ -2893,6 +2893,9 @@ function extractByRule(note, settings) {
       if (RE_BOOKED.test(s)) { const t2 = base.title.replace(/の?予約(?:を|が)?(?:取った|とった|取れた|とれた|入れた|した|できた|済んだ)?$/, ""); if (t2.length >= 2) base.title = t2; }   // 「病院の予約取った」→ 予定「病院」
       const mtE = mealTitle(s, note.capturedAt, tz);   // 「12時からランチ」も名前を揃える
       if (mtE) { base.title = mtE; base.isMeal = true; }
+      /* 「明日の午前中に病院」——時刻は未定でも、言った時間帯は持っておく（2026-09-28・「午前中」が消えていた）。
+         時間割には置かない（時刻を言っていない・決まり6a）。時刻未定の欄と返事に「午前中」と添えるだけ */
+      if (base.timeUnknown && !base.allDay) { const pw = parseIntent(s).window; if (pw) base.preferWindow = pw; }
     } else if (kind === "task") {
       base.fixed = false;
       base.due = w ? w.iso : null;
@@ -5145,7 +5148,7 @@ function planFor(key, opts) {
      [0,720] のままだと「午前中にやる」が **深夜0時**に置かれる。
      これは本人の起床時刻の推測ではなく、**言葉の意味**として 6時からにする。 */
   const WINDOWS = WIN_RANGE;
-  const WINDOW_JA = { morning: "午前中", afternoon: "午後", evening: "夕方以降" };
+  const WINDOW_JA = PW_JA;
 
   const exactAt = t => {
     if (t.duePrecision !== "exact" || !validISO(t.due)) return null;
@@ -5430,7 +5433,7 @@ function itemHTML(it, opts = {}) {
     : it.kind === "event"
     ? (it.start
         ? (it.timeUnknown
-            ? `<span class="mono">${it.dayKey ? it.dayKey.slice(5).replace("-", "/") : fmtDT(it.start, tz).slice(0, 5)}</span><span class="chip vague">時刻未定</span>`
+            ? `<span class="mono">${it.dayKey ? it.dayKey.slice(5).replace("-", "/") : fmtDT(it.start, tz).slice(0, 5)}</span><span class="chip vague">${PW_JA[it.preferWindow] ? PW_JA[it.preferWindow] + "・" : ""}時刻未定</span>`
             : `<span class="mono">${fmtDT(it.start, tz)}${it.end ? "–" + fmtDT(it.end, tz).slice(-5) : ""}</span>`)
           + `${it.travelMin ? `<span>移動${it.travelMin}分</span>` : ""}${it.prepMin ? `<span>準備${it.prepMin}分</span>` : ""}`
         : "")
@@ -5441,7 +5444,7 @@ function itemHTML(it, opts = {}) {
     : it.scopeEnd ? `${it.scopeDay.slice(5).split("-").map(Number).join("/")}〜${it.scopeEnd.slice(5).split("-").map(Number).join("/")}` : "この日だけ"}</span>`);
   if (it.kind === "task" && it.winFrom != null && it.winTo != null)
     bits.push(`<span class="chip">${hhmm(it.winFrom)}〜${hhmm(it.winTo)}の間に</span>`);
-  else if (it.kind === "task" && it.preferWindow) bits.push(`<span class="chip">${({ morning: "午前中に", afternoon: "午後に", evening: "夕方以降に" })[it.preferWindow]}</span>`);
+  else if (it.kind === "task" && it.preferWindow) bits.push(`<span class="chip">${PW_JA[it.preferWindow]}に</span>`);
   const rep = it.kind === "condition" ? `<span class="mono">${fmtDT(it.reportedAt, tz)} の申告</span>` : "";
   if (it.kind === "task" && it.targetDay && it.targetDay !== it.dayKey) bits.push(`<span class="chip">${it.targetDay.slice(5).replace("-", "/")}までに終えたい</span>`);
 
@@ -5624,7 +5627,7 @@ function renderDay() {
 
   // 時刻未定のものは、時間割の「あと」に出す。先に出すと予定表が下に押し下げられる。
   const timelessHTML = (!demo && (plan.timeless || []).length)
-    ? `<div class="note info" style="margin-top:12px"><strong>この日にあること（時刻は未定）：</strong>${plan.timeless.map(i => esc(i.title)).join("、")}<br>
+    ? `<div class="note info" style="margin-top:12px"><strong>この日にあること（時刻は未定）：</strong>${plan.timeless.map(i => esc(i.title) + (PW_JA[i.preferWindow] ? `（${PW_JA[i.preferWindow]}）` : "")).join("、")}<br>
       時刻を言われていないので時間割には入れていません。項目の「…」→「訂正」から時刻を入れられます。</div>`
     : "";
   const tlHTML = timelineHTML(plan, na, demo);
@@ -5806,7 +5809,7 @@ function planSnapshot(plan, na) {
   return {
     blocks: plan.blocks.map(b => ({ s: b.s, e: b.e, t: blockTitle(b), k: b.type, sub: b.sub || null, why: b.reason })),
     unplaced: plan.unplaced.map(u => ({ t: u.item.title, why: u.reason })),
-    timeless: (plan.timeless || []).map(i => i.title),
+    timeless: (plan.timeless || []).map(i => i.title + (PW_JA[i.preferWindow] ? `（${PW_JA[i.preferWindow]}）` : "")),
     next: na ? { t: blockTitle(na.block), s: na.block.s, e: na.block.e, k: na.block.type, why: saidWhy(na.block) } : null,
     winS: plan.winS, winE: plan.winE, onlyNext: !!(plan.pref && plan.pref.nextOnly)
   };
@@ -7422,6 +7425,8 @@ function restScope(sx, note) {
 }
 /* 時間帯の範囲（分）。予定表づくり（planFor）と、「明日の午後は空けておいて」の読み取りで同じものを使う（2か所に書かない） */
 const WIN_RANGE = { morning: [6 * 60, 12 * 60], afternoon: [12 * 60, 18 * 60], evening: [17 * 60, 24 * 60] };
+// 時間帯の呼び方も1か所に（予定表の理由・時刻未定の予定・返事で同じ言葉を使う）
+const PW_JA = { morning: "午前中", afternoon: "午後", evening: "夕方以降" };
 /* 「明日の午後は空けておいて」「金曜の午前中は予定入れないで」——**日付と、午前か午後を言って空けてほしい**（2026-09-28）。
    その時間帯をふさぐ予定「空けておく」にする（時刻で言った「15時〜16時は空けておいて」と同じ扱い）。夜は今までどおりその日の希望（noEveningWork）。 */
 const RE_REST_WIN = /(午前中|午前|朝のうち|午後)(は|に|の間|中)/;
@@ -7864,6 +7869,12 @@ function ruleOpsRead(note) {
       else if (it.dayKey && tw.dayKey && it.dayKey < tw.dayKey && tw.targetDay !== it.dayKey) rule.targetDay = it.dayKey;
       if (Object.keys(rule).length) ops.push({ op: "update", id: tw.id, _rule: rule, quote: String(note.text).slice(0, 60) });
       continue;                          // 同じことの言い直しなら、何も足さない
+    }
+    // 「病院は午前中」——時刻未定の予定に時間帯を言い足した（2026-09-28・前は伝えるだけだった）。日付を言っていないか、同じ日のときだけ
+    if (amend && twins.length === 1 && twins[0].kind === "event" && twins[0].timeUnknown && !twins[0].allDay && !twins[0].repeat
+        && it.preferWindow && (!it.dayKey || it.dayImplied || it.dayKey === twins[0].dayKey)) {     // 「午前中に行く」の今日は、言った日付ではない（決まり0l）
+      if (it.preferWindow !== twins[0].preferWindow) ops.push({ op: "update", id: twins[0].id, _rule: { preferWindow: it.preferWindow }, quote: String(note.text).slice(0, 60) });
+      continue;
     }
     /* 当たる相手は1つ見つかったが、何を直すか読めなかった（「銀行は午後にする」＝時刻未定の予定に時間帯）。
        新しく足すと「銀行はする」という2件目ができていた（2026-09-28・テスター4周目）。足さずに伝える */
@@ -8323,6 +8334,8 @@ async function applyOps(rawOps0, note) {
           it.timeUnknown = false; it.endUnknown = false; it.duePrecision = tw.duePrecision || "day";
           if (tw.spanEndKey) it.spanEndKey = tw.spanEndKey;
         }
+        // 「明日の午前中に病院」の時間帯も、ルールの読みから借りる（AIの予定には時間帯を受け取らない・決まり6q ④）
+        if (tw && tw.kind === "event" && tw.timeUnknown && tw.preferWindow && it.timeUnknown && it.dayKey === tw.dayKey) it.preferWindow = tw.preferWindow;
       }
       // AIが「ご飯食べに行こうかな」のような言い方で返してきても、食事は名前を揃える
       /* **予定（event）でも揃える**（2026-09-28・本物の Gemini で比べて見つけた）。ルールは「12時からランチ」の予定も揃えるのに、
@@ -8367,6 +8380,7 @@ async function applyOps(rawOps0, note) {
         if (isDate(rl.dayKey) && validISO(rl.due)) Object.assign(target, { dayKey: rl.dayKey, due: rl.due, duePrecision: rl.duePrecision || "day", dueIsDeadline: !!rl.dueIsDeadline });
         if (isDate(rl.targetDay)) target.targetDay = rl.targetDay;
       }
+      if (rl && target.kind === "event" && target.timeUnknown && ["morning", "afternoon", "evening"].includes(rl.preferWindow)) target.preferWindow = rl.preferWindow;
       // 「出張は1日延びた」——何日も続く予定の終わりの日（始まりより後・60日まで）
       if (rl && target.kind === "event" && isDate(rl.spanEndKey) && isDate(target.dayKey) && rl.spanEndKey > target.dayKey
           && (keyToDate(rl.spanEndKey, tz) - keyToDate(target.dayKey, tz)) <= 60 * 86400000) target.spanEndKey = rl.spanEndKey;
@@ -8389,7 +8403,7 @@ async function applyOps(rawOps0, note) {
       if (o.travelMin != null) d.push(`移動 ${target.travelMin}分を確保`);
       if (o.prepMin != null) d.push(`準備 ${target.prepMin}分を確保`);
       if (o.targetDate) d.push(`${target.targetDay.slice(5).replace("-", "/")}までに終えたい、として扱う`);
-      if (rl && before.pw !== target.preferWindow && target.preferWindow) d.push(`${({ morning: "午前中", afternoon: "午後", evening: "夕方以降" })[target.preferWindow]}にやる`);
+      if (rl && before.pw !== target.preferWindow && target.preferWindow) d.push(target.kind === "event" ? `時間帯を ${PW_JA[target.preferWindow]} に` : `${PW_JA[target.preferWindow]}にやる`);
       if (rl && before.tday !== target.targetDay && target.targetDay) d.push(`${target.targetDay.slice(5).replace("-", "/")} にやる`);
       note2(target, "訂正：" + (d.join(" / ") || "変更なし"));
       await putItem(target);
@@ -8756,7 +8770,7 @@ function dupeAsk(dup, tz) {
 }
 function describeWhen(it, tz) {
   if (it.kind === "event" && it.start) {
-    return it.timeUnknown ? `（${it.dayKey ? it.dayKey.slice(5).replace("-", "/") : fmtDT(it.start, tz).slice(0, 5)}・時刻未定）` : `（${fmtDT(it.start, tz)}）`;
+    return it.timeUnknown ? `（${it.dayKey ? it.dayKey.slice(5).replace("-", "/") : fmtDT(it.start, tz).slice(0, 5)}${PW_JA[it.preferWindow] ? " " + PW_JA[it.preferWindow] : ""}・時刻未定）` : `（${fmtDT(it.start, tz)}）`;
   }
   // 締切と、いつ手を付けるかを分けて見せる
   if (it.kind === "task" && it.targetDay && it.dayKey && it.targetDay !== it.dayKey) {

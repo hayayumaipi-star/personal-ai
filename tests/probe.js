@@ -7711,6 +7711,45 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DQ. 時刻未定の予定に、言った時間帯を持たせる（2026-09-28・自律で進めた回・8周目から残していた「病院は午前中」） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (h, mi) => zoned(2026, 9, 15, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, h, mi] of steps) r = await say(s, at(h, mi)); return r; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.timeUnknown ? " 時刻未定" : ""}${i.preferWindow ? " " + i.preferWindow : ""}`).join(" ／ ");
+      const said = r => ((r && r.changes) || []).concat((r && r.asks) || []).join(" / ");
+      let r = await run([["明日の午前中に病院", 9]]);
+      const ev = state.items[0];
+      ok("DQ. 「明日の午前中に病院」は明日の時刻未定の予定で、午前中を持つ（時間割には置かない）",
+        state.items.length === 1 && ev.kind === "event" && ev.timeUnknown && ev.dayKey === "2026-09-16" && ev.preferWindow === "morning", show(state.items));
+      ok("DQ. 返事に「午前中」と添える", /病院（09\/16 午前中・時刻未定）/.test(said(r)), said(r));
+      const pl = planFor("2026-09-16", { nowMin: -1 });
+      ok("DQ. 予定表の時刻未定の欄と、返事に添える予定表にも「午前中」", (pl.timeless || []).length === 1 && planSnapshot(pl).timeless.join() === "病院（午前中）" && !pl.blocks.some(b => b.item && b.item.id === ev.id),
+        JSON.stringify(planSnapshot(pl).timeless));
+      ok("DQ. 一覧の行は「午前中・時刻未定」", /午前中・時刻未定/.test(itemHTML(ev)), "");
+      { const keepDay = view.day, keepTab = view.tab;
+        view.day = "2026-09-16"; showTab("p-day"); renderDay();
+        const box = [...document.querySelectorAll("#dayOut .note.info")].map(e => e.textContent).find(t => /時刻は未定/.test(t)) || "";
+        ok("DQ. スケジュールの「この日にあること（時刻は未定）」にも「病院（午前中）」", /病院（午前中）/.test(box), box.slice(0, 80));
+        view.day = keepDay; showTab(keepTab || "p-chat"); }
+      r = await run([["明日病院", 9], ["病院は午前中", 9, 5]]);
+      ok("DQ. あとから「病院は午前中」で、時刻未定の予定に時間帯を入れる（2件目を作らない・伝えるだけにしない）",
+        state.items.length === 1 && state.items[0].preferWindow === "morning" && /時間帯を 午前中 に/.test(said(r)), show(state.items) + " " + said(r));
+      r = await run([["明日病院", 9], ["病院は午前中に行く", 9, 5]]);
+      ok("DQ. 「病院は午前中に行く」も同じ（午前中に行くの「今日」は言った日付ではない）", state.items.length === 1 && state.items[0].preferWindow === "morning" && state.items[0].dayKey === "2026-09-16", show(state.items));
+      r = await run([["明日の夕方に美容院", 9], ["美容院は18時から", 9, 5]]);
+      ok("DQ. 時間帯を持った予定も、時刻を言えばその時刻に置く", !state.items[0].timeUnknown && hhmm(minOfDay(state.items[0].start, TZ)) === "18:00", show(state.items));
+      r = await run([["明日の2限はオンライン", 9]]);
+      ok("DQ. 時間帯を言っていない予定は持たない", !state.items[0].preferWindow, show(state.items));
+      // AIの道：AIの予定には時間帯を受け取らない。ルールが同じ予定に読んだ時間帯を借りる（決まり6q ④・決まり7d）
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const n = { id: uid(), text: "明日の午前中に病院", hash: "dq" + Math.random(), capturedAt: at(9), source: "talk", sourceName: null, createdAt: at(9) };
+      await putNote(n);
+      await applyOps([{ op: "add", kind: "event", title: "病院", dueDate: "2026-09-16", dueTime: null, duePrecision: "day", quote: "明日の午前中に病院" }], n);
+      ok("DQ. AIの道でも、時刻未定の予定に言った時間帯を持つ", state.items.length === 1 && state.items[0].preferWindow === "morning" && state.items[0].timeUnknown, show(state.items));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

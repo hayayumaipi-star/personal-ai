@@ -180,6 +180,8 @@
    「毎日早く寝たい」は続けたいこと／「毎朝ランニング」の朝は時間帯ではない／「朝ヨガ」「皿洗い」「資料印刷」は用事／「今日はジョギング休み」を終日の予定にしない／
    「それまでに・その前に・代わりに」で始まる話は次の話で前の話の日付が渡る（`RE_SEQ` の1か所）／「1限から英語、2限は休講」・「明日は遠足、お弁当作らないと」は2件（0e ⑫⑬・`carry`）／
    「〜買わなきゃ、誕生日は10月15日」は毎年にしない／「今月中」「今年中」は言ったまま出す／変換しないで打った「10じ」「3じかん」を読む（`readNums`）。
+   **時刻未定の予定に、言った時間帯を持たせる**（2026-09-28・DQ群）：「明日の午前中に病院」は時刻未定の予定のまま `preferWindow` を持つ（**時間割には置かない**・決まり6a）。
+   行・「時刻は未定」の欄・返事・返事に添える予定表に「午前中」と添える（呼び方は `PW_JA` の1か所）。あとから「病院は午前中（に行く）」でも入れる。AIの予定には受け取らず、ルールの読みから借りる（決まり6q ④）。
    **質問に答える**（`answerQuestion`）：「次何すればいい？」＝`nextAction`／「明日何時から？」「何時まで？」＝その日の予定の最初と最後／「今日暇な時間ある？」＝30分以上の空きを3つまで（一日の終わりは「24:00」）。
 0p. **用事のくり返し**（2026-09-27）。**会話の完了も、くり返しはその回だけ**（`occurFor`：今日の回→済んでいない過ぎた回→2週間以内の次の回）／
    **毎月・毎年の用事だけ**、払い忘れた回を**今日の予定表**に期限切れとして出す（`owedDay`・毎日・毎週は持ち越さない）／`leftToday` もくり返しの用事を数える／
@@ -519,7 +521,7 @@ items/{id}     { noteId, kind, title, evidence{text,start,end},
                  preferKey, preferValue, scopeDay, scopeEnd,   // preference（scopeEnd＝続く日の終わり・決まり0f）
                  selfReport, reportedAt,              // condition
                  category, statedAt, docId,           // profile
-                 targetDay, preferWindow, remainingMin, progressNote, notUrgent,  // task
+                 targetDay, preferWindow, remainingMin, progressNote, notUrgent,  // task（preferWindow は時刻未定の予定も持つ・言った時間帯）
                  uncertain,                           // memo（「〜と思う」＝断定できない）
                  suggested, suggestWhy,               // アプリが提案して入れた枠（決まり10）
                  goalId, planId,                      // 続けたいこと ⇄ そのくり返しの予定（決まり15n）
@@ -637,7 +639,7 @@ localStorage "hitohi.gcal"  { on, email, lastSync, lastError, gone[] }   Google�
 
 - 抽出・計画・重複判定・ops を触ったら **必ず `tests/harness.js` を追記して実行**する。現在194件が通る。
 - **`tests/scenario.js` は一日ぶんの会話を1発言ずつ流す通し検証**（51件）。会話の扱いを変えたら必ずこれも実行する。
-- **`tests/probe.js` は境界と寿命の確認**（1647件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 1,980件）。
+- **`tests/probe.js` は境界と寿命の確認**（1657件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 1,990件）。
 - **`server/test.mjs` は中継サーバーの確認**（59件・`node server/test.mjs`・Node 22 以上）。`server/` を触ったら必ず流す。
 - **`tools/ai-eval/` は本物の Gemini で読み取りの質を比べる道具**（42件の正解つき＝1回の発言30・会話の続き12・`GEMINI_API_KEY` が要る・鍵なしなら `--configs rules`）。
   依頼文・考える深さ・モデルを変えたら流す。**鍵が無ければ「本物では測っていない」とそのまま言う。**
