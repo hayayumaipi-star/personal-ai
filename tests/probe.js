@@ -6915,6 +6915,52 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DC. 予定の通知を何分前に鳴らすか・アプリの版（2026-09-28・本人の指示「通知を何分前に鳴らすかとアプリのバージョンを取り入れて」） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const keepRN = window.ReactNativeWebView, keepB = window.HITOHI_BUILD;
+      const K = "2026-09-28";
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const at10 = zoned(2026, 9, 28, 10, 0, TZ).toISOString();
+      const t = { id: uid(), noteId: null, kind: "task", title: "歯医者に電話", status: "open", origin: "user", confirmed: false, corrected: false, history: [],
+        createdAt: zoned(2026, 9, 28, 8, 0, TZ).toISOString(), updatedAt: "", evidence: { text: "x" }, dayKey: K, due: at10, duePrecision: "exact", dueIsDeadline: false, estimateMin: 30, fixed: false };
+      t.dedupeKey = dedupeKey(t); state.items.push(t);
+      const whenOf = (lead, now) => { state.settings = Object.assign({}, state.settings, { notifyBefore: lead });
+        const n = notifyList(K, now).find(x => x.id === t.id); return n ? hhmm(minOfDay(new Date(n.at).toISOString(), TZ)) : "なし"; };
+      ok("DC. 「始まる時刻」なら今までどおり10:00に鳴らす", whenOf(0, 9 * 60) === "10:00", whenOf(0, 9 * 60));
+      ok("DC. 「10分前」なら9:50、「1時間前」なら9:00に鳴らす", whenOf(10, 8 * 60) === "09:50" && whenOf(60, 8 * 60) === "09:00", whenOf(10, 8 * 60) + " / " + whenOf(60, 8 * 60));
+      ok("DC. 鳴らす時刻がもう過ぎていれば予約しない（9:55に「10分前」）・始まる時刻なら予約する", whenOf(10, 9 * 60 + 55) === "なし" && whenOf(0, 9 * 60 + 55) === "10:00", whenOf(10, 9 * 60 + 55));
+      { state.settings = Object.assign({}, state.settings, { notifyBefore: 30 }); const n = notifyList(K, 8 * 60).find(x => x.id === t.id);
+        ok("DC. 何分前に鳴っても、本文は始まりの時刻（10:00から）", !!n && /^10:00から/.test(n.body), n && n.body); }
+      ok("DC. 選べない値は受け付けない（7分・壊れた値は「始まる時刻」に・\"30\" は30分）",
+        safeSettings(Object.assign({}, DEFAULTS, { notifyBefore: 7 })).notifyBefore === 0 && safeSettings(Object.assign({}, DEFAULTS, { notifyBefore: "x" })).notifyBefore === 0
+        && safeSettings(Object.assign({}, DEFAULTS, { notifyBefore: "30" })).notifyBefore === 30);
+      // 欄は Android アプリの中だけ・変えたらその場で予約を取り直す
+      state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      delete window.ReactNativeWebView; showTab("p-set"); renderSettings();
+      ok("DC. Artifact（殻が無い）では「予定の通知」の欄を出さない（効かない設定を置かない）", $("#notifyRow").hidden === true);
+      const sent = []; window.ReactNativeWebView = { postMessage: raw => { try { const m = JSON.parse(raw); if (m.kind === "notify") sent.push(m); } catch {} } };
+      renderSettings();
+      ok("DC. Android アプリでは「予定の通知」の欄を出す（既定は「始まる時刻」）", $("#notifyRow").hidden === false && $("#notifyBefore").value === "0");
+      // 別の日を見ていても（描き直しは今日の予約に触らない）、設定を変えたら今日の予約を取り直す
+      const keepDay = view.day; view.day = "2026-01-01"; sent.length = 0;
+      $("#notifyBefore").value = "15"; $("#notifyBefore").dispatchEvent(new Event("change"));
+      for (let i = 0; i < 40; i++) await new Promise(r => setTimeout(r, 5));
+      const sentN = sent.length; view.day = keepDay;
+      ok("DC. 選んだら保存し、今日の通知の予約をその場で取り直す（別の日を見ていても）", state.settings.notifyBefore === 15 && sentN > 0, state.settings.notifyBefore + " / 送った" + sentN + "回");
+      // 版
+      window.HITOHI_BUILD = { at: "2026-09-28T13:07:04.768Z", commit: "d71ee94" }; renderSettings();
+      ok("DC. 設定のいちばん下に、APK を作った日時とコミットを出す", /2026年9月28日 22:07 に作った版（d71ee94）/.test($("#appVer").textContent), $("#appVer").textContent);
+      window.HITOHI_BUILD = { at: "2026-09-28T13:07:04.768Z", commit: "<img src=x onerror=alert(1)>" }; renderSettings();
+      ok("DC. 版の値は外から来たものとして読む（形が違うコミットは出さない・要素を作らない）", !/img/.test($("#appVer").textContent) && !$("#appVer").querySelector("img"));
+      delete window.HITOHI_BUILD; renderSettings();
+      ok("DC. 版が書き込まれていない（Artifact）なら「開発用」と言う", /開発用の画面/.test($("#appVer").textContent), $("#appVer").textContent);
+      if (keepRN) window.ReactNativeWebView = keepRN; else delete window.ReactNativeWebView;
+      if (keepB) window.HITOHI_BUILD = keepB; else delete window.HITOHI_BUILD;
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+      showTab("p-chat");
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

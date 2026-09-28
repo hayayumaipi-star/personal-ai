@@ -714,6 +714,10 @@ try { if (window.ReactNativeWebView) document.documentElement.classList.add("in-
           <select id="revDow" aria-label="見直しの曜日"><option value="-1">知らせない</option><option value="0">毎週日曜</option><option value="1">毎週月曜</option><option value="2">毎週火曜</option><option value="3">毎週水曜</option><option value="4">毎週木曜</option><option value="5">毎週金曜</option><option value="6">毎週土曜</option></select>
           <select id="revHour" aria-label="見直しの時刻"></select>
         </div></div>
+      <!-- 予定の通知を何分前に鳴らすか（2026-09-28・本人の指示）。**Android アプリの中でだけ出す**——
+           端末の通知は殻が予約する。Artifact では通知そのものが無いので、欄を出すと効かない設定になる（決まり12b）。 -->
+      <div id="notifyRow" hidden><label class="fld" for="notifyBefore">予定の通知</label>
+        <select id="notifyBefore"><option value="0">始まる時刻</option><option value="5">5分前</option><option value="10">10分前</option><option value="15">15分前</option><option value="30">30分前</option><option value="60">1時間前</option></select></div>
       <!-- 作業に使える時間帯が狭いまま保存されている人の逃げ道（v6.3・実機で報告）。
            設定欄は v3.9 で外したので、古い値のままだと**画面から直す道が無かった**。
            入力欄は戻さない。戻すのは「一日じゅうに戻す」の1手だけ。
@@ -775,6 +779,9 @@ try { if (window.ReactNativeWebView) document.documentElement.classList.add("in-
       <textarea id="errText" class="errta" readonly></textarea>
       <div class="row"><button class="btn sm" id="btnErrClear">消す</button></div>
     </div>
+    <!-- アプリの版（2026-09-28・本人の指示）。APK を作るとき `mobile/sync.js` が作った日時とコミットを書き込む（`window.HITOHI_BUILD`）。
+         「このアプリの版では使えません」のとき、スマホの版が作り直したものかをすぐ確かめるため。 -->
+    <p class="hint" id="appVer"></p>
   </div>
 </section>
 
@@ -3458,10 +3465,13 @@ function notifyList(key, nowMin) {
   if (!state.settings) return [];
   const tz = state.settings.timezone;
   try {
+    /* **何分前に鳴らすか**は設定から（2026-09-28・本人の指示・`notifyBefore`）。鳴らす時刻がもう過ぎたものは予約しない。
+       本文の「10:00から」は始まりの時刻のまま（何分前に鳴っても、いつ始まるかが読める）。 */
+    const lead = NOTIFY_LEADS.includes(state.settings.notifyBefore) ? state.settings.notifyBefore : 0;
     return planFor(key, { nowMin }).blocks
-      .filter(b => b.item && !b.item.suggested && b.sub !== "allday" && b.s > nowMin)
+      .filter(b => b.item && !b.item.suggested && b.sub !== "allday" && b.s - lead > nowMin)
       .slice(0, 12)
-      .map(b => ({ at: keyToDate(key, tz).getTime() + b.s * 60000,
+      .map(b => ({ at: keyToDate(key, tz).getTime() + (b.s - lead) * 60000,
                    title: blockTitle(b), body: `${hhmm(b.s)}から${durJa(b.e - b.s)}`,
                    /* **どの用事のことか**を持たせる（2026-09-24・案⑦）。
                       通知で「完了」を押したとき、殻はこれをそのまま返すだけ。
@@ -3491,6 +3501,15 @@ function notifyAction(m) {
   showTab("p-day");
   act(a, id, day ? { dataset: { day } } : null);
   return true;
+}
+/* アプリの版（2026-09-28・本人の指示）。APK を作るとき `mobile/sync.js` が書き込む（作った日時とコミット）。
+   **外から来た値として読む**（形が違えば使わない）。Artifact と、書き込む前の古い APK では「開発用」と言う。 */
+function appVersionText() {
+  const b = window.HITOHI_BUILD, tz = state.settings ? state.settings.timezone : "Asia/Tokyo";
+  if (!b || !validISO(b.at)) return "アプリの版：開発用の画面（APK ではありません）";
+  const p = parts(new Date(b.at), tz);
+  const commit = /^[0-9a-f]{4,40}$/.test(String(b.commit || "")) ? `（${b.commit}）` : "";
+  return `アプリの版：${p.y}年${p.mo}月${p.d}日 ${pad2(p.h)}:${pad2(p.mi)} に作った版${commit}`;
 }
 function notifyPlan(key) {
   if (!nativeOn() || !state.settings) return 0;
@@ -3743,8 +3762,11 @@ const DEFAULTS = {
   timezone: "Asia/Tokyo", workStart: "00:00", workEnd: "23:59", defaultEstimate: 30,
   breakEveryMin: 90, breakMin: 10, theme: "auto", updatedAt: null,
   /* 週に1回の見直し（2026-09-26・本人の指示）。曜日は 0=日〜6=土、-1 は「知らせない」。 */
-  reviewDow: 0, reviewHour: 20
+  reviewDow: 0, reviewHour: 20,
+  /* 予定の通知を何分前に鳴らすか（2026-09-28・本人の指示）。0＝始まる時刻（今までどおり）。 */
+  notifyBefore: 0
 };
+const NOTIFY_LEADS = [0, 5, 10, 15, 30, 60];
 const OLD_WINDOW = { workStart: "09:00", workEnd: "18:00" };   // 設定欄があった頃の既定
 
 /* 見た目の明暗。
@@ -4093,6 +4115,7 @@ function safeSettings(s) {
   if (!["auto", "light", "dark"].includes(o.theme)) o.theme = DEFAULTS.theme;
   o.reviewDow = num(o.reviewDow, -1, 6, DEFAULTS.reviewDow);
   o.reviewHour = num(o.reviewHour, 0, 23, DEFAULTS.reviewHour);
+  o.notifyBefore = NOTIFY_LEADS.includes(Number(o.notifyBefore)) ? Number(o.notifyBefore) : DEFAULTS.notifyBefore;
   /* `isTime` は形しか見ない（"25:99" も通る）ので、ここでは中身まで確かめる。 */
   const okClock = t => {
     if (!isTime(t)) return false;              // 形は `isTime` が見る（同じ正規表現を2か所に書かない）
@@ -6200,6 +6223,9 @@ function renderSettings() {
   $("#revDow") && ($("#revDow").value = String(s.reviewDow));
   $("#revHour") && ($("#revHour").value = String(s.reviewHour));
   if ($("#revHour")) $("#revHour").disabled = s.reviewDow < 0;
+  if ($("#notifyRow")) $("#notifyRow").hidden = !nativeOn();
+  $("#notifyBefore") && ($("#notifyBefore").value = String(s.notifyBefore || 0));
+  if ($("#appVer")) $("#appVer").textContent = appVersionText();
   renderWhere();
   renderGcal();
   /* **件数と置き場所の行は外した**（2026-09-26・本人の指示「この端末のみという表示はいらない」）。
@@ -9243,7 +9269,8 @@ async function saveSettingsNow() {
     breakMin: clamp(+$("#breakLen").value || 10, 5, 30),
     theme: ["auto", "light", "dark"].includes($("#theme").value) ? $("#theme").value : "auto",
     reviewDow: clamp(Math.round(+$("#revDow").value), -1, 6),
-    reviewHour: clamp(Math.round(+$("#revHour").value || 0), 0, 23)
+    reviewHour: clamp(Math.round(+$("#revHour").value || 0), 0, 23),
+    notifyBefore: NOTIFY_LEADS.includes(+$("#notifyBefore").value) ? +$("#notifyBefore").value : 0
   });
   // 見た目は上の change 側で当て済み。ここで当て直すと、
   // 保存の待ち時間の間に選び直された指定を、古い値で上書きしてしまう
@@ -9254,11 +9281,12 @@ async function saveSettingsNow() {
     view.day = view.chatDay = dayKey(new Date(), s.timezone);
   }
   renderAll();
+  notifyPlan(dayKey(new Date(), s.timezone));   // 通知の時刻が変わったかもしれないので、今日の予約を取り直す（殻が無ければ何もしない）
   $("#setMsg").textContent = "保存しました。";
   setTimeout(() => { const el = $("#setMsg"); if (el) el.textContent = ""; }, 2000);
 }
 $("#theme").addEventListener("change", () => applyTheme($("#theme").value));   // 先に見た目だけ当てる
-for (const id of ["#tz", "#defEst", "#breakEvery", "#breakLen", "#theme", "#revDow", "#revHour"]) {
+for (const id of ["#tz", "#defEst", "#breakEvery", "#breakLen", "#theme", "#revDow", "#revHour", "#notifyBefore"]) {
   $(id).addEventListener("change", saveSettingsNow);
 }
 /* 書き出す中身は**ここだけ**が決める（決まり7e）。テストが同じものを読めるようにする。

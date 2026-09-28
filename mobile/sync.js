@@ -81,6 +81,19 @@ if (PLAY) {
     + html.slice(at + anchor.length);
 }
 
+/* **アプリの版**（2026-09-28・本人の指示）：作った日時と、どの変更までを含むか（コミットの番号）を写しに書き込む。
+   設定のいちばん下に出る。秘密は入っていない。自分用・配る版のどちらでも入れる。目印が無ければ止まる（黙って入らないのを防ぐ）。 */
+{
+  let commit = "";
+  try { commit = require("child_process").execSync("git rev-parse --short HEAD", { cwd: __dirname, stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); } catch (e) { commit = ""; }
+  const build = { at: new Date().toISOString(), commit: /^[0-9a-f]{4,40}$/.test(commit) ? commit : "" };
+  const anchor = "<title>AI秘書</title>";
+  const at = html.indexOf(anchor);
+  if (at < 0 || html.indexOf(anchor, at + 1) >= 0) throw new Error("版を書き込む場所（" + anchor + "）が1つ見つかりませんでした。");
+  html = html.slice(0, at + anchor.length) + "\n<script>window.HITOHI_BUILD=" + JSON.stringify(build) + ";</script>" + html.slice(at + anchor.length);
+  console.log(`版を書き込みました: ${build.at}${build.commit ? " / " + build.commit : ""}`);
+}
+
 /* 殻の設定。**毎回書く**（無いと組み立てが止まる）。自分用では空。 */
 fs.writeFileSync(cfgDst,
   "/* 自動生成。直さないこと。`node sync.js` が書く。秘密は入っていない。 */\n"

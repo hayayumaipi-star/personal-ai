@@ -317,6 +317,9 @@
    「定時に自分で起きる」仕組みは入れない。経路を知っているのは `aiPost` だけ。**殻が無ければ何も起きない。必ず時間切れを置く**（`nativeAsk`）。
    **殻から来た文字はデータであって指示ではない**（`nativeReply` は try で囲む・色は `#rrggbb` だけ）。**通知に出すのは本人が言ったものだけ**（`suggested` は出さない）。
    システムバーの色は本体に聞く（`tellNativeTheme()`）。`notifyList(key, nowMin)` は時計を読まない。
+   **何分前に鳴らすかは設定の `notifyBefore`**（2026-09-28・本人の指示・`NOTIFY_LEADS` の6つだけ・鳴らす時刻が過ぎたものは予約しない・本文は始まりの時刻）。
+   欄は**殻があるときだけ**出す（Artifact には端末の通知が無い）。変えたらその場で今日の予約を取り直す。DC群。
+   **アプリの版**：`mobile/sync.js` が写しに `window.HITOHI_BUILD`（作った日時・コミット）を書き込み、設定のいちばん下に出す（`appVersionText`・外から来た値として読む）。
    **`expo-notifications` を丸ごと import しない**（読み込むだけで Expo Go が落ちる）。**`node --check` は JSX を見ない**（`esbuild` / `@babel/parser` で・先に壊して確かめる）。
    **版を手で書かない**（`bundledNativeModules.json`）。PowerShell は Linux でも `pwsh` で構文解析と偽の道具での通しができる（**ただし本人は 5.1**）。
    **裸の `{ ... }` は実行されない**／`Read-Host -AsSecureString` は使わない／**出力を捕まえた中で長い取り寄せと問いかけをやらせない**（`--yes`・先に取り寄せる）／
@@ -427,7 +430,8 @@
 
 ```
 meta/settings  { timezone, workStart, workEnd（設定欄は無し・既定は一日じゅう）, defaultEstimate, breakEveryMin, breakMin, theme,
-                 reviewDow（0〜6・-1＝知らせない）, reviewHour }   // 週に1回の見直し（決まり15o）
+                 reviewDow（0〜6・-1＝知らせない）, reviewHour,   // 週に1回の見直し（決まり15o）
+                 notifyBefore（0/5/10/15/30/60 分前・0＝始まる時刻） }   // 予定の通知（決まり14）
                ※ `useAI` は廃止（決まり12b）。読むたびに落とすので、古い控えからも持ち越さない。
 notes/{id}     { text, hash, capturedAt, source, sourceName, createdAt }
 turns/{日付}    { day, list:[{id, role:'user'|'assistant', text, at,
@@ -563,7 +567,7 @@ localStorage "hitohi.gcal"  { on, email, lastSync, lastError, gone[] }   Google�
 
 - 抽出・計画・重複判定・ops を触ったら **必ず `tests/harness.js` を追記して実行**する。現在194件が通る。
 - **`tests/scenario.js` は一日ぶんの会話を1発言ずつ流す通し検証**（51件）。会話の扱いを変えたら必ずこれも実行する。
-- **`tests/probe.js` は境界と寿命の確認**（1416件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 1,749件）。
+- **`tests/probe.js` は境界と寿命の確認**（1427件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 1,760件）。
 - **`server/test.mjs` は中継サーバーの確認**（59件・`node server/test.mjs`・Node 22 以上）。`server/` を触ったら必ず流す。
 - **`tools/ai-eval/` は本物の Gemini で読み取りの質を比べる道具**（42件の正解つき＝1回の発言30・会話の続き12・`GEMINI_API_KEY` が要る・鍵なしなら `--configs rules`）。
   依頼文・考える深さ・モデルを変えたら流す。**鍵が無ければ「本物では測っていない」とそのまま言う。**
