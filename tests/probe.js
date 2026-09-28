@@ -2976,14 +2976,14 @@
 
         sent = [];
         await g.json("読み取って", { modelTier: "default" });
-        ok("BF. 読み取りには、深く考える指示を渡す",
-           ((sent[0].generationConfig || {}).thinkingConfig || {}).thinkingLevel === GEMINI_THINK.deep,
+        ok("BF. 読み取りにも、深く考えさせない（low・2026-09-28 本人の指示。考えた量も料金に入る）",
+           ((sent[0].generationConfig || {}).thinkingConfig || {}).thinkingLevel === "low",
            JSON.stringify(sent[0].generationConfig));
         ok("BF. 読み取りのときだけ、JSONで返せと言う",
            (sent[0].generationConfig || {}).responseMimeType === "application/json",
            JSON.stringify(sent[0].generationConfig));
-        ok("BF. 速い返事と読み取りで、渡す重さが違う",
-           GEMINI_THINK.quick !== GEMINI_THINK.deep, "同じになっている");
+        ok("BF. どちらにも medium・high（深く考える）を渡さない",
+           !["medium", "high"].includes(GEMINI_THINK.quick) && !["medium", "high"].includes(GEMINI_THINK.deep), JSON.stringify(GEMINI_THINK));
 
         /* **400（送り方が違う）なら、調整をやめて1回だけ入れ直す。**
            受け取る名前はモデルで違うので、名前を1つ間違えただけで
@@ -6658,6 +6658,54 @@
       const n3 = { id: uid(), text: "会議は14時にして", hash: "cx-up", capturedAt: at0, source: "talk", sourceName: null, createdAt: at0 };
       await putNote(n3); await applyOps([{ op: "update", id: "cx-up", dueTime: "14:00", quote: "会議は14時にして" }], n3);
       ok("CX. 言い直しで時刻だけ言われたら、その項目の日付のまま（今日へ動かさない）", base.dayKey === "2026-09-30" && fmtDT(base.start, TZ).slice(-5) === "14:00", base.dayKey + " " + fmtDT(base.start, TZ));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
+    /* ===== CY. 依頼文は「毎回同じ前半」→「毎回変わる後半」（2026-09-28・本人の指示「毎回同じ前半の文を、先頭にまとめる」） =====
+       Gemini・OpenAI は、前と同じ書き出しを使い回して安く読む。書き出しに【いまの日時】や予定の案が混ざると、一度も使い回せない。
+       見るのは：区切り（PROMPT_TAIL_MARK）より前が、発言・日時・記録・設定を変えても1文字も変わらないこと／毎回変わる欄が全部うしろにあること。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const mkN = (text, y, mo, d, h, mi) => { const at = zoned(y, mo, d, h, mi, TZ).toISOString(); return { id: uid(), text, hash: "cy" + Math.random(), capturedAt: at, source: "talk", sourceName: null, createdAt: at }; };
+      const prompts = [];
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const n1 = mkN("牛乳を買う", 2026, 9, 28, 9, 0);
+      prompts.push(buildPrompt(n1, contextForAI(n1)));
+      // 記録・わたしのこと・体調・会話・設定を変えて、別の日時・別の発言で
+      await putNote(n1); await applyOps(ruleOps(n1), n1);
+      const n2 = mkN("昔から朝のほうが集中できるタイプ。今日は頭が痛い", 2026, 9, 29, 21, 30);
+      await putNote(n2); await applyOps(ruleOps(n2), n2);
+      await pushTurn({ id: uid(), role: "assistant", text: "覚えておくね", at: n2.capturedAt, changes: [], plan: null, ai: false, error: null });
+      state.settings = Object.assign({}, state.settings, { workStart: "08:00", workEnd: "22:00" });
+      const n3 = mkN("金曜までに資料を作る。明日10時から会議", 2026, 10, 3, 14, 5);
+      prompts.push(buildPrompt(n3, contextForAI(n3)));
+      const n4 = mkN("8時から30分勉強する", 2027, 1, 1, 0, 30);
+      prompts.push(buildPrompt(n4, contextForAI(n4)));
+      // 直前のやりとりがある日（会話が載っている日に話す）
+      const n5 = mkN("やっぱり11時からにする", 2026, 9, 29, 22, 0);
+      const cx5 = contextForAI(n5);
+      prompts.push(buildPrompt(n5, cx5));
+      const heads = prompts.map(p => p.indexOf(PROMPT_TAIL_MARK) >= 0 ? p.slice(0, p.indexOf(PROMPT_TAIL_MARK)) : null);
+      ok("CY. 区切りより前は、発言・日時・記録・設定・直前のやりとりを変えても1文字も変わらない（使い回せる前半）",
+        !!cx5.recent && heads.every(h => h !== null) && heads.every(h => h === heads[0]), (cx5.recent ? "" : "直前のやりとりが空（見張りになっていない） ") + heads.map(h => h ? h.length : "区切りなし").join(" / "));
+      ok("CY. 依頼文の大半は、毎回同じ前半にある（記録が少ないときで7割以上）", heads[0] && heads[0].length / prompts[0].length >= 0.7,
+        heads[0] ? Math.round(100 * heads[0].length / prompts[0].length) + "%（前半" + heads[0].length + "字 / 全体" + prompts[0].length + "字）" : "");
+      const DYN = ["【いまの日時】", "【作業に使える時間帯】", "【いまの予定案】", "【本人が前に言った「こうしてほしい」】", "【この人について分かっていること（変わらないこと）】",
+        "【体のこと（本人の言葉そのまま", "【いま開いている用事", "【直前のやりとり】", "【本人の発話】"];
+      const p3 = prompts[1], mk = p3.indexOf(PROMPT_TAIL_MARK);
+      // 見出しは行の頭にあるものだけ数える（前半の「下の【いまの日時】を基準に」は見出しではない）
+      const misplaced = DYN.map(x => "\n" + x).filter(x => !(p3.indexOf(x) > mk) || p3.indexOf(x) !== p3.lastIndexOf(x)).map(x => x.trim());
+      ok("CY. 毎回変わる欄（いまの日時・予定の案・わたしのこと・体のこと・開いている用事・直前のやりとり・発話）は、全部うしろに1回ずつ", misplaced.length === 0, misplaced.join("・"));
+      ok("CY. 本人の発話と、いまの日時は、うしろに入っている", p3.indexOf("金曜までに資料を作る") > mk && /【いまの日時】2026年10月3日\(土\) 14:05/.test(p3.slice(mk)), p3.slice(mk, mk + 120));
+      const STATIC = ["【厳守】", "【返すJSON（これだけ返す）】", "opsに使える形：", "【体のこと】の欄の扱い：", "下の【いまの日時】を基準に"];
+      ok("CY. 説明は1つも落とさず、前半に1回ずつ", STATIC.every(x => heads[0].indexOf(x) >= 0 && p3.indexOf(x) === p3.lastIndexOf(x)), STATIC.filter(x => heads[0].indexOf(x) < 0).join("・"));
+      // 組み立ての依頼：案内はいちばん上のまま（決まり10）。案内のあとは、ふだんと同じ前半
+      const nb = mkN("18時から22時まで予定を組み立てて", 2026, 9, 28, 12, 0);
+      const pb = buildPrompt(nb, contextForAI(nb));
+      const intro = heads[0].slice(0, heads[0].indexOf("「今日」「明日」「あとで」は"));
+      const restB = pb.slice(pb.indexOf("「今日」「明日」「あとで」は"), pb.indexOf(PROMPT_TAIL_MARK));
+      ok("CY. 組み立ての依頼は、案内がいちばん上のまま・そのあとの説明はふだんと同じ", pb.indexOf("【この発話は「1日の組み立て」の依頼です】") < 200
+        && restB === heads[0].slice(intro.length), String(pb.indexOf("【この発話は「1日の組み立て」の依頼です】")));
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
