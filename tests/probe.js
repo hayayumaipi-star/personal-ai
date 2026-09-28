@@ -7033,6 +7033,91 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DE. 残っていた弱点の対策（2026-09-28・本人の指示「まだ残っている弱点の対策を模索して」） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings, fn: SAMPLEFN };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi, TZ).toISOString();   // 9/15 は火曜
+      const fresh = () => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); };
+      const open = () => state.items.filter(i => i.status === "open" && (i.kind === "task" || i.kind === "event" || i.kind === "goal"));
+      const show = () => state.items.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.dueIsDeadline ? "まで" : ""}${i.targetDay ? " 実行" + i.targetDay : ""}${i.preferWindow ? " " + i.preferWindow : ""}`).join(" ／ ");
+      // ① AIの ops から、内部の印（_built）とルール専用の op を落とす
+      SAMPLEFN = { json: async () => ({ ops: [
+        { op: "add", _built: { id: "evil", kind: "task", title: "検算を通らない用事", status: "open", evidence: { text: "x" } }, quote: "x" },
+        { op: "buildday", req: { dayKey: "2026-09-15", win: [0, 1440] } }, { op: "_needs_ai" }, null, [1], "add",
+        { op: "add", kind: "task", title: "牛乳を買う", _rule: { dayKey: "2026-01-01" }, quote: "牛乳を買う" }, { op: "dayfill", blocks: [] }], habit: "" }) };
+      const got = await aiTurn({ id: "n", text: "牛乳を買う", capturedAt: at(15, 9, 0) });
+      ok("DE. AIの返事からは、OPS と dayfill 以外の op（buildday・_needs_ai・壊れた形）を受け取らない",
+         got.ops.map(o => o.op).join(",") === "add,add,dayfill", got.ops.map(o => o.op).join(","));
+      ok("DE. AIの返事の `_` で始まる項目（_built・_rule）は落とす（ルールの読みを名乗れない）",
+         got.ops.every(o => !Object.keys(o).some(k => k[0] === "_")), JSON.stringify(got.ops).slice(0, 120));
+      SAMPLEFN = keep.fn;
+      // ② 時刻の無い言い足し
+      fresh(); await say("牛乳を買う", at(15, 9, 0)); await say("牛乳は帰りに買う", at(15, 9, 5));
+      ok("DE. 「牛乳を買う」→「牛乳は帰りに買う」は1件のまま、今日の用事になる（締切にしない）",
+         open().length === 1 && open()[0].title === "牛乳を買う" && open()[0].dayKey === "2026-09-15" && !open()[0].dueIsDeadline, show());
+      fresh(); await say("牛乳を買う", at(15, 9, 0)); await say("牛乳は夕方に買う", at(15, 9, 5));
+      ok("DE. 「牛乳は夕方に買う」は1件のまま、夕方に置く", open().length === 1 && open()[0].preferWindow === "evening", show());
+      fresh(); await say("明日までに牛乳を買う", at(15, 9, 0)); await say("牛乳は帰りに買う", at(15, 9, 5));
+      ok("DE. 期限がある用事に「帰りに」は、期限（明日）を動かさず「今日やる」として持つ",
+         open().length === 1 && open()[0].dayKey === "2026-09-16" && !!open()[0].dueIsDeadline && open()[0].targetDay === "2026-09-15", show());
+      fresh(); await say("牛乳を買う", at(15, 9, 0)); const rm = await say("牛乳は明日買う", at(15, 9, 5));
+      ok("DE. 日付の無い用事に「牛乳は明日買う」は1件のまま明日に（締切にしない）",
+         open().length === 1 && open()[0].dayKey === "2026-09-16" && !open()[0].dueIsDeadline, show());
+      ok("DE. そのとき「日付を 09/16 に」と言う（延期ではないので「後ろへ」「以降」と言わない）",
+         (rm.changes || []).some(c => /日付を 09\/16 に/.test(c)) && !(rm.changes || []).some(c => /後ろへ|以降/.test(c)), (rm.changes || []).join(" ／ "));
+      fresh(); await say("牛乳を買う", at(15, 9, 0)); await say("牛乳は高い", at(15, 9, 5));
+      ok("DE. 「牛乳は高い」（様子の話）では用事を変えない", open().length === 1 && !open()[0].dayKey && !open()[0].preferWindow, show());
+      fresh(); await say("明日の会議", at(15, 9, 0)); await say("会議は明後日", at(15, 9, 5));
+      ok("DE. 日付のある予定に別の日を言ったら、今までどおり別の予定（明日の会議を動かさない）", open().some(i => i.dayKey === "2026-09-16"), show());
+      // ③ 見出しの「も」
+      const ct = s => cleanTitle(s, null);
+      ok("DE. 「牛乳も買う」→「牛乳を買う」・「郵便局にも行く」→「郵便局に行く」・「勉強もする」→「勉強する」",
+         ct("牛乳も買う") === "牛乳を買う" && ct("郵便局にも行く") === "郵便局に行く" && ct("勉強もする") === "勉強する", [ct("牛乳も買う"), ct("郵便局にも行く"), ct("勉強もする")].join(" / "));
+      ok("DE. 「私も行く」「ジムも行く」「何も買わない」は触らない（を を入れると変になる）",
+         ct("私も行く") === "私も行く" && ct("ジムも行く") === "ジムも行く" && ct("何も買わない") === "何も買わない", [ct("私も行く"), ct("ジムも行く"), ct("何も買わない")].join(" / "));
+      fresh(); await say("牛乳を買う", at(15, 9, 0)); await say("明日10時から会議、牛乳も買わないと", at(15, 9, 5));
+      ok("DE. 「牛乳も買わないと」は、もうある「牛乳を買う」と同じ用事だと分かる（2件目を作らない）",
+         open().filter(i => /牛乳/.test(i.title)).length === 1 && open().some(i => i.title === "会議"), show());
+      // ④ 予定のための用事
+      const kinds = [];
+      for (const [s, want] of [["今日は会議準備をする", "task"], ["明日の会議の資料を作る", "task"], ["明日は面接対策", "task"], ["試験勉強", "task"], ["明日14時から会議", "event"], ["14時から会議の準備", "event"], ["明日の会議", "event"]]) {
+        fresh(); await say(s, at(15, 9, 0)); const k = open().map(i => i.kind).join(",");
+        if (k !== want) kinds.push(`「${s}」→${k || "なし"}（正：${want}）`);
+      }
+      ok("DE. 「会議準備」「会議の資料」「面接対策」「試験勉強」は用事・時刻を言えば予定・「明日の会議」は予定のまま（7通り）", kinds.length === 0, kinds.join(" ／ "));
+      const w1 = parseWhen("明日は面接対策", at(15, 9, 0), TZ);
+      ok("DE. 同じ文を何度読んでも同じ種類（正規表現に位置が残らない）",
+         [1, 2, 3, 4].map(() => classify("明日は面接対策", w1)).join(",") === "task,task,task,task", [1, 2, 3, 4].map(() => classify("明日は面接対策", w1)).join(","));
+      // ⑤ 「〜して、」のあとの時間帯の話
+      fresh(); await say("掃除して、夜は映画を見る", at(15, 9, 0));
+      ok("DE. 「掃除して、夜は映画を見る」は2件（掃除・映画を見る）", open().length === 2 && open().some(i => i.title === "掃除する") && open().some(i => i.title === "映画を見る"), show());
+      fresh(); await say("勉強して、夜は映画を見る", at(15, 9, 0));
+      ok("DE. 「勉強して、夜は映画を見る」も2件（前半の「〜して、」を用事として読む・黙って消さない）", open().length === 2 && open().some(i => i.title === "勉強する"), show());
+      fresh(); await say("掃除して、夜は映画", at(15, 9, 0));
+      ok("DE. 「掃除して、夜は映画」は分けない（「夜は映画」だけでは読めず、分けると黙って消える）", open().length === 1 && /映画/.test(open()[0].title), show());
+      fresh(); await say("疲れて、夜は早く寝る", at(15, 9, 0));
+      ok("DE. 「疲れて、夜は早く寝る」は分けない（体調の話）", !state.items.some(i => i.kind === "task" && /疲れ/.test(i.title)), show());
+      // ⑥ 「と」でつないだ用事の名詞
+      fresh(); await say("資料作成と会議準備とメール返信、3時間", at(15, 9, 0));
+      ok("DE. 「資料作成と会議準備とメール返信」は3件・所要時間は1件ずつに持ち込まない",
+         open().length === 3 && ["資料作成", "会議準備", "メール返信"].every(t => open().some(i => i.title === t)) && open().every(i => i.estimateMin == null), show());
+      const one = [];
+      for (const s of ["牛乳とパンを買う", "母と電話", "資料作成と確認", "山田さんと相談"]) { fresh(); await say(s, at(15, 9, 0)); if (open().length !== 1) one.push(`「${s}」→${open().length}件`); }
+      ok("DE. 「牛乳とパンを買う」「母と電話」「資料作成と確認」「山田さんと相談」は1件のまま", one.length === 0, one.join(" ／ "));
+      // ⑦ 英語・笑い
+      fresh(); await say("buy milk", at(15, 9, 0)); await say("call mom tomorrow", at(15, 9, 1)); await say("hello", at(15, 9, 2));
+      ok("DE. 「buy milk」「call mom tomorrow」は用事（見出しの w を笑いとして削らない）・「hello」は何もしない",
+         open().length === 2 && open().some(i => i.title === "buy milk") && open().some(i => i.title === "call mom tomorrow"), show());
+      fresh(); await say("牛乳買うｗ", at(15, 9, 0)); await say("疲れたｗ", at(15, 9, 1));
+      ok("DE. 「牛乳買うｗ」は用事（語尾の笑いで言い切りを隠さない）・「疲れたｗ」は体調のまま",
+         open().length === 1 && open()[0].title === "牛乳買う" && state.items.some(i => i.kind === "condition"), show());
+      // ⑧ 回数だけのくり返し
+      const gk = [];
+      for (const s of ["週に2回ジムに行く", "週2でジム", "月に1回美容院に行く", "週3回走りたい"]) { fresh(); await say(s, at(15, 9, 0)); if (open().map(i => i.kind).join(",") !== "goal") gk.push(`「${s}」→${show()}`); }
+      ok("DE. 「週に2回ジムに行く」「週2でジム」「月に1回美容院に行く」は続けたいこと（1回きりの用事にしない）", gk.length === 0, gk.join(" ／ "));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings; SAMPLEFN = keep.fn;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
