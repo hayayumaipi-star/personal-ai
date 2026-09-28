@@ -6609,6 +6609,58 @@
       }
     }
 
+    /* ===== CX. AIが「時刻だけ・日付は空」で返しても、ルールと同じ日時に入れる（2026-09-28・実機で報告） =====
+       16:58 の「8時から30分勉強する」で、AI は依頼文どおり dueDate を null・dueTime だけで返した。アプリは時刻ごと捨て、
+       **何も予定に入らなかった**（日時なしの用事になった）。あわせて、AIの道では午前・午後の聞き返し（whenAlt）が一度も出ていなかった。
+       見るのは「AIの道の結果が、同じ発言をルールで読んだ結果と同じになるか」（決まり7d・4b・7e）。AIは言われた数字をそのまま時刻にする素朴な形で返す。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const cases = [
+        [16, 58, "8時から30分勉強する", "08:00"],
+        [16, 58, "8時から30分勉強する", "20:00"],
+        [22, 30, "10時から勉強する", "10:00"],
+        [9, 0, "8時から勉強する", "08:00"],
+        [7, 0, "8時から勉強する", "08:00"],
+        [10, 0, "3時に歯医者", "03:00"],
+        [13, 0, "18時までに資料を送る", "18:00"],
+        [9, 0, "11時から12時まで会議", "11:00"],
+        [23, 50, "9時に病院", "09:00"],
+      ];
+      const bad = [], alts = [];
+      for (const [h, mi, text, aiTime] of cases) {
+        const at = zoned(2026, 9, 28, h, mi, TZ).toISOString();
+        const mk = () => ({ id: uid(), text, hash: "cx" + text + Math.random(), capturedAt: at, source: "talk", sourceName: null, createdAt: at });
+        reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+        const n1 = mk(); await putNote(n1); await applyOps(ruleOps(n1), n1);
+        const r = state.items.find(i => i.noteId === n1.id && (i.kind === "task" || i.kind === "event"));
+        if (!r) { bad.push(text + "：ルールで読めない"); continue; }
+        const dur = r.kind === "event" && r.start && r.end ? Math.round((new Date(r.end) - new Date(r.start)) / 60000) : (r.estimateMin || null);
+        reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+        const n2 = mk(); await putNote(n2);
+        const res = await applyOps([{ op: "add", kind: r.kind, title: r.title, dueDate: null, dueTime: aiTime, duePrecision: "exact",
+          estimateMin: dur, estimateUncertain: false, targetDate: null, preferWindow: null, window: null, travelMin: null, prepMin: null, quote: text }], n2);
+        const a = state.items.find(i => i.noteId === n2.id);
+        const w = x => x ? (x.dayKey + " " + (x.start || x.due ? fmtDT(x.start || x.due, TZ).slice(-5) : "—")) : "なし";
+        const same = !!a && a.dayKey === r.dayKey && (a.start || a.due) === (r.start || r.due) && !!a.whenAlt === !!r.whenAlt
+          && (!a.whenAlt || a.whenAlt.start === r.whenAlt.start);
+        if (!same) bad.push(`${pad2(h)}:${pad2(mi)}「${text}」AI=${aiTime} → ルール ${w(r)}${r.whenAlt ? "（もう一方あり）" : ""} ／ AIの道 ${w(a)}${a && a.whenAlt ? "（もう一方あり）" : ""}`);
+        if (a && a.whenAlt) alts.push(res.asks.some(x => /のことなら、項目の/.test(x)));
+      }
+      ok("CX. AIが時刻だけ（日付は空）で返しても、ルールと同じ日時に入れる・午前午後の「もう一方」も同じに持つ（9通り）", bad.length === 0, bad.join(" ／ "));
+      ok("CX. AIの道でも、もう一方があれば聞き返す（「〜のことなら、項目の…を押してください」）", alts.length > 0 && alts.every(Boolean), JSON.stringify(alts));
+      // 言い直し（いまの日付を持っている項目）は、時刻だけ言われても日付を動かさない（今までどおり）
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const at0 = zoned(2026, 9, 28, 9, 0, TZ).toISOString();
+      const base = { id: "cx-up", noteId: null, kind: "event", title: "会議", status: "open", origin: "rule", confirmed: false, corrected: false, history: [],
+        createdAt: at0, updatedAt: at0, dayKey: "2026-09-30", start: zoned(2026, 9, 30, 10, 0, TZ).toISOString(), end: zoned(2026, 9, 30, 11, 0, TZ).toISOString(), fixed: true, duePrecision: "exact" };
+      base.dedupeKey = dedupeKey(base); state.items.push(base);
+      const n3 = { id: uid(), text: "会議は14時にして", hash: "cx-up", capturedAt: at0, source: "talk", sourceName: null, createdAt: at0 };
+      await putNote(n3); await applyOps([{ op: "update", id: "cx-up", dueTime: "14:00", quote: "会議は14時にして" }], n3);
+      ok("CX. 言い直しで時刻だけ言われたら、その項目の日付のまま（今日へ動かさない）", base.dayKey === "2026-09-30" && fmtDT(base.start, TZ).slice(-5) === "14:00", base.dayKey + " " + fmtDT(base.start, TZ));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

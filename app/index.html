@@ -7643,6 +7643,7 @@ async function applyOps(rawOps0, note) {
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), history: []
         };
         applyFields(it, o, tz, note, { soleAdd });
+        if (!it.whenAlt) { const alt = ruleAltFor(it, note); if (alt) it.whenAlt = alt; }
         /* **AIの道でも、くり返しを付ける**（2026-09-27）。AIは repeat を返さないので、ルールで読む（決まり7e）。
            その項目の根拠の文から読み、1件だけのときは発言まるごとからも読む。日付の無いものには付けない（ルールの道と同じ）。 */
         if ((it.kind === "task" || it.kind === "event") && it.dayKey && !it.repeat) {
@@ -7908,6 +7909,15 @@ function applyFields(it, o, tz, note, opts) {
     // 日付がまったく無いときは、ここで「あいまい」と決めておく（下の分岐は日付が要る）
     if (!day) { it.dayKey = null; it.due = null; it.dueIsDeadline = false; it.duePrecision = "week"; }
   }
+  /* **AIが時刻だけ返して、日付を空にしたとき**（2026-09-28・実機で報告：16:58 の「8時から30分勉強する」が何も入らなかった）。
+     依頼文は「日付の言葉が無ければ dueDate は null」「時刻だけなら話したその日」と頼んでいるので、AIはこの形で返してくる。
+     下の分岐は「言い直し（いまの日付を保つ）」の道しか無く、**新しい項目は日付を持たないので、時刻ごと消えて日時なしの用事になっていた**。
+     決まり7d の「時刻だけ→ルールの日」をここにも通す（過ぎた朝の「8時」は今夜・決まり4b）。ルールが時刻を読めなければ話した日。 */
+  if (isTime(o.dueTime) && !isDate(o.dueDate) && !it.dayKey && note) {
+    const spoken = (rw && rw.hasTime && (rw.start || rw.iso)) ? dayKey(new Date(rw.start || rw.iso), tz) : null;
+    o = Object.assign({}, o, { dueDate: spoken || dayKey(new Date(note.capturedAt || Date.now()), tz), duePrecision: "exact" });
+    it.dateInferred = true;
+  }
   // いまの長さと時刻を覚えておく。片方だけ言い直されても、もう片方を失わないため。
   const curDur = (it.kind === "event" && it.start && it.end)
     ? Math.max(5, Math.round((new Date(it.end) - new Date(it.start)) / 60000)) : null;
@@ -7982,6 +7992,18 @@ function applyFields(it, o, tz, note, opts) {
     it.dayKey = rw.dayKey; it.due = rw.iso; it.duePrecision = "week"; it.dueIsDeadline = !!rw.isDeadline;
     it.period = rw.periodJa; if (rw.periodFrom) it.periodFrom = true; else delete it.periodFrom;
   }
+}
+/* **午前とも午後とも読める時刻の「もう一方」は、ルールの読みから借りる**（2026-09-28・決まり4b・決まり7e）。
+   ルールの道は `whenAlt` を持って聞き返すのに、AIの道は持たず、**AIがオンだと聞き返しが一度も出ていなかった**。
+   判定を2か所に書かない——同じ発言をルールで読んだ項目のうち、**同じ時刻に置いたもの**の `whenAlt` をそのまま使う。 */
+function ruleAltFor(it, note) {
+  const at = it.start || (it.duePrecision === "exact" ? it.due : null);
+  if (!at || !note || !note.text) return null;
+  let list = [];
+  try { list = extractByRule(note, state.settings); } catch { return null; }
+  const t = new Date(at).getTime();
+  const hit = list.find(r => r.whenAlt && validISO(r.start || r.due) && new Date(r.start || r.due).getTime() === t);
+  return hit ? Object.assign({}, hit.whenAlt) : null;
 }
 /* 同じものが既にあって足さなかったとき、何とぶつかったのかを言う（v5.2）。
    完了・取り消し済みとぶつかることもあるので、その状態も書く。 */
