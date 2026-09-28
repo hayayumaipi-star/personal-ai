@@ -7533,6 +7533,62 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DM. テスター8周目：ずらす・時間変更・名前を言って聞く・昨日何した・「〜たい」・見出し（2026-09-28・自律で進めた回） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const hmOf = x => x && validISO(x) ? hhmm(minOfDay(x, TZ)) : "なし";
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, d, h, mi] of steps) r = await say(s, at(d, h, mi)); return r || { changes: [], asks: [] }; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.start && !i.timeUnknown ? " " + hmOf(i.start) : ""}${i.kind === "task" && i.duePrecision === "exact" ? " " + hmOf(i.due) : ""}${i.allDay ? " 終日" : ""}${i.estimateMin ? " " + i.estimateMin + "分" : ""}`).join(" ／ ");
+      const ev1 = () => state.items.filter(i => i.kind === "event");
+      // --- ずらす・時間変更（明日の会議を、今日の昼に言い直す） ---
+      const shift = async (s, want) => { await run([["明日10時に会議", 15, 9], [s, 15, 12]]); return state.items.length === 1 && ev1()[0].dayKey === "2026-09-16" && hmOf(ev1()[0].start) === want; };
+      ok("DM. 「会議を30分後ろにずらして」は同じ日の10:30（「30分後」をいまからの時刻にしない）", await shift("会議を30分後ろにずらして", "10:30"), show(state.items));
+      ok("DM. 「会議1時間早めて」は9:00（「会議1時間早めて」という用事を作らない）", await shift("会議1時間早めて", "09:00"), show(state.items));
+      ok("DM. 「会議を1時間前にずらして」は9:00", await shift("会議を1時間前にずらして", "09:00"), show(state.items));
+      ok("DM. 昼の「会議の時間変更、11時から」は明日の11:00（今日の23時の予定を作らない）", await shift("会議の時間変更、11時から", "11:00"), show(state.items));
+      ok("DM. 昼の「会議は3時からになった」は明日の15:00（1〜5時は午後・決まり4c）", await shift("会議は3時からになった", "15:00"), show(state.items));
+      ok("DM. 「会議は夜8時からになった」は20:00（夜と言っていれば読んだとおり）", await shift("会議は夜8時からになった", "20:00"), show(state.items));
+      await run([["今日18時に会議", 15, 9], ["会議は8時からになった", 15, 12]]);
+      ok("DM. 今日の予定で朝8時が過ぎていれば「8時」は20:00", hmOf(ev1()[0].start) === "20:00", show(state.items));
+      await run([["30分後に電話する", 15, 9]]);
+      ok("DM. 「30分後に電話する」は今までどおり9:30", hmOf(state.items[0].due) === "09:30", show(state.items));
+      // --- 聞く ---
+      await run([["牛乳を買う", 14, 9], ["牛乳買った", 14, 18]]);
+      const K = "2026-09-14";
+      let an = answerQuestion("昨日何した？", planFor(K, { nowMin: 0 }), K, "昨日") || "";
+      ok("DM. 「昨日何した？」は、会話で完了にした日（言った日）で答える", /昨日済ませたのは「牛乳を買う」/.test(an), an);
+      ok("DM. 会話で完了にしたときの完了の時刻は、言ったとき", state.items[0].completedAt === at(14, 18), state.items[0].completedAt);
+      await run([["明日10時に会議", 15, 9]]);
+      an = answerQuestion("会議って何時からだっけ", planFor("2026-09-15", { nowMin: 12 * 60 }), "2026-09-15", "今日") || "";
+      ok("DM. 「会議って何時からだっけ」は名前で探して日時を答える（今日の予定で答えない）", /「会議」は9\/16\(水\) 10:00から/.test(an), an);
+      an = answerQuestion("明日は何がある？", planFor("2026-09-16", { nowMin: -1 }), "2026-09-16", "明日") || "";
+      ok("DM. 「明日は何がある？」に答える", /会議/.test(an), an);
+      // --- 読み取り ---
+      await run([["明日10時に会議", 15, 9], ["明日の会議の前に資料を印刷", 15, 9, 1]]);
+      const pr = state.items.find(i => /印刷/.test(i.title));
+      ok("DM. 「明日の会議の前に資料を印刷」は会議の始まりが締切の用事（予定にしない）", pr && pr.kind === "task" && hmOf(pr.due) === "10:00" && pr.dayKey === "2026-09-16", show(state.items));
+      await run([["資料作成", 15, 9], ["資料作成は2時間", 15, 9, 5]]);
+      ok("DM. 「資料作成」だけでも用事・「資料作成は2時間」は長さの言い足し", state.items.length === 1 && state.items[0].kind === "task" && state.items[0].estimateMin === 120, show(state.items));
+      await run([["午前中いっぱい作業", 15, 9]]);
+      ok("DM. 「午前中いっぱい作業」は用事にしない（「作業」だけは広すぎる）", !state.items.length, show(state.items));
+      await run([["本を読みたい", 15, 9], ["早く帰りたい", 15, 9, 1], ["明日映画を見たい", 15, 9, 2]]);
+      ok("DM. 日付の無い「本を読みたい」は気になっていること・「早く帰りたい」は記録しない・日付を言えば用事",
+        state.items.some(i => i.kind === "idea" && i.title === "本を読みたい") && !state.items.some(i => /帰り/.test(i.title)) && state.items.some(i => i.kind === "task" && i.dayKey === "2026-09-16"), show(state.items));
+      await run([["今日は夜まで作業する感じにはしたくない", 15, 9]]);
+      ok("DM. 「〜したくない」を用事にしない（夜の希望だけ）", !state.items.some(i => i.kind === "task"), show(state.items));
+      // --- 見出し ---
+      const title1 = async s => { await run([[s, 15, 9]]); return state.items.map(i => i.title).join(); };
+      ok("DM. 「今月の目標は5冊読むこと」の見出しは「5冊読む」", await title1("今月の目標は5冊読むこと") === "5冊読む", show(state.items));
+      ok("DM. 「明日の朝までにメール」の見出しは「メール」", await title1("明日の朝までにメール") === "メール", show(state.items));
+      ok("DM. 「来週月曜に提出、レポート」の見出しは「レポート提出」", await title1("来週月曜に提出、レポート") === "レポート提出", show(state.items));
+      ok("DM. 「映画は土曜に見る」の見出しは「映画を見る」", await title1("映画は土曜に見る") === "映画を見る", show(state.items));
+      ok("DM. 「来週の月曜、朝は早く出る」の「朝は」は時のことなので「を」にしない", !/朝を/.test(await title1("来週の月曜、朝は早く出る")), show(state.items));
+      await run([["木曜は1日中外出", 15, 9]]);
+      ok("DM. 「木曜は1日中外出」は終日の予定", state.items.length === 1 && state.items[0].allDay, show(state.items));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
