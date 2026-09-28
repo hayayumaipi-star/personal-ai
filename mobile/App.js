@@ -3,13 +3,15 @@
 
    **この殻は、中身のロジックを1行も持ちません。**
    全部 `app/index.html` の側にあります（このファイルが唯一の正・決まり7e）。
-   殻がやるのは5つだけ：
+   殻がやるのは6つだけ：
 
      ① その `index.html` を WebView で開く
      ② AIへの通信を代わりに行う（WebView から直接だと相手の受け入れ設定に止められる）
      ③ 予定の通知を予約する
      ④ 通知で押された返事を、そのまま中へ運ぶ（2026-09-24）
      ⑤ Googleカレンダーへの通信を代わりに行う（2026-09-27・決まり17）
+     ⑥ 配る版では、AI の中継サーバーへの通信を代わりに行う（2026-09-28・決まり18）
+        **Google でログインした証明（ID トークン）を殻が付ける。**ページには渡さない（⑤の鍵と同じ）。
 
    ⑤も「運ぶ」だけです。**どの予定を読み書きするかは、殻は知りません**（`app/index.html` の `gcalTwoWay()`）。
    殻が持つのは2つだけ：**Google へのログイン**（Google は WebView の中でのログインを禁じているので、
@@ -28,7 +30,7 @@
    =========================================================================== */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Platform, StatusBar, useColorScheme } from "react-native";
+import { Linking, Platform, StatusBar, useColorScheme } from "react-native";
 import { WebView } from "react-native-webview";
 /* 上下のシステムバー（時計・ホームバー）の高さを知るためだけに使う。
    Android 15 以降は画面いっぱいに描くのが既定なので、これが無いと
@@ -69,7 +71,9 @@ import { AndroidImportance } from "expo-notifications/build/NotificationChannelM
 let GS = null;
 try { GS = require("@react-native-google-signin/google-signin").GoogleSignin; } catch (e) { GS = null; }
 /* 頼む権限は**1つだけ**：予定を見て編集する（`calendar.events`）。メインのカレンダーと同期するため（本人の指示・決まり17）。
-   カレンダーそのものを作る・消す・共有する権限（`calendar`）は頼まない。決めるのは殻（ページからは広げられない）。 */
+   カレンダーそのものを作る・消す・共有する権限（`calendar`）は頼まない。決めるのは殻（ページからは広げられない）。
+   **ログインのときには頼まない**（2026-09-28・決まり18）。配る版では AI を使うためだけにログインする人がいるので、
+   カレンダーの権限は「Google と同期する」を押したときに足す（`addScopes`）。 */
 const GCAL_SCOPES = [
   "https://www.googleapis.com/auth/calendar.events"
 ];
@@ -77,13 +81,19 @@ const GCAL_BASE = "https://www.googleapis.com/calendar/v3/";
 let gsReady = false;
 function gsSetup() {
   if (!GS || gsReady) return !!GS;
-  try { GS.configure({ scopes: GCAL_SCOPES }); gsReady = true; } catch (e) { console.warn("Googleの準備でつまずきました", e); }
+  /* ウェブのクライアント ID を渡すと、ログインの証明（ID トークン）がもらえる。中継サーバーはそれで本人を確かめる。 */
+  const opts = { scopes: [] };
+  if (APP_CFG && APP_CFG.webClientId) opts.webClientId = String(APP_CFG.webClientId);
+  try { GS.configure(opts); gsReady = true; } catch (e) { console.warn("Googleの準備でつまずきました", e); }
   return gsReady;
 }
 function gsError(e) {
   const code = e && e.code != null ? String(e.code) : "";
   return (code ? code + "：" : "") + String((e && e.message) || e);
 }
+/* 配る版の設定（中継サーバーの場所と、Google のウェブのクライアント ID）。`node sync.js` が毎回書く（直さないこと）。
+   **秘密は入っていない**（どちらも APK を開けば見える種類の値）。自分用の APK では空。 */
+import APP_CFG from "./app-config";
 /* アプリ本体。`node sync.js` が app/index.html から作る（直さないこと）。 */
 import APP_HTML from "./app-html";
 
@@ -236,6 +246,10 @@ export default function App() {
           const r = await GS.signIn();
           if (!r || r.type !== "success") { post({ id: m.id, ok: false, cancelled: true }); return; }
           post({ id: m.id, ok: true, email: String((r.data && r.data.user && r.data.user.email) || "") });
+        } else if (m.action === "calendar") {
+          /* カレンダーの権限を足す（ログイン済みのとき）。断られたら ok:false。 */
+          const r = await GS.addScopes({ scopes: GCAL_SCOPES });
+          post({ id: m.id, ok: !!(r && r.type === "success") });
         } else if (m.action === "signout") {
           try { await GS.revokeAccess(); } catch (e0) { /* もう外れていれば、そのまま */ }
           try { await GS.signOut(); } catch (e0) {}
@@ -243,7 +257,9 @@ export default function App() {
         } else {
           const r = await GS.signInSilently();
           const ok = !!(r && r.type === "success");
-          post({ id: m.id, ok, email: ok ? String((r.data && r.data.user && r.data.user.email) || "") : "" });
+          const granted = ok && r.data && Array.isArray(r.data.scopes) ? r.data.scopes : [];
+          post({ id: m.id, ok, email: ok ? String((r.data && r.data.user && r.data.user.email) || "") : "",
+                 calendar: GCAL_SCOPES.every(sc => granted.includes(sc)), server: !!(APP_CFG && APP_CFG.serverUrl) });
         }
       } catch (e2) { post({ id: m.id, error: gsError(e2) }); }
       return;
@@ -271,6 +287,39 @@ export default function App() {
           tok = (await GS.getTokens()).accessToken;
           r = await send(tok);
         }
+        post({ id: m.id, status: r.status, body: await r.text() });
+      } catch (e2) { post({ id: m.id, error: gsError(e2) }); }
+      return;
+    }
+
+    /* ⑥ 配る版：AI の中継サーバーへ（2026-09-28・決まり18）。**行き先は殻が知っている1か所だけ**
+       （ページからは変えられない）。頼めるのは generate（AIを呼ぶ）と status（今日の残り）だけ。
+       ログインの証明は殻が付ける。ログインしていなければ 401 の形で返す（ページが案内を出す）。 */
+    if (m.kind === "aiserver") {
+      const base = String((APP_CFG && APP_CFG.serverUrl) || "");
+      if (!base) { post({ id: m.id, error: "noserver" }); return; }
+      if (!GS || !gsSetup()) { post({ id: m.id, error: "nosupport" }); return; }
+      /* プライバシーポリシーは、サーバーの /privacy を**端末のブラウザで**開く（WebView の中で開くとアプリへ戻れない）。 */
+      if (m.op === "privacy") {
+        try { await Linking.openURL(base.replace(/\/+$/, "") + "/privacy"); post({ id: m.id, ok: true }); }
+        catch (e2) { post({ id: m.id, error: gsError(e2) }); }
+        return;
+      }
+      const op = m.op === "status" ? "status" : "generate";
+      const need = () => post({ id: m.id, status: 401, body: JSON.stringify({ error: { code: "login_required", message: "Google でのログインが必要です" } }) });
+      try {
+        const idToken = async () => {
+          const r = await GS.signInSilently();
+          return r && r.type === "success" && r.data ? String(r.data.idToken || "") : "";
+        };
+        let tok = await idToken();
+        if (!tok) { need(); return; }
+        const send = t => fetch(base.replace(/\/+$/, "") + "/v1/" + op, {
+          method: op === "status" ? "GET" : "POST",
+          headers: { Authorization: "Bearer " + t, "Content-Type": "application/json" },
+          body: op === "status" ? undefined : String(m.body || "") });
+        let r = await send(tok);
+        if (r.status === 401) { tok = await idToken(); if (!tok) { need(); return; } r = await send(tok); }   // 証明が古かった
         post({ id: m.id, status: r.status, body: await r.text() });
       } catch (e2) { post({ id: m.id, error: gsError(e2) }); }
       return;

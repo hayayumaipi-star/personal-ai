@@ -8,3 +8,7 @@ app-html.js
 # 焼き込むAPIキー（決まり13b）。**絶対に git に入れない。**
 # secret.example.json をコピーして作る。
 secret.json
+# 殻の設定（sync.js が毎回書く）
+app-config.js
+# 配る版の設定（Playに出す.cmd が聞いて作る）
+play.json

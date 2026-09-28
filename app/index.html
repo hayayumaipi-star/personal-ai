@@ -720,7 +720,7 @@ try { if (window.ReactNativeWebView) document.documentElement.classList.add("in-
     <!-- Googleカレンダー（2026-09-27・決まり17）。**Android アプリの中でだけ出す**——
          Google のログインは殻にしかできない（WebView の中のログインを Google が禁じている）。 -->
     <div class="card stack" id="gcalCard" hidden>
-      <h3 class="cardttl">Googleカレンダー</h3>
+      <h3 class="cardttl" id="gcalTtl">Googleカレンダー</h3>
       <div id="gcalOut"></div>
     </div>
 
@@ -2948,6 +2948,14 @@ function nativeReply(raw) {
 }
 if (typeof window !== "undefined") window.hitohiNative = nativeReply;
 
+/* 配る版の AI への1回の通信（決まり18）。**中継サーバーへの経路を知っているのはここだけ**。
+   ページはサーバーの場所もログインの証明も知らない——殻が場所を知り、証明を付ける。 */
+async function aiServerPost(payload) {
+  const m = await nativeAsk("aiserver", { op: "generate", body: JSON.stringify(payload) }, 180000);
+  let data = null;
+  try { data = JSON.parse(String(m.body || "")); } catch {}
+  return { ok: m.status >= 200 && m.status < 300, status: m.status, data };
+}
 /* AIへの1回の通信。**ここだけが経路を知っている**（決まり7e）。
    殻があれば殻に頼み、無ければ自分で呼ぶ。呼ぶ側は違いを知らなくていい。 */
 async function aiPost(url, headers, payload, signal) {
@@ -3229,6 +3237,7 @@ async function gcalProbe() {
   try {
     const m = await nativeAsk("gauth", { action: "status" }, 6000);
     gcalCap = true;
+    acctSet(m.ok, m.email);
     const g = gcalGet();
     if (g.on && !m.ok) { g.lastError = "Google のログインが切れています。「つなぎ直す」を押してください。"; gcalPut(g); }
     if (m.ok && m.email) { g.email = m.email; gcalPut(g); }
@@ -3236,24 +3245,28 @@ async function gcalProbe() {
   return gcalCap;
 }
 async function gcalConnect() {
-  let m;
-  try { m = await nativeAsk("gauth", { action: "signin" }, 300000); }
-  catch (e) { toast("Google につなげませんでした：" + (e && e.message ? e.message : e)); lastError = "Googleのログイン：" + (e && e.message); renderGcal(); return; }
-  if (!m.ok) { toast(m.cancelled ? "Google へのログインをやめました" : "Google につなげませんでした"); return; }
+  /* ログイン → カレンダーの許可、の2段（2026-09-28・決まり18）。配る版では AI のためにもうログインしていることがあるので、
+     ログインのときにはカレンダーの許可を頼まない。**古い APK の殻は "calendar" を知らない**が、ログインのときに許可を取っているので通る。 */
+  const m = await acctSignIn(true); if (!m) return;
+  let c;
+  try { c = await nativeAsk("gauth", { action: "calendar" }, 300000); }
+  catch (e) { toast("カレンダーの許可をもらえませんでした：" + (e && e.message ? e.message : e)); return; }
+  if (!c.ok) { toast("カレンダーの許可をもらえなかったので、同期は始めていません"); return; }
   const g = gcalGet(); g.on = true; g.email = m.email || ""; delete g.lastError; gcalPut(g);
   gcalCap = true; renderGcal();
   toast("Google につなぎました。予定を合わせています…");
   await gcalSync({ loud: true });
 }
-async function gcalDisconnect() {
-  const yes = await askConfirm({
+async function gcalDisconnect(quiet) {
+  const yes = quiet ? true : await askConfirm({
     title: "Googleカレンダーとの同期をやめますか？",
     body: `Google カレンダーの予定は<strong>そのまま</strong>です（消しません）。<br>
       この予定表からは、<strong>Google カレンダーから来た予定</strong>を外します。ここで話した予定は残ります。`,
     yes: "やめる"
   });
   if (!yes) return;
-  try { await nativeAsk("gauth", { action: "signout" }, 20000); } catch {}
+  // 配る版では AI のためのログインは残す（カレンダーだけやめる）。自分用では今までどおりログアウトまで
+  if (!aiViaServer()) { try { await nativeAsk("gauth", { action: "signout" }, 20000); } catch {} }
   for (const it of state.items.filter(x => x.origin === "google")) {
     if (await deleteFromStore("items/" + it.id)) state.items = state.items.filter(x => x.id !== it.id);
   }
@@ -3261,13 +3274,105 @@ async function gcalDisconnect() {
   for (const it of state.items.filter(x => x.gcalRef || x.gcalSent)) { delete it.gcalRef; delete it.gcalSent; delete it.gcalUpdated; }
   lsWrite();
   gcalPut({});
-  renderAll(); toast("Googleカレンダーとの同期をやめました");
+  renderAll(); if (!quiet) toast("Googleカレンダーとの同期をやめました");
+}
+/* ---------- 配る版の Google アカウント（2026-09-28・決まり18） ----------
+   AI は中継サーバー経由で、**Google でログインした人だけ**が使える（1人1日の回数はサーバーが数える）。
+   ログインの証明は殻が持つ（ページは見ない）。ここにあるのは「ログインしているか・メールアドレス（表示用）・今日の残り」だけで、
+   **どれも保存しない**（開くたびに殻とサーバーに聞く）。 */
+const acct = { ok: false, email: "" };
+let aiUse = null, aiUseAt = 0, aiOutDay = "", acctHinted = false;
+const aiViaServer = () => { const c = builtInAI(); return !!(c && c.provider === "server"); };
+/* **ログインの状態で、AI の窓口を開け閉めする**（配る版だけ）。ログインしていないのに毎回サーバーへ頼んで、
+   毎回「ログインして」と言わないため。閉じているあいだは、AI の無いときと同じ道（ルールだけ）を通る。 */
+function acctSet(ok, email) {
+  acct.ok = !!ok; acct.email = acct.ok ? String(email || "") : "";
+  if (!aiViaServer()) return;
+  SAMPLEFN = acct.ok ? ownAI(builtInAI()) : null;
+  if (!acct.ok) aiUse = null;
+}
+/* 今日の回数を使い切ったら、その日のうちはもう頼まない（待っても戻らない・言うのは使い切ったときの1回だけ）。 */
+const aiOutToday = () => !!aiOutDay && aiOutDay === dayKey(new Date(), state.settings.timezone);
+async function acctSignIn(quietIfAlready) {
+  let m = null;
+  try { m = await nativeAsk("gauth", { action: "status" }, 6000); } catch {}
+  if (m && m.ok && quietIfAlready) { acctSet(true, m.email); return m; }
+  try { m = await nativeAsk("gauth", { action: "signin" }, 300000); }
+  catch (e) { toast("Google にログインできませんでした：" + (e && e.message ? e.message : e)); lastError = "Googleのログイン：" + (e && e.message); renderGcal(); return null; }
+  if (!m.ok) { toast(m.cancelled ? "Google へのログインをやめました" : "Google にログインできませんでした"); return null; }
+  acctSet(true, m.email); gcalCap = true;
+  if (!quietIfAlready) { toast("Google にログインしました"); aiUseAt = 0; renderGcal(); }
+  return m;
+}
+async function acctSignOut() {
+  const yes = await askConfirm({
+    title: "Google からログアウトしますか？",
+    body: `ログアウトすると、<strong>AI は使えなくなり</strong>（ルールだけで読み取ります）、Googleカレンダーとの同期も止まります。<br>
+      記録（この端末の中）と Google カレンダーの予定は、そのまま残ります。`,
+    yes: "ログアウト"
+  });
+  if (!yes) return;
+  if (gcalGet().on) await gcalDisconnect(true);
+  try { await nativeAsk("gauth", { action: "signout" }, 20000); } catch {}
+  acctSet(false);
+  renderAll(); toast("Google からログアウトしました");
+}
+/* 今日の残りの回数（サーバーに聞く・1分に1回まで）。届いたら欄を描き直す。 */
+async function aiUsage(force) {
+  if (!aiViaServer() || !acct.ok || !nativeOn()) return null;
+  if (!force && aiUse && Date.now() - aiUseAt < 60000) return aiUse;
+  aiUseAt = Date.now();
+  try {
+    const m = await nativeAsk("aiserver", { op: "status" }, 15000);
+    const d = JSON.parse(String(m.body || "null"));
+    if (m.status === 200 && d && Number.isFinite(d.limit)) aiUse = { limit: d.limit, used: d.used, remaining: d.remaining, tier: String(d.tier || "free") };
+    else if (m.status === 401) acctSet(false);
+  } catch {}
+  try { if (view && view.tab === "p-set") renderGcal(); } catch {}
+  return aiUse;
+}
+async function openPrivacy() {
+  try { await nativeAsk("aiserver", { op: "privacy" }, 15000); }
+  catch (e) { toast("プライバシーポリシーを開けませんでした：" + (e && e.message ? e.message : e)); }
 }
 /* 設定の欄。**送るもの・読むもの・送り先・費用を先に書く**（新しい外部送信の決まり）。 */
 function renderGcal() {
   const card = $("#gcalCard"), out = $("#gcalOut"); if (!card || !out) return;
   card.hidden = !nativeOn();
   if (card.hidden) return;
+  if (aiViaServer()) { renderAccount(card, out); return; }
+  if ($("#gcalTtl")) $("#gcalTtl").textContent = "Googleカレンダー";
+  gcalCardInto(out);
+}
+/* 配る版の欄：ログイン（AI のため）→ 今日の残り → 送るもの → プライバシーポリシー → カレンダーの同期（選んだ人だけ）。
+   **送るもの・送り先・費用を先に書く**（新しい外部送信の決まり）。無料枠なら、中身が Google の改善に使われることも書く。 */
+function renderAccount(card, out) {
+  if ($("#gcalTtl")) $("#gcalTtl").textContent = "Google アカウント";
+  if (gcalCap === false) { out.innerHTML = `<p class="hint">このアプリの版では使えません。アプリを新しくすると使えるようになります。</p>`; return; }
+  const u = aiUse;
+  const sends = `<p class="hint">AI を使うとき、話した内容と、読み取りに必要な予定などの要約を、運営者の中継サーバーを通して Google（Gemini）へ送ります。
+    中継サーバーは中身を保存しません。費用はかかりません${u ? `（1日${u.limit}回まで）` : ""}。</p>`
+    /* 有料だと分かるまでは、無料の注意を出す（ログインする前＝送ることに同意する前に読めるように） */
+    + (!(u && u.tier === "paid") ? `<p class="note warn">${u ? "いまは無料の枠を使っているため" : "運営者が無料の枠を使っているあいだは"}、送った内容が Google の製品の改善に使われ、Google の担当者が読むことがあります。見られて困ることは話さないでください。</p>` : "");
+  if (!acct.ok) {
+    out.innerHTML = `<p>AI を使うには、Google でログインしてください。ログインしないときは、ルールだけで読み取ります。</p>${sends}
+      <div class="row"><button class="btn pri" id="btnAcctIn">Google でログイン</button><button class="btn" id="btnPrivacy">プライバシーポリシー</button></div>`;
+    $("#btnAcctIn").addEventListener("click", () => acctSignIn(false));
+    $("#btnPrivacy").addEventListener("click", openPrivacy);
+    return;
+  }
+  if (!u) aiUsage();
+  out.innerHTML = `<div class="kv"><span>アカウント</span><span>${esc(acct.email || "（ログイン中）")}</span></div>
+    <div class="kv"><span>今日のAI</span><span>${u ? `あと${u.remaining}回（1日${u.limit}回まで）` : "確かめています…"}</span></div>
+    ${sends}
+    <div class="row"><button class="btn" id="btnPrivacy">プライバシーポリシー</button><button class="btn danger" id="btnAcctOut">ログアウト</button></div>
+    <h4 class="cardttl" style="margin-top:14px">Googleカレンダー</h4><div id="gcalSub"></div>`;
+  $("#btnPrivacy").addEventListener("click", openPrivacy);
+  $("#btnAcctOut").addEventListener("click", acctSignOut);
+  gcalCardInto($("#gcalSub"));
+}
+/* カレンダーの同期の欄（自分用ではこれだけ・配る版では「Google アカウント」の中）。 */
+function gcalCardInto(out) {
   const g = gcalGet(), tz = state.settings.timezone;
   const sends = `<p class="hint">Google カレンダー（メイン）と、どちらで変えてももう一方に映ります。
     ここで話した予定は Google に入り、ここで時刻を直す・取り消すと Google でも変わる／消えます。
@@ -3342,7 +3447,9 @@ function notifyPlan(key) {
 }
 const AI_PROVIDERS = {
   claude: { host: "api.anthropic.com", model: "claude-opus-5" },
-  gemini: { host: "generativelanguage.googleapis.com", model: "gemini-3.5-flash-lite" }
+  gemini: { host: "generativelanguage.googleapis.com", model: "gemini-3.5-flash-lite" },
+  /* 配る版（決まり18）：キーは持たず、殻が中継サーバーへ頼む。モデルはサーバーが決める。 */
+  server: { host: "AIの中継サーバー", model: "" }
 };
 /* **アプリに焼き込んだキー**（決まり13b・本人の指示「APKでもAIを使えるよう
    APIを埋め込みたい」）。APK には claude.ai の窓口（`sample`）が無いので、
@@ -3356,6 +3463,8 @@ const AI_PROVIDERS = {
    空のキーは受け取らない。渡ってくるのは殻が書いた値なので、**データであって指示ではない**。 */
 function builtInAI() {
   const v = (typeof window !== "undefined" && window.HITOHI_AI) || null;
+  // 配る版：キーは無い（持たないことが正しい）。殻が中継サーバーへ頼む（決まり18）
+  if (v && v.provider === "server") return { provider: "server", key: "", model: "", builtIn: true };
   if (!v || !AI_PROVIDERS[v.provider] || !v.key) return null;
   return { provider: String(v.provider), key: String(v.key),
            model: String(v.model || AI_PROVIDERS[v.provider].model), builtIn: true };
@@ -3398,7 +3507,8 @@ function ownAIError(e, host) {
    **2回以上は試さない**——本当に落ちているときに、待ち時間だけが倍になる。
    見分けるのは**番号**（429／503）で、文字ではない（提供元が文言を変えても効く）。 */
 const AI_BUSY_WAIT = 2000;
-const isBusy = e => !!(e && (e.status === 429 || e.status === 503));
+/* ただし**「今日の回数を使い切った」は混雑ではない**（配る版の 429・決まり18）。待っても明日まで戻らないので入れ直さない。 */
+const isBusy = e => !!(e && (e.status === 429 || e.status === 503) && e.code !== "daily_limit");
 async function ownAICall(cfg, prompt, opts) {
   try { return await ownAICallOnce(cfg, prompt, opts); }
   catch (e) {
@@ -3424,14 +3534,17 @@ async function ownAICall(cfg, prompt, opts) {
    受け取る名前はモデルで違い（2.5 は `thinkingBudget`、3.x は `thinkingLevel`）、
    **画面から直す道は無い**（決まり13c）。だから **400 のときは素の形で1回だけ入れ直し、
    一度落ちたらその後はずっと素で送る**（`geminiPlain`）。毎回2回呼ぶと、
-   1日に使える回数（無料枠は1日500回）が半分になる。 */
+   1日に使える回数（無料枠は1日500回）が半分になる。
+   **深さは `generationConfig.thinkingConfig.thinkingLevel`**（2026-09-28 に直した）。それまでは `generationConfig` の直下に
+   書いていたので、**毎回1回目が 400 で断られ、素の形に落ちていた**——深さも JSON の指定も一度も効いておらず、
+   配る版では1回ぶんの回数を毎回失う（決まり18）。 */
 const GEMINI_THINK = { quick: "low", deep: "medium" };
 let geminiPlain = false;
 function geminiBody(prompt, opts) {
   const body = { contents: [{ parts: [{ text: prompt }] }] };
   if (geminiPlain) return body;
-  const g = { thinkingLevel: (opts && opts.modelTier === "quick")
-                ? GEMINI_THINK.quick : GEMINI_THINK.deep };
+  const g = { thinkingConfig: { thinkingLevel: (opts && opts.modelTier === "quick")
+                ? GEMINI_THINK.quick : GEMINI_THINK.deep } };
   if (opts && opts.wantJSON) g.responseMimeType = "application/json";
   body.generationConfig = g;
   return body;
@@ -3441,6 +3554,33 @@ async function ownAICallOnce(cfg, prompt, opts) {
   const sig = opts && opts.signal;
   const P = AI_PROVIDERS[cfg.provider];
   let r;
+  /* **配る版：中継サーバー経由**（2026-09-28・決まり18）。送る中身は Gemini と同じ（`geminiBody`・決まり7e）。
+     キーもログインの証明も**ページは持たない**——殻が証明を付け、サーバーがキーを付ける。 */
+  if (cfg.provider === "server") {
+    if (!nativeOn()) throw new Error("AIの中継サーバーは、Android アプリの中でだけ使えます");
+    const go = async b => {
+      try { return await aiServerPost({ tier: quick ? "quick" : "deep", body: b }); }
+      catch (e) { throw new Error(ownAIError(e, P.host)); }
+    };
+    const sent = geminiBody(prompt, opts);
+    r = await go(sent);
+    // サーバー自身の断り（文字の code）は送り方の話ではない。Gemini の 400 のときだけ調整を外して入れ直す
+    const scode = x => x && x.data && x.data.error && typeof x.data.error.code === "string" ? x.data.error.code : "";
+    if (!r.ok && r.status === 400 && sent.generationConfig && !scode(r)) {
+      geminiPlain = true;
+      r = await go(geminiBody(prompt, opts));
+    }
+    const d = r.data;
+    if (!r.ok) {
+      const code = scode(r), msg = (d && d.error && d.error.message) || "断られました";
+      if (code === "login_required") { acctSet(false); acctHinted = true; throw Object.assign(new Error("AIを使うには、設定の「Google アカウント」で Google にログインしてください"), { status: 401, code }); }
+      if (code === "daily_limit") { aiOutDay = dayKey(new Date(), state.settings.timezone); throw Object.assign(new Error(String(msg)), { status: 429, code }); }
+      throw Object.assign(new Error(`AIのサーバー ${r.status}：${msg}`), { status: r.status, code: code || undefined });
+    }
+    const parts = (d && d.candidates && d.candidates[0] && d.candidates[0].content
+                   && d.candidates[0].content.parts) || [];
+    return parts.map(x => (x && x.text) || "").join("");
+  }
   if (cfg.provider === "gemini") {
     const url = `https://${P.host}/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`;
     const head = { "content-type": "application/json", "x-goog-api-key": cfg.key };
@@ -8243,6 +8383,9 @@ async function aiQuickReply(note) {
 }
 
 const AI_ERR = {
+  /* 配る版（決まり18）。どちらも**待っても直らない**ので、打つ手を言う */
+  login_required: "AIを使うには、設定の「Google アカウント」で Google にログインしてください。いまはルールだけで読み取りました。",
+  daily_limit: "今日のAIの回数を使い切りました。明日またAIが使えます。いまはルールだけで読み取りました。",
   not_granted: "AIの利用が許可されていないので、ルールだけで読み取りました。",
   sampling_disabled: "この環境ではAIが使えないので、ルールだけで読み取りました。",
   not_declared: "AIが使えないので、ルールだけで読み取りました。",
@@ -8316,7 +8459,7 @@ async function sendTurn(text) {
 
   // 4. 二段構え。速いAIが先に受け止めて返し、丁寧なAIが裏で読み取る。
   //    返事を読み取りの完了まで待たせない（40秒後の「うん、聞いたよ」は冷たい）。
-  const useAI = !!SAMPLEFN;
+  const useAI = !!SAMPLEFN && !aiOutToday();
   let quick = null;
   if (useAI) {
     quick = aiQuickReply(note).then(t => {
@@ -8330,6 +8473,8 @@ async function sendTurn(text) {
 
   let ops = null, reply = "", usedAI = false, err = null, aiSaidNothing = false;
   let habit = "";                    // 本体AIから受け取るのはこれだけ（文章も質問も受け取らない）
+  /* 配る版でログインしていないときは、AI を呼ばない。理由は**開いてから最初の1回だけ**言う（毎回は言わない・決まり18） */
+  if (!useAI && aiViaServer() && !acct.ok && !acctHinted) { acctHinted = true; err = AI_ERR.login_required; }
   if (useAI) {
     try { const r = await aiTurn(note); ops = r.ops; habit = r.habit; usedAI = true; }
     catch (e) { err = aiFailNote(e); }

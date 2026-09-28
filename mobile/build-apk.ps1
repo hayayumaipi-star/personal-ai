@@ -7,12 +7,18 @@
   要るもの：Node.js と、Expo の無料アカウント（https://expo.dev/signup ・Google でも可）。
   ログインしていなければ、このファイルが `eas login` を呼びます（ブラウザが開きます）。
   かかる時間：10〜20分（混んでいるともっと待ちます）。
+
+  **-Play を付けると、Google Play に出す版（AAB）を作ります**（`Playに出す.cmd`・2026-09-28・決まり18）。
+  配る版には **APIキーを入れません**。AI は中継サーバー（server/）を通り、Google でログインした人だけが使えます。
+  聞くのは「中継サーバーの場所」と「Google のウェブのクライアント ID」の2つだけ（mobile\play.json に残す）。
 #>
+param([switch]$Play)
 $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot
 
 Write-Host ""
-Write-Host "AI秘書 — APK を作る" -ForegroundColor Cyan
+if ($Play) { Write-Host "AI秘書 — Google Play に出す版（AAB）を作る" -ForegroundColor Cyan }
+else { Write-Host "AI秘書 — APK を作る" -ForegroundColor Cyan }
 Write-Host ""
 
 # --- Node があるか ---
@@ -79,7 +85,7 @@ if ($selfBefore -ne "" -and (Test-Path $selfPath)) {
     Write-Host ""
     Write-Host "作り方そのものが新しくなりました。" -ForegroundColor Cyan
     Write-Host "  いま動いているのは古い手順なので、ここで止めます。" -ForegroundColor Cyan
-    Write-Host "  もう一度 APKを作る.cmd を実行してください（次は新しい手順で進みます）。" -ForegroundColor Green
+    Write-Host "  もう一度、同じ .cmd を実行してください（次は新しい手順で進みます）。" -ForegroundColor Green
     Write-Host ""
     exit 0
   }
@@ -107,12 +113,58 @@ if ($LASTEXITCODE -ne 0) {
   exit 1
 }
 
+# --- 配る版：中継サーバーの場所と、Google のウェブのクライアント ID（決まり18）---
+# **キーは聞かない・入れない。** secret.json があっても使わない（sync.js --play が読まない）。
+# ここでも形を確かめるが、**最後に確かめるのは sync.js**（形が違えば止まる）。
+$playPath = Join-Path $PSScriptRoot "play.json"
+$secretPath = Join-Path $PSScriptRoot "secret.json"
+if ($Play) {
+  if (Test-Path $secretPath) {
+    Write-Host "mobile\secret.json（自分用のAPIキー）は、この版には入れません。" -ForegroundColor DarkGray
+  }
+  if (Test-Path $playPath) {
+    $pc = $null
+    try { $pc = (Get-Content $playPath -Raw -Encoding UTF8 | ConvertFrom-Json) } catch {}
+    if ($pc) {
+      Write-Host ("中継サーバー：{0}" -f $pc.server) -ForegroundColor DarkGray
+      Write-Host ("ウェブのクライアント ID：{0}" -f $pc.webClientId) -ForegroundColor DarkGray
+    }
+    Write-Host "  変えたいときは、mobile\play.json を消してからもう一度実行してください。" -ForegroundColor DarkGray
+  } else {
+    Write-Host "配る版に要るものを2つ聞きます（docs\配る準備.md の 1 と 2 で手に入ります）。" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  ① 中継サーバーの場所（npx wrangler deploy のあとに出た https://… の URL）"
+    $server = (Read-Host "  サーバーの場所")
+    if ($null -eq $server) { $server = "" }
+    $server = $server.Trim().TrimEnd("/")
+    if ($server -notmatch '^https://[A-Za-z0-9.-]+(:[0-9]+)?$') {
+      Write-Host "  https:// で始まる場所だけにしてください（例：https://hitohi-ai.○○.workers.dev）。やめました。" -ForegroundColor Red
+      exit 1
+    }
+    Write-Host ""
+    Write-Host "  ② Google Cloud の「ウェブ アプリケーション」のクライアント ID（○○.apps.googleusercontent.com）"
+    Write-Host "     ※ Android のクライアント ID ではありません。サーバーの GOOGLE_CLIENT_ID と同じものです。" -ForegroundColor DarkGray
+    $wcid = (Read-Host "  ウェブのクライアント ID")
+    if ($null -eq $wcid) { $wcid = "" }
+    $wcid = $wcid.Trim()
+    if ($wcid -notmatch '^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$') {
+      Write-Host "  「数字-英数字.apps.googleusercontent.com」の形ではありません。やめました。" -ForegroundColor Red
+      exit 1
+    }
+    $pobj = [ordered]@{ server = $server; webClientId = $wcid }
+    # **BOM を付けずに書く**（sync.js 側でも外しているが、両方で守る）
+    [IO.File]::WriteAllText($playPath, ($pobj | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
+    Write-Host "  保存しました（mobile\play.json）。次からは聞きません。" -ForegroundColor Green
+  }
+}
+
 # --- APIキー（決まり13b）---
 # **ここで聞いて、ここで書く。** ファイルを自分で作らせない——
 # 「secret.example.json をコピーして名前を変えて…」は、いちばん躓きやすい所だった。
 # 1回入れたら `secret.json` に残るので、**次からは何も聞かない**。
-$secretPath = Join-Path $PSScriptRoot "secret.json"
-if (Test-Path $secretPath) {
+if ($Play) {
+  # 配る版はキーを聞かない（上で済ませた）
+} elseif (Test-Path $secretPath) {
   Write-Host ""
   $cur = ""
   try { $cur = (Get-Content $secretPath -Raw | ConvertFrom-Json).provider } catch {}
@@ -166,9 +218,9 @@ if (Test-Path $secretPath) {
 
 # --- 本体を写す（正は ../app/index.html）---
 # **これを忘れると、古い中身の APK ができる。**
-node sync.js
+if ($Play) { node sync.js --play } else { node sync.js }
 if ($LASTEXITCODE -ne 0) {
-  Write-Host "本体を写せませんでした。app/index.html があるか確かめてください。" -ForegroundColor Red
+  Write-Host "本体を写せませんでした。上の赤い文を読んでください（配る版なら mobile\play.json の中身も）。" -ForegroundColor Red
   exit 1
 }
 
@@ -239,12 +291,19 @@ Write-Host "  ・「Generate a new Android Keystore?」も Y で大丈夫です"
 Write-Host "    （アプリに署名する鍵。Expo が預かってくれます）" -ForegroundColor DarkGray
 Write-Host "  ・そのあと10〜20分、組み立てを待ちます" -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "終わると、ダウンロード用のURLとQRが出ます。" -ForegroundColor Cyan
-Write-Host "そのQRを**スマホのカメラ**で読んで APK を入れてください" -ForegroundColor Cyan
-Write-Host "（ここは Expo Go ではなく、ふつうのカメラで構いません）。"
+if ($Play) {
+  Write-Host "終わると、AAB（Google Play に上げるファイル）のダウンロード用URLが出ます。" -ForegroundColor Cyan
+  Write-Host "  **AAB はスマホに直接は入れられません。** Play Console の「テスト」か「製品版」に上げてください。" -ForegroundColor Yellow
+  Write-Host "  （手順は docs\配る準備.md の 3）"
+} else {
+  Write-Host "終わると、ダウンロード用のURLとQRが出ます。" -ForegroundColor Cyan
+  Write-Host "そのQRを**スマホのカメラ**で読んで APK を入れてください" -ForegroundColor Cyan
+  Write-Host "（ここは Expo Go ではなく、ふつうのカメラで構いません）。"
+}
 Write-Host ""
 
-npx --yes eas-cli@latest build -p android --profile preview
+if ($Play) { npx --yes eas-cli@latest build -p android --profile production }
+else { npx --yes eas-cli@latest build -p android --profile preview }
 
 if ($LASTEXITCODE -ne 0) {
   Write-Host ""

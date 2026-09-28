@@ -2965,16 +2965,19 @@
         geminiPlain = false; sent = [];
         await g("やあ", { modelTier: "quick" });
         ok("BF. 速い返事には、軽く考える指示を渡す",
-           sent.length === 1 && sent[0].generationConfig
-             && sent[0].generationConfig.thinkingLevel === GEMINI_THINK.quick,
+           sent.length === 1 && sent[0].generationConfig && sent[0].generationConfig.thinkingConfig
+             && sent[0].generationConfig.thinkingConfig.thinkingLevel === GEMINI_THINK.quick,
            JSON.stringify(sent[0] && sent[0].generationConfig));
+        /* 深さは thinkingConfig の中に書く（Gemini の決まり）。直下に書くと毎回 400 で断られ、素の形に落ちていた（2026-09-28） */
+        ok("BF. 考える深さは thinkingConfig の中に書く（generationConfig の直下に書かない）",
+           !("thinkingLevel" in (sent[0].generationConfig || {})), JSON.stringify(sent[0] && sent[0].generationConfig));
         ok("BF. 速い返事に、JSONで返せとは言わない",
            !(sent[0].generationConfig || {}).responseMimeType, "言っている");
 
         sent = [];
         await g.json("読み取って", { modelTier: "default" });
         ok("BF. 読み取りには、深く考える指示を渡す",
-           (sent[0].generationConfig || {}).thinkingLevel === GEMINI_THINK.deep,
+           ((sent[0].generationConfig || {}).thinkingConfig || {}).thinkingLevel === GEMINI_THINK.deep,
            JSON.stringify(sent[0].generationConfig));
         ok("BF. 読み取りのときだけ、JSONで返せと言う",
            (sent[0].generationConfig || {}).responseMimeType === "application/json",
@@ -6410,6 +6413,143 @@
       } finally {
         clearTimeout(gcalTimer); localStorage.removeItem(GCAL_LS); gcalCap = keepCap; window.askConfirm = keepAC;
         if (keepRN) window.ReactNativeWebView = keepRN; else delete window.ReactNativeWebView;
+        state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+        showTab("p-chat");
+      }
+    }
+
+    /* ===== CW. 配る版：Google でログインした人が、中継サーバー経由で AI を使う（2026-09-28・本人の指示「人に配る準備をしたい。サーバーを使う方向で」・決まり18） =====
+       偽の殻（ログイン・中継サーバー）で、ログインしていない／した／使い切った／ログインが切れた／ログアウト、を見る。
+       **本物のサーバー・本物の Google とは通していない**（サーバーの中身は server/test.mjs）。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const keepRN = window.ReactNativeWebView, keepCap = gcalCap, keepAC = window.askConfirm, keepFn = SAMPLEFN, keepPlain = geminiPlain;
+      const keepView = view.day, keepChat = view.chatDay, had = window.HITOHI_AI;
+      state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const S = { signed: false, email: "user@example.com", calls: [], raw: [], gen: [], used: 2, tier: "free", mode: "ok" };
+      const reply = o => setTimeout(() => nativeReply(JSON.stringify(o)), 0);
+      const shell = { postMessage: raw => { const m = JSON.parse(raw); S.calls.push(m.kind + ":" + (m.action || m.op || m.method || "")); S.raw.push(raw);
+        if (m.kind === "gauth") {
+          if (m.action === "signin") { S.signed = true; return reply({ id: m.id, ok: true, email: S.email }); }
+          if (m.action === "signout") { S.signed = false; return reply({ id: m.id, ok: true }); }
+          if (m.action === "calendar") return reply({ id: m.id, ok: S.signed });
+          return reply({ id: m.id, ok: S.signed, email: S.signed ? S.email : "", calendar: true, server: true });
+        }
+        if (m.kind === "gcal") return reply({ id: m.id, status: 200, body: JSON.stringify(m.method === "GET" ? { items: [] } : { id: "e" + S.calls.length, updated: new Date().toISOString() }) });
+        if (m.kind !== "aiserver") return;
+        if (m.op === "privacy") return reply({ id: m.id, ok: true });
+        const out = (st, d) => reply({ id: m.id, status: st, body: JSON.stringify(d) });
+        if (!S.signed) return out(401, { error: { code: "login_required", message: "Google でのログインが必要です" } });
+        if (m.op === "status") return out(200, { limit: 40, used: S.used, remaining: 40 - S.used, tier: S.tier, day: "x" });
+        const b = JSON.parse(m.body); S.gen.push(b);
+        if (S.mode === "limit") return out(429, { error: { code: "daily_limit", message: "今日のAIの回数（40回）を使い切りました。明日また使えます" } });
+        if (S.mode === "expired") { S.signed = false; return out(401, { error: { code: "login_required", message: "ログインを確かめられませんでした" } }); }
+        if (S.mode === "g400" && b.body.generationConfig) return out(400, { error: { code: 400, message: "Invalid JSON payload received. Unknown name" } });
+        if (S.mode === "bad") return out(400, { error: { code: "bad_request", message: "送る中身が足りません" } });
+        S.used++;
+        const text = b.tier === "quick" ? "受け止めました。" : JSON.stringify({ ops: [{ op: "add", kind: "task", title: "郵便局に行く", dueDate: null, duePrecision: "none", quote: "郵便局に行く" }], habit: "" });
+        return out(200, { candidates: [{ content: { parts: [{ text }] } }] });
+      } };
+      const settle = async () => { for (let i = 0; i < 40; i++) await new Promise(r => setTimeout(r, 5)); };
+      const today = () => dayKey(new Date(), state.settings.timezone);
+      const lastTurn = () => (state.turns[today()] || []).filter(t => t.role === "assistant").pop() || {};
+      const card = () => $("#gcalCard"), txt = () => card().textContent.replace(/\s+/g, " ");
+      try {
+        window.ReactNativeWebView = shell; gcalCap = null; localStorage.removeItem(GCAL_LS);
+        window.HITOHI_AI = { provider: "server" };
+        acctHinted = false; aiOutDay = ""; aiUse = null; aiUseAt = 0; geminiPlain = false; acct.ok = false; acct.email = "";
+        // ① 配る版の焼き込みは「サーバー」だけ（キーを持たない）
+        const b = builtInAI();
+        ok("CW. 配る版の焼き込みは、キーを持たない「サーバー」として受け取る", !!b && b.provider === "server" && b.key === "" && aiViaServer(), JSON.stringify(b));
+        applyOwnAI();
+        ok("CW. 起動したときは、AI の窓口を開けておく（ログインを確かめる前）", !!SAMPLEFN);
+        // ② ログインしていない：窓口を閉じる・欄は「Google アカウント」
+        reset(); await gcalProbe(); showTab("p-set"); renderSettings();
+        ok("CW. ログインしていなければ、AI の窓口を閉じる（毎回サーバーへ頼まない）", SAMPLEFN === null && acct.ok === false);
+        ok("CW. 設定の欄は「Google アカウント」で、ログインのボタン・プライバシーポリシーを出す（カレンダーの欄はまだ出さない）",
+          !card().hidden && $("#gcalTtl").textContent === "Google アカウント" && !!$("#btnAcctIn") && !!$("#btnPrivacy") && !$("#gcalSub") && !$("#btnAcctOut"), txt().slice(0, 120));
+        ok("CW. ログインする前に、送るもの・送り先（中継サーバー・Gemini）・保存しないこと・費用を書く",
+          /中継サーバー/.test(txt()) && /Gemini/.test(txt()) && /保存しません/.test(txt()) && /費用はかかりません/.test(txt()) && /ルールだけで読み取ります/.test(txt()), txt().slice(0, 200));
+        ok("CW. 無料か有料か分かる前は、無料の枠の注意を出す（担当者が読むことがある）",
+          /運営者が無料の枠を使っているあいだは/.test(txt()) && /担当者が読むことがあります/.test(txt()), txt().slice(0, 300));
+        // ③ ログインしていないまま話す：サーバーへ頼まない・理由は最初の1回だけ
+        S.calls = [];
+        await sendTurn("郵便局に行く。");
+        const t1 = lastTurn();
+        ok("CW. ログインしていないまま話しても、サーバーへ頼まない（ルールで読む）", !S.calls.some(c => /^aiserver:generate/.test(c)) && state.items.some(i => /郵便局/.test(i.title)), S.calls.join(" | "));
+        ok("CW. ログインしていないことは、最初の1回だけ言う（打つ手つき）", /Google アカウント/.test(t1.error || "") && /ログイン/.test(t1.error || ""), t1.error);
+        await sendTurn("銀行に行く。");
+        ok("CW. 2回目からは毎回は言わない", !lastTurn().error, lastTurn().error);
+        // ④ プライバシーポリシーは殻に開いてもらう
+        S.calls = []; $("#btnPrivacy").click(); await settle();
+        ok("CW. 「プライバシーポリシー」はサーバーのページを開く（殻に頼む）", S.calls.includes("aiserver:privacy"), S.calls.join(" | "));
+        // ⑤ ログインする：窓口が開き、今日の残り・アカウント・カレンダーの欄が出る
+        $("#btnAcctIn").click(); await settle(); await settle();
+        ok("CW. ログインしたら、AI の窓口を開ける", acct.ok === true && !!SAMPLEFN && SAMPLEFN.own === "server");
+        ok("CW. ログインしたら、アカウント・今日の残り（サーバーに聞いた数）・ログアウト・カレンダーの欄を出す",
+          /user@example\.com/.test(txt()) && /あと38回（1日40回まで）/.test(txt()) && !!$("#btnAcctOut") && !!$("#gcalSub") && !!$("#btnGcalOn"), txt().slice(0, 200));
+        ok("CW. 無料の枠だと分かったら「いまは無料の枠」と書く", /いまは無料の枠を使っているため/.test(txt()), txt().slice(0, 300));
+        S.tier = "paid"; await aiUsage(true); await settle();
+        ok("CW. 有料の枠なら、無料の注意は出さない", !/担当者が読む/.test(txt()) && /費用はかかりません/.test(txt()), txt().slice(0, 300));
+        S.signed = false; await aiUsage(true); await settle();
+        ok("CW. 残りを聞いたときにログインが切れていたら（401）、窓口を閉じてログインのボタンに戻す", acct.ok === false && SAMPLEFN === null && !!$("#btnAcctIn"), txt().slice(0, 80));
+        $("#btnAcctIn").click(); await settle(); await settle();
+        // ⑥ AI を使う：送る中身は Gemini と同じ形・キーも証明もページは持たない
+        S.calls = []; S.raw = []; S.gen = []; S.mode = "ok";
+        reset(); await sendTurn("郵便局に行く。");
+        ok("CW. ログインしていれば、中継サーバー経由で AI を使う（受け止め＋読み取りの2回）", S.gen.length === 2 && S.gen.some(g => g.tier === "quick") && S.gen.some(g => g.tier === "deep") && lastTurn().ai === true, S.gen.map(g => g.tier).join(","));
+        ok("CW. 送る中身は Gemini と同じ形（contents・考える深さは thinkingConfig の中）",
+          S.gen.every(g => Array.isArray(g.body.contents) && g.body.generationConfig && g.body.generationConfig.thinkingConfig), JSON.stringify(S.gen.map(g => g.body.generationConfig)));
+        ok("CW. ページはキーもログインの証明も送らない（殻が証明を付け、サーバーがキーを付ける）",
+          !S.raw.some(r => /Bearer|x-goog-api-key|AIza|idToken|"key"/.test(r)), "");
+        // ⑦ 今日の回数を使い切った：入れ直さない・その日はもう頼まない・言うのは1回
+        S.gen = []; S.mode = "limit";
+        await sendTurn("図書館に行く。");
+        ok("CW. 使い切ったら（429 daily_limit）、混雑と違って入れ直さない", S.gen.length === 2, S.gen.length + "回");
+        ok("CW. 使い切ったことを、明日また使えると言う", /今日のAIの回数を使い切りました/.test(lastTurn().error || "") && /明日/.test(lastTurn().error || ""), lastTurn().error);
+        S.gen = [];
+        await sendTurn("薬局に行く。");
+        ok("CW. 使い切った日は、そのあとサーバーへ頼まない（毎回言わない）", S.gen.length === 0 && !lastTurn().error && state.items.some(i => /薬局/.test(i.title)), S.gen.length + "回 / " + lastTurn().error);
+        aiOutDay = "2000-01-01";
+        ok("CW. 日が変われば、また頼む", aiOutToday() === false);
+        aiOutDay = "";
+        // ⑧ Gemini が送り方を断った（数字の 400）ときだけ素で入れ直す。サーバー自身の断り（文字の code）は入れ直さない
+        S.mode = "g400"; S.gen = []; geminiPlain = false;
+        let got = null, why0 = "";
+        try { got = await ownAICall(builtInAI(), "やあ", { modelTier: "quick" }); } catch (e) { why0 = String(e.message); }
+        ok("CW. Gemini が送り方を断ったら（400）、素の形で1回だけ入れ直す", got === "受け止めました。" && S.gen.length === 2 && !S.gen[1].body.generationConfig, S.gen.length + "回 / " + why0);
+        S.mode = "bad"; S.gen = []; geminiPlain = false;
+        let why = ""; try { await ownAICall(builtInAI(), "やあ", { modelTier: "quick" }); } catch (e) { why = String(e.message); }
+        ok("CW. サーバー自身の断り（bad_request）は入れ直さない・理由を言う", S.gen.length === 1 && /AIのサーバー 400/.test(why) && /送る中身が足りません/.test(why), S.gen.length + "回 / " + why);
+        geminiPlain = false;
+        // ⑨ カレンダー：ログイン済みならログインし直さない・同期をやめても AI のログインは残す
+        window.askConfirm = async () => true;
+        S.calls = []; await gcalConnect(); await settle();
+        ok("CW. ログイン済みなら、カレンダーの許可だけ頼む（ログインし直さない）", gcalGet().on === true && S.calls.includes("gauth:calendar") && !S.calls.includes("gauth:signin"), S.calls.join(" | "));
+        S.calls = []; await gcalDisconnect(); await settle();
+        ok("CW. カレンダーの同期をやめても、AI のためのログインは残す", !gcalGet().on && !S.calls.includes("gauth:signout") && acct.ok === true && !!SAMPLEFN, S.calls.join(" | "));
+        // ⑩ ログアウト：カレンダーも止める・窓口を閉じる・欄はログイン前に戻る
+        await gcalConnect(); await settle();
+        S.calls = []; showTab("p-set"); renderSettings(); $("#btnAcctOut").click(); await settle();
+        ok("CW. ログアウトしたら、カレンダーの同期も止めて Google からログアウトする", !gcalGet().on && S.calls.includes("gauth:signout"), S.calls.join(" | "));
+        ok("CW. ログアウトしたら、AI の窓口を閉じ、欄はログインのボタンに戻る", acct.ok === false && SAMPLEFN === null && !!$("#btnAcctIn") && !$("#btnAcctOut"), txt().slice(0, 80));
+        // ⑪ 使っている途中でログインが切れた：窓口を閉じて、打つ手を言う
+        $("#btnAcctIn").click(); await settle(); await settle();
+        S.mode = "expired"; S.gen = []; acctHinted = false;
+        await sendTurn("本屋に行く。");
+        ok("CW. 途中でログインが切れたら、窓口を閉じて「ログインして」と言う", acct.ok === false && SAMPLEFN === null && /ログイン/.test(lastTurn().error || ""), lastTurn().error);
+        // ⑫ 記録は端末の中：書き出しにアカウントを入れない
+        ok("CW. 書き出しに、ログインしているアカウントを入れない", exportPayload().indexOf("user@example.com") < 0);
+        // ⑬ 自分用（キーを焼き込んだ版）は今までどおり：ログインの状態で窓口を閉じない
+        window.HITOHI_AI = { provider: "gemini", key: "AIza-TEST" }; applyOwnAI();
+        acctSet(false);
+        ok("CW. 自分用（キーを焼き込んだ版）では、ログインしていなくても AI の窓口を閉じない", !!SAMPLEFN && SAMPLEFN.own === "gemini");
+      } finally {
+        clearTimeout(gcalTimer); localStorage.removeItem(GCAL_LS); gcalCap = keepCap; window.askConfirm = keepAC;
+        if (keepRN) window.ReactNativeWebView = keepRN; else delete window.ReactNativeWebView;
+        if (had === undefined) delete window.HITOHI_AI; else window.HITOHI_AI = had;
+        SAMPLEFN = keepFn; geminiPlain = keepPlain; acctHinted = false; aiOutDay = ""; aiUse = null; acct.ok = false; acct.email = "";
+        view.day = keepView; view.chatDay = keepChat;
         state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
         showTab("p-chat");
       }

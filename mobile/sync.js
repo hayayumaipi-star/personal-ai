@@ -19,7 +19,25 @@
 const fs = require("fs"), path = require("path");
 const src = path.join(__dirname, "..", "app", "index.html");
 const dst = path.join(__dirname, "app-html.js");
+const cfgDst = path.join(__dirname, "app-config.js");
 let html = fs.readFileSync(src, "utf8");
+
+/* **配る版（Google Play）**は `node sync.js --play`（2026-09-28・決まり18）。
+   読むのは `mobile/play.json`（中継サーバーの場所と、Google のウェブのクライアント ID）だけで、
+   **APIキーは1文字も入れない**——入りそうなら止まる。配ったアプリにキーを入れないためにサーバーを作ったので。 */
+const PLAY = process.argv.includes("--play");
+const readJSON = f => JSON.parse(fs.readFileSync(f, "utf8").replace(/^\uFEFF/, ""));
+function playConfig() {
+  const f = path.join(__dirname, "play.json");
+  if (!fs.existsSync(f)) throw new Error("配る版には mobile/play.json が要ります（Playに出す.cmd が聞いて作ります）。");
+  let c; try { c = readJSON(f); } catch (e) { throw new Error("mobile/play.json を読めませんでした: " + e.message); }
+  const server = String(c.server || "").trim().replace(/\/+$/, "");
+  const webClientId = String(c.webClientId || "").trim();
+  if (!/^https:\/\/[A-Za-z0-9.-]+(\:[0-9]+)?$/.test(server)) throw new Error("play.json の server は https:// で始まるサーバーの場所だけにしてください（例：https://hitohi-ai.○○.workers.dev）。");
+  if (!/^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(webClientId)) throw new Error("play.json の webClientId は「○○.apps.googleusercontent.com」の形にしてください（Google Cloud の「ウェブ アプリケーション」のクライアント ID）。");
+  if (c.key) throw new Error("play.json に key（APIキー）を書かないでください。配る版はサーバーがキーを持ちます。");
+  return { server, webClientId };
+}
 
 /* 焼き込むキーを探す。ファイルが先、無ければ環境変数。 */
 function findKey() {
@@ -37,8 +55,15 @@ function findKey() {
   return null;
 }
 
-const cfg = findKey();
-if (cfg) {
+const play = PLAY ? playConfig() : null;
+const cfg = PLAY ? { provider: "server" } : findKey();
+if (PLAY) {
+  /* 配る版：キーを持たない。ページには「サーバー経由」とだけ伝える（場所は殻が知っている）。 */
+  const anchor = "<title>AI秘書</title>";
+  const at = html.indexOf(anchor);
+  if (at < 0 || html.indexOf(anchor, at + 1) >= 0) throw new Error("焼き込む場所（" + anchor + "）が1つ見つかりませんでした。");
+  html = html.slice(0, at + anchor.length) + '\n<script>window.HITOHI_AI={"provider":"server"};</script>' + html.slice(at + anchor.length);
+} else if (cfg) {
   if (!cfg.key || !["claude", "gemini"].includes(cfg.provider)) {
     throw new Error('焼き込むキーの形が違います。{"provider":"claude|gemini","key":"...","model":"..."} にしてください。');
   }
@@ -56,13 +81,20 @@ if (cfg) {
     + html.slice(at + anchor.length);
 }
 
+/* 殻の設定。**毎回書く**（無いと組み立てが止まる）。自分用では空。 */
+fs.writeFileSync(cfgDst,
+  "/* 自動生成。直さないこと。`node sync.js` が書く。秘密は入っていない。 */\n"
+  + "export default " + JSON.stringify({ serverUrl: play ? play.server : "", webClientId: play ? play.webClientId : "" }) + ";\n", "utf8");
+if (PLAY && /sk-ant-|AIza[0-9A-Za-z_-]{20}/.test(html)) throw new Error("配る版にAPIキーらしい文字が入っています。止めました。");
 fs.writeFileSync(dst,
   "/* 自動生成。直さないこと。正は app/index.html で、`node sync.js` が写す。 */\n"
   + "export default " + JSON.stringify(html) + ";\n", "utf8");
 console.log(`写しました: app/index.html → mobile/app-html.js (${html.length.toLocaleString()}文字)`);
 /* **キーそのものは絶対に出さない。** 出どころと末尾4文字だけ出して、
    「入ったかどうか」を確かめられるようにする。 */
-if (cfg) {
+if (play) {
+  console.log(`配る版です：APIキーは入れていません。AIは中継サーバー（${play.server}）を通ります。`);
+} else if (cfg) {
   console.log(`APIキーを焼き込みました: ${cfg.provider} / ****${String(cfg.key).slice(-4)}`
     + (cfg.model ? ` / ${cfg.model}` : ""));
   console.log("※ この APK を人に渡すと、そのキーも一緒に渡ります（中身は取り出せます）。");

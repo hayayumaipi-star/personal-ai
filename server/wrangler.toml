@@ -1,0 +1,27 @@
+# AI秘書の中継サーバー（Cloudflare Workers）。手順は docs/配る準備.md。
+# **APIキーはここに書かない**：`npx wrangler secret put GEMINI_KEY` で入れる。
+name = "hitohi-ai"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# 話した中身をログに残さないため、見える化（ログの保存）は切っておく
+[observability]
+enabled = false
+
+[vars]
+APP_NAME = "AI秘書"
+GEMINI_MODEL = "gemini-3.5-flash-lite"
+# "free"（無料枠：Google が中身を改善に使う）か "paid"（有料：使わない）。プライバシーポリシーの文が変わる
+GEMINI_TIER = "free"
+DAILY_LIMIT = "40"
+DAY_OFFSET_MIN = "540"
+# Google Cloud の「ウェブ アプリケーション」のクライアント ID（手順書の 2-3）
+GOOGLE_CLIENT_ID = "ここにウェブのクライアントID.apps.googleusercontent.com"
+# 問い合わせ先（プライバシーポリシーに出る）
+CONTACT_EMAIL = "ここに連絡先のメールアドレス"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hitohi-usage"
+# `npx wrangler d1 create hitohi-usage` が出す database_id をここに貼る
+database_id = "ここにデータベースID"
