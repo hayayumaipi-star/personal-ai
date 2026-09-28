@@ -7438,6 +7438,49 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DK. テスター6周目：名前を言わない言い直し・箇条書きの見出し・締切2つ・メモ・くり返しの休み（2026-09-28・自律で進めた回） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const hmOf = x => x && validISO(x) ? hhmm(minOfDay(x, TZ)) : "なし";
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, h, mi] of steps) r = await say(s, at(15, h, mi)); return r || { changes: [], asks: [] }; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.start && !i.timeUnknown ? " " + hmOf(i.start) : ""}${i.due && i.kind === "task" && i.duePrecision === "exact" ? " " + hmOf(i.due) : ""}${i.remainingMin != null ? " 残" + i.remainingMin : ""}`).join(" ／ ");
+      // --- 名前を言わない言い直し ---
+      await run([["明日10時に会議", 9], ["11時にして", 9, 5], ["やっぱり10時半", 9, 6]]);
+      ok("DK. 「11時にして」「やっぱり10時半」は直前に話した予定へ（何も作らなかった発言は飛ばしてさかのぼる）", state.items.length === 1 && hmOf(state.items[0].start) === "10:30", show(state.items));
+      await run([["明日の朝7時に起きる", 22], ["7時半にする", 22, 5]]);
+      ok("DK. 「7時半にする」は起きる時刻の言い直し（「する」という用事を作らない）", state.items.length === 1 && hmOf(state.items[0].due) === "07:30", show(state.items));
+      await run([["明日10時に会議、14時に歯医者", 9], ["15時にして", 9, 5]]);
+      ok("DK. 直前の発言で2つ作っていたら、どれか分からないので動かさない", state.items.every(i => ["10:00", "14:00"].includes(hmOf(i.start))), show(state.items));
+      await run([["明日10時に会議", 9], ["11時にして", 13, 5]]);
+      ok("DK. 3時間より前の発言には当てない", hmOf(state.items[0].start) === "10:00", show(state.items));
+      await run([["片付けをする", 9], ["片付け、30分くらいかかる", 9, 1], ["あと10分で終わる", 9, 30]]);
+      ok("DK. 名前の無い「あと10分で終わる」は直前の用事の残り時間（長さの言い直しにしない）", state.items.length === 1 && state.items[0].remainingMin === 10 && state.items[0].estimateMin === 30, show(state.items));
+      // --- 箇条書きの見出し・締切2つ・見出しの跡 ---
+      await run([["明日やること\n・銀行\n・母に電話\nそれと本を返す", 21]]);
+      const dk = t => (state.items.find(i => i.title.includes(t)) || {}).dayKey;
+      ok("DK. 「明日やること」の下の箇条書きに明日の日付を渡す（箇条書きが途切れたら渡さない）", dk("銀行") === "2026-09-16" && dk("母に電話") === "2026-09-16" && !dk("本を返す"), show(state.items));
+      await run([["水曜までに企画書、金曜までに見積もり", 9]]);
+      ok("DK. 「水曜までに企画書、金曜までに見積もり」は締切の違う2件", state.items.length === 2 && dk("企画書") === "2026-09-16" && dk("見積もり") === "2026-09-18", show(state.items));
+      await run([["明日の会議の資料、今日中に作る", 9]]);
+      ok("DK. 見出しの真ん中に「、今日中に」を残さない", state.items.length === 1 && !/今日中/.test(state.items[0].title), show(state.items));
+      await run([["プレゼンの準備を3日前から始める", 9]]);
+      ok("DK. 「3日前から」は3日の日付ではない", state.items.length === 1 && state.items[0].dayKey !== "2026-10-03" && state.items[0].title === "プレゼンの準備を3日前から始める", show(state.items));
+      await run([["明日10時に病院に行って、そのあと11時半に薬局", 9]]);
+      ok("DK. 分けた前半の「病院に行って」は「病院に行く」", state.items.some(i => i.title === "病院に行く"), show(state.items));
+      // --- メモ・希望・くり返しの休み ---
+      await run([["来月10日に健康診断", 9], ["健康診断の前日は21時以降食べない", 9, 5]]);
+      ok("DK. メモは言ったまま（「21時以降」を消さない）", state.items.some(i => i.kind === "memo" && i.title === "健康診断の前日は21時以降食べない"), show(state.items));
+      await run([["明日は午前中に集中したい", 21]]);
+      ok("DK. 「明日は午前中に集中したい」は明日だけの希望（「集中する」という用事にしない）",
+        state.items.length === 1 && state.items[0].kind === "preference" && state.items[0].scopeDay === "2026-09-16", show(state.items) + " " + (state.items[0] && state.items[0].scopeDay));
+      await run([["毎週火曜と木曜の19時からヨガ", 9], ["今週の木曜のヨガは休む", 9, 5]]);
+      const yg = state.items.filter(i => /ヨガ/.test(i.title));
+      ok("DK. 「今週の木曜のヨガは休む」は木曜の回だけ外す（同じ名前の火曜は触らない・「ヨガは休む」を作らない）",
+        yg.length === 2 && yg.some(i => (i.skipDays || []).includes("2026-09-17")) && yg.every(i => !(i.skipDays || []).includes("2026-09-15") && !(i.skipDays || []).includes("2026-09-22")), show(yg));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
