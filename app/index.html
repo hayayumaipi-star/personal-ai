@@ -1882,7 +1882,7 @@ const RE_COND  = /(疲れ|眠(い|く|れ|すぎ|たい|気)|やる気(が)?(出
 const RE_PAIN = /((頭|あたま|お腹|おなか|腹|胃|腰|肩|首|背中|喉|のど|歯|目|耳|足|膝|ひざ|関節|生理)(が|も|は)?\s*(少し|ちょっと|すごく|かなり|ずっと)?\s*(痛|いた)|腹痛|胃痛|腰痛|歯痛|生理痛|肩こり|肩が凝|熱が(ある|出|高)|熱が\s*\d+(?:\.\d)?\s*度|\d+(?:\.\d)?\s*度の熱|熱っぽ|微熱|ぼーっと|ぼーっと|ぼんやりする|発熱|吐き気|気持ち悪|寒気|めまい|咳が|鼻水|鼻づまり|くしゃみ|頭が重|体が重|具合が悪|気分が悪|胃もたれ)/;
 /* 「終わったら」「できたら」は**これからの話**（条件）であって、終わった報告ではない（2026-09-26・実測で
    「19時から飲み会、終わったら帰って寝る」に「どれが終わったのか特定できません」と出ていた）。 */
-const RE_DONE  = /(した$|しました|終わった(?!ら)|終わりました|終わり[。、]?$|終了[。、]?$|済んだ(?!ら)|済み[。、]?$|できた(?!ら)|やった$|(行って|いって|やって|して|済ませて)きた[。！!]?$|(行って|いって)きました[。！!]?$|済ませた[。！!]?$|終わらせた[。！!]?$)/;
+const RE_DONE  = /(した$|しました|終わった(?!ら)|終わりました|終わり[。、]?$|おわった(?!ら)|おわりました|おわり[。、]?$|終了[。、]?$|済んだ(?!ら)|済み[。、]?$|できた(?!ら)|やった$|(行って|いって|やって|して|済ませて)きた[。！!]?$|(行って|いって)きました[。！!]?$|済ませた[。！!]?$|終わらせた[。！!]?$)/;
 
 /* 行＝ひとつの話題、として扱う。話し言葉では「〜やる。15分くらい。」のように
    所要時間や日付が次の文に分かれるため、行全体から日時と所要時間を拾う。 */
@@ -1925,7 +1925,10 @@ function splitLines(text) {
         /* ⑤「今日は午前中に掃除、午後から買い物、夜は映画」——**時間帯で始まる話が続けば、次の話**（2026-09-27・テスター2周目。1件「掃除、買い物、夜は映画」になっていた）。
            前の話も時間帯を言っているときだけ（「疲れた、夜は早く寝る」は分けない）。日付は前の話から渡る（carryFrom）。 */
         const win = RE_WIN_HEAD.test(t);
-        if (cur && t && !openRange && ((clock && cur.clock) || (seq && cur.text.trim().length >= 2) || but || newDay || (win && cur.win))) { topics.push(cur); cur = null; }
+        /* ⑥「明日は9時に病院、午後は買い物」「明日10時から会議、牛乳も買わないと」——**時刻を言った話のあとの、時間帯で始まる話・「〜ないと」の用事**は次の話
+           （2026-09-28・本物の Gemini で比べて見つけた。ルールでは「病院、買い物」「会議、牛乳も買う」の1件になっていた）。 */
+        const chore = cur && cur.clock && !clock && RE_SELFTASK.test(t) && !RE_SELFTASK.test(cur.text) && contentWords(t).length > 0;
+        if (cur && t && !openRange && ((clock && cur.clock) || (seq && cur.text.trim().length >= 2) || but || newDay || (win && (cur.win || cur.clock)) || chore)) { topics.push(cur); cur = null; }
         if (!cur) cur = { text: "", start: c.start, clock: false, dated: false, win: false };
         cur.text += c.text; cur.clock = cur.clock || clock; cur.dated = cur.dated || RE_DATE_HEAD.test(t);
         cur.win = cur.win || RE_WIN_ANY.test(t);
@@ -6686,7 +6689,7 @@ async function setItemState(it, action, opts = {}) {
     it.dayKey = to; it.targetDay = null; it.corrected = true; it.confirmed = true;
     delete it.period; delete it.periodFrom;          // 日を動かしたら、もう「春から」ではない（決まり0j）
     it.dedupeKey = dedupeKey(it);
-    note(it, `${cur} から ${to} へ延期した${tag}`);
+    note(it, `${cur} から ${to} へ${to < cur ? "前倒しした" : "延期した"}${tag}`);
     await putItem(it);
     return { ok: true, from: cur, to };
   } else return { ok: false, why: "unknown" };
@@ -7155,7 +7158,8 @@ function evidenceOf(note, quote) {
 /* 「牛乳買った」「歯医者行ってきた」も、開いている用事と照合できたら完了（2026-09-27）。
    ただし「どれが終わったか分からない」と聞き返すのは `RE_FINISH` の言い方だけ——「映画を見た」で毎回聞き返さない。 */
 const RE_FINISH_MORE = /(買った|払った|出した|返した|書いた|読んだ|洗った|行ってきた|行ってきました|行った|片付けた|掃除した|洗濯した|連絡した|電話した|返信した|予約した|申し込んだ|受け取った|届けた|済ませた|終わらせた|やっといた|やっておいた)[よね。！!]*$/;
-const RE_FINISH = /((できた|出来た|終わった|終えた|送った|送信した|提出した|済んだ|済ませた)(?!ら)|終わりました|完了(?!したら|次第)|やった(よ|わ)?$)/;
+/* ひらがなの「おわった」も同じ（2026-09-28・本物の Gemini で比べたとき、ルールだけだと「勉強おわった」で完了にならなかった）。RE_DONE と2か所に。 */
+const RE_FINISH = /((できた|出来た|終わった|終えた|おわった|おえた|送った|送信した|提出した|済んだ|済ませた)(?!ら)|終わりました|おわりました|完了(?!したら|次第)|やった(よ|わ)?$)/;
 const RE_NEXTONLY = /((一つ|ひとつ|1つ)(だけ)?|次にやること(だけ)?).{0,12}(分かる|わかる|表示|出して|教えて|の方が|でいい|にして)/;
 const RE_BUFFER = /(詰めすぎ|詰め込ま|余裕を持|余裕がほしい|余裕が欲しい|ゆとり)/;
 /* 「週末は何もしたくない」「明日は予定を入れないで」「土曜はのんびりしたい」（2026-09-26・何も記録されていなかった）。
@@ -7188,7 +7192,7 @@ const RE_NOEVENING_AT = /(午後|夜|夕方)?\s*(\d{1,2})\s*時\s*(半)?\s*(以�
 const RE_KEEP = /(見返せる|見返し|残しておき|残しておいて|あとで読|後で読|メモしておいて)/;
 /* 家にあるもの・食材の話。あとで「何を食べよう」と聞かれたときに参照する。 */
 const RE_PANTRY = /(冷蔵庫|家にある|うちにある|家にあった|残ってる|残っている|ストック|買っておいた|買ってある)/;
-const RE_RESTATE = /(じゃなくて|ではなく|やっぱり|やっぱ|に変更|変えて|あと\s*\d+\s*(分|時間)|もう少しかか|もうちょっとかか|思ったより|かかってる|かかりそう|延ばして|後ろに|遅らせ)/;
+const RE_RESTATE = /(じゃなくて|ではなく|やっぱり|やっぱ|に変更|変えて|ずらして|ずらす|ずらそう|ずらした|あと\s*\d+\s*(分|時間)|もう少しかか|もうちょっとかか|思ったより|かかってる|かかりそう|延ばして|後ろに|遅らせ)/;
 /* 言い直しかどうかの判定は **1か所にまとめる**（v5.4）。
    ルールの中に同じ判定が2つあり、幅が違っていたので取りこぼした。 */
 const looksRestating = t => !/(起きたら|気づいたら|気付いたら|目が覚めたら|見たら|着いたら|帰ったら)/.test(t) && (RE_RESTATE.test(t)
@@ -7338,6 +7342,15 @@ function ruleOpsRead(note) {
   // 「明日の打ち合わせ、14時にして」は言い直し。ルールでは対象を決められないが、
   // だからといって新しい予定を作ってはいけない（同じ用事が二重になる）。
   const restating = looksRestating(text);
+  /* **「面接は14時から」「資料は木曜までにしたい」——「〇〇は」で始まる言い足し**（2026-09-28・本物の Gemini で比べて見つけた）。
+     言い直しの合図が無いので、前は同じ名前の予定・用事をもう1件作っていた（AIは直せていた）。
+     開いている予定・用事に**1つだけ**当たり、日付を言っていない／言った日がその日と同じ／用事の締切の言い直し（「〜までに」）のときだけ、それに当てる。
+     過ぎた日の予定・くり返しの予定には当てない（「勉強は10時から」を昨日の勉強に付けない）。当たらなければ今までどおり新しく足す。 */
+  const topicHead = restating ? null : (/^\s*([^、。,，\s]{1,20}?)(?:は|って)/.exec(text) || [])[1] || null;
+  const wAll = topicHead ? parseWhen(note.text, note.capturedAt, state.settings.timezone) : null;
+  const today0 = dayKey(new Date(note.capturedAt), state.settings.timezone);
+  const amendOK = x => (!x.dayKey || x.dayKey >= today0)
+    && (!wAll || !dateSpokenIn(wAll) || wAll.dayKey === x.dayKey || (x.kind === "task" && !!wAll.isDeadline));
   let needsAi = false;
   /* **「片付けは提案しないで」は用事ではない**（v7.1・決まり0「AIへの要望は用事にしない」）。
      先に拾っておいて、その文から作られた項目は捨てる。
@@ -7353,15 +7366,20 @@ function ruleOpsRead(note) {
     // 体調は要望の文の中にあっても残す（「今日は疲れたから何もしたくない」の「疲れた」）
     if (it.kind === "condition") { ops.push({ op: "condition", text: it.selfReport, quote: it.evidence.text }); continue; }
     if (it.evidence && inWish(it.evidence.text)) continue;
-    const twins = restating ? state.items.filter(x =>
+    const amend = !restating && !!topicHead && (it.kind === "task" || it.kind === "event") && sameTopic(topicHead, it.title);
+    let twins = (restating || amend) ? state.items.filter(x =>
       x.status === "open" && (x.kind === "task" || x.kind === "event") && (it.kind === "task" || it.kind === "event")
-      && sameTopic(x.title, it.title)) : [];
+      && sameTopic(x.title, it.title) && (!amend || !x.repeat)) : [];
+    if (amend && !(twins.length === 1 && amendOK(twins[0]))) twins = [];      // 言い足しと読めないときは、今までどおり新しく足す
     /* **言い直しを、ルールでも反映する**（2026-09-27・テスターで発見）。決まり7「ルール抽出だけで訂正・再計画が成立すること」。
        「会議、15時からに変更」「英語の勉強、明日にする」「面接の時間、11時だった」——当たる予定・用事が**1つだけ**で、
        新しい時刻か日付を言っているときだけ直す。2つ以上当たる・何も読めないときは今までどおり本人へ伝える。 */
     const upd = twins.length === 1 ? restateOp(twins[0], it, note) : null;
+    /* 日付の無い用事に「〇〇は10時から」と時刻だけ言い足したら、その発言が読んだ日（今日・過ぎていれば明日）に置く
+       （時刻だけでは置けず「変更なし」になっていた・2026-09-28 旧版と比べて見つけた） */
+    if (upd && amend && upd.op === "update" && upd.dueTime && !upd.dueDate && !twins[0].dayKey && wAll && isDate(wAll.dayKey)) { upd.dueDate = wAll.dayKey; upd.duePrecision = "exact"; }
     if (upd) { ops.push(upd); continue; }
-    if (twins.length) { needsAi = true; continue; }       // 既にあるものの言い直し。作らずに本人へ伝える
+    if (twins.length && !amend) { needsAi = true; continue; }       // 既にあるものの言い直し。作らずに本人へ伝える（「〇〇は」の言い足しで読めなければ、今までどおり足す）
     ops.push({ op: "add", _built: it, quote: it.evidence.text });
   }
   if (needsAi) ops.push({ op: "_needs_ai" });
@@ -7817,7 +7835,11 @@ async function applyOps(rawOps0, note) {
       }
       touchId(target);
       if (o.op === "done") { if (r.day) touch(r.day); changes.push(`完了：${target.title}${r.day ? `（${r.day.slice(5).replace("-", "/")} の分）` : ""}`); }
-      else if (o.op === "defer") { touch(r.from); touch(r.to); changes.push(`後ろへ：${target.title}（${r.to.slice(5).replace("-", "/")}以降）`); }
+      else if (o.op === "defer") {
+        touch(r.from); touch(r.to);
+        // 「資料は木曜までにしたい」のように前へ動かしたときに「後ろへ」と言わない（2026-09-28）
+        changes.push(r.to < r.from ? `前へ：${target.title}（${r.to.slice(5).replace("-", "/")} に）` : `後ろへ：${target.title}（${r.to.slice(5).replace("-", "/")}以降）`);
+      }
       else if (o.op === "skipday") { touch(r.day); changes.push(`${target.title}：${r.day.slice(5).replace("-", "/")} の分を外す`); }
       else changes.push(`やめる：${target.title}`);
     }

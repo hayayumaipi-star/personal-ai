@@ -6961,6 +6961,78 @@
       showTab("p-chat");
     }
 
+    /* ===== DD. ルールだけで読めていなかった6つ（2026-09-28・本人の指示「開発を進める」） =====
+       本物の Gemini で比べたとき、AIなし（ルールだけ）の道は 42件中36件だった。落としていたのは：
+       ① 「勉強おわった」（ひらがな）で完了にならない ② 「面接は14時から」で時刻が足されず別の予定ができる
+       ③ 「資料は木曜までにしたい」で「資料はする」という別の用事ができる ④ 「面談は午後にずらして14時から」で別の予定ができる
+       ⑤ 「明日は9時に病院、午後は買い物」「明日10時から会議、牛乳も買わないと」が1件にまとまる */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi, TZ).toISOString();   // 9/15 は火曜
+      const fresh = () => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); };
+      const open = () => state.items.filter(i => i.status === "open" && (i.kind === "task" || i.kind === "event"));
+      const hmOf = x => x ? hhmm(minOfDay(x, TZ)) : "なし";
+      const show = () => state.items.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""} ${i.start && !i.timeUnknown ? hmOf(i.start) : i.due && i.duePrecision === "exact" ? hmOf(i.due) : ""}${i.dueIsDeadline ? "まで" : ""}`).join(" ／ ");
+      // ① ひらがなの「おわった」
+      for (const done of ["勉強おわった", "勉強終わりました", "勉強おわりました"]) {
+        fresh(); await say("8時から30分勉強する", at(15, 16, 58)); await say(done, at(15, 20, 40));
+        const st = state.items.filter(i => i.kind === "task" || i.kind === "event");
+        ok(`DD. 「${done}」で完了にする（新しい用事を作らない）`, st.length === 1 && st[0].status === "done", show());
+      }
+      fresh(); await say("8時から30分勉強する", at(15, 16, 58)); await say("勉強おわったら連絡する", at(15, 17, 0));
+      ok("DD. 「勉強おわったら連絡する」は条件で、勉強を完了にしない", state.items.some(i => i.title === "勉強する" && i.status === "open") && !state.items.some(i => i.status === "done"), show());
+      fresh(); await say("歯医者の予約おわり", at(15, 11, 0)); await say("出張の準備おわり", at(15, 11, 1));
+      ok("DD. 「歯医者の予約おわり」「出張の準備おわり」（ひらがな）は報告で、用事にしない", open().length === 0, show());
+      // ② 話題（「〜は」）に時刻を言い足す
+      fresh(); await say("来週の火曜に面接", at(15, 9, 0)); await say("面接は14時から", at(15, 9, 5));
+      ok("DD. 「来週の火曜に面接」→「面接は14時から」は、同じ面接に時刻を足す（1件・9/22 14:00）",
+         open().length === 1 && open()[0].dayKey === "2026-09-22" && hmOf(open()[0].start) === "14:00" && !open()[0].timeUnknown, show());
+      fresh(); await say("明日の会議", at(15, 9, 0)); await say("明日の会議は10時から", at(15, 9, 5));
+      ok("DD. 「明日の会議」→「明日の会議は10時から」も1件のまま時刻を足す", open().length === 1 && hmOf(open()[0].start) === "10:00", show());
+      // ③ 締切を前へ
+      fresh(); await say("金曜までに資料を作る", at(15, 9, 0));
+      const r3 = await say("資料は木曜までにしたい", at(15, 9, 5));
+      ok("DD. 「資料は木曜までにしたい」は、同じ用事の締切を木曜（9/17）へ（別の用事を作らない）",
+         open().length === 1 && open()[0].title === "資料を作る" && open()[0].dayKey === "2026-09-17" && !!open()[0].dueIsDeadline, show());
+      ok("DD. 締切を前へ動かしたら「前へ」と言う（「後ろへ」「以降」と言わない）",
+         (r3.changes || []).some(c => /^前へ：資料を作る（09\/17 に）/.test(c)) && !(r3.changes || []).some(c => /後ろへ|以降/.test(c)), (r3.changes || []).join(" ／ "));
+      // ④ ずらして
+      fresh(); await say("明日10時から会議", at(15, 9, 0)); await say("明後日10時から面談", at(15, 9, 1)); await say("面談は午後にずらして14時から", at(15, 9, 5));
+      const men = open().filter(i => i.title === "面談"), kai = open().filter(i => i.title === "会議");
+      ok("DD. 「面談は午後にずらして14時から」は、面談だけを14時へ（会議は動かさない・新しい予定を作らない）",
+         open().length === 2 && men.length === 1 && men[0].dayKey === "2026-09-17" && hmOf(men[0].start) === "14:00" && kai.length === 1 && hmOf(kai[0].start) === "10:00", show());
+      fresh(); await say("明後日10時から面談", at(15, 9, 0)); await say("面談を14時にずらして", at(15, 9, 5));
+      ok("DD. 「面談を14時にずらして」（「は」なし）も、面談を14時へ（新しい予定を作らない）",
+         open().length === 1 && open()[0].dayKey === "2026-09-17" && hmOf(open()[0].start) === "14:00", show());
+      // ⑤ 1行に2つ
+      fresh(); await say("明日は9時に病院、午後は買い物", at(15, 10, 0));
+      const byo = open().find(i => i.title === "病院"), kau = open().find(i => i.title === "買い物");
+      ok("DD. 「明日は9時に病院、午後は買い物」は2件（病院 9/16 9:00・買い物 9/16）",
+         open().length === 2 && !!byo && byo.dayKey === "2026-09-16" && hmOf(byo.start) === "09:00" && !!kau && kau.dayKey === "2026-09-16", show());
+      fresh(); await say("明日10時から会議、牛乳も買わないと", at(15, 10, 0));
+      ok("DD. 「明日10時から会議、牛乳も買わないと」は2件（会議の時刻を牛乳に持ち込まない）",
+         open().length === 2 && open().some(i => i.kind === "event" && i.title === "会議" && hmOf(i.start) === "10:00") && open().some(i => i.kind === "task" && /牛乳/.test(i.title) && !i.start), show());
+      fresh(); await say("明日10時に歯医者、遅れないようにしないと", at(15, 9, 0));
+      ok("DD. 「明日10時に歯医者、遅れないようにしないと」は分けない（用事の言葉が両方にある・前は1件）", open().length === 1, show());
+      // ⑥ 日付の無い用事に時刻を言い足す＝始まりの時刻（締切にしない）
+      fresh(); await say("勉強する", at(14, 9, 0)); await say("勉強は10時から", at(15, 9, 0));
+      const ben = open();
+      ok("DD. 日付の無い「勉強する」に「勉強は10時から」＝今日の10時から（1件・締切にしない）",
+         ben.length === 1 && ben[0].dayKey === "2026-09-15" && ben[0].duePrecision === "exact" && hmOf(ben[0].due) === "10:00" && !ben[0].dueIsDeadline, show());
+      // 言い足しに当てないもの（前と同じく新しく足す／何も動かさない）
+      fresh(); await say("毎週月曜10時からゼミ", at(15, 9, 0)); await say("ゼミは14時から", at(15, 9, 5));
+      const zemi = state.items.find(i => i.repeat);
+      ok("DD. くり返しの予定は、言い足しで時刻を書き換えない（毎週月曜10時のまま）", !!zemi && hmOf(zemi.start) === "10:00", show());
+      fresh(); await say("明日10時から会議", at(15, 9, 0)); await say("明後日14時から会議", at(15, 9, 1)); await say("会議は15時から", at(15, 9, 5));
+      ok("DD. 同じ名前が2つあるときは、どちらも書き換えない", open().filter(i => i.title === "会議").some(i => i.dayKey === "2026-09-16" && hmOf(i.start) === "10:00")
+         && open().some(i => i.dayKey === "2026-09-17" && hmOf(i.start) === "14:00"), show());
+      fresh(); await say("明日10時から会議", at(15, 9, 0)); await say("会議は明後日10時から", at(15, 9, 5));
+      ok("DD. 違う日を言ったら、前の予定を動かさない（明日の会議は明日のまま）", open().some(i => i.dayKey === "2026-09-16" && hmOf(i.start) === "10:00"), show());
+      fresh(); await say("今日10時から会議", at(14, 9, 0)); await say("会議は14時から", at(15, 9, 5));
+      ok("DD. もう過ぎた日の予定は、言い足しで動かさない（昨日の会議は昨日のまま）", open().some(i => i.dayKey === "2026-09-14" && hmOf(i.start) === "10:00"), show());
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
