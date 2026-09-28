@@ -215,7 +215,7 @@
         ["昼飯食べてくる", 12, 0, "昼食を食べる"],
         ["ご飯食べる", 19, 30, "夕食を食べる"],
         ["ご飯食べる", 8, 30, "朝食を食べる"],
-        ["夜ごはんは家で作る", 18, 0, "夕食を食べる"],
+        ["夜ごはんは家で作る", 18, 0, "夕食を作る"],          // 作る話は「作る」（2026-09-28・DF群）
         ["お昼は買ってくる", 11, 30, "昼食を食べる"],
         ["晩ごはん頼もう", 19, 0, "夕食を食べる"]
       ];
@@ -7128,6 +7128,79 @@
       ok("DE. 「月1回の定期検診に行く」（名詞を飾る「〜の」）は続けたいことにしない", !state.items.some(i => i.kind === "goal"), show());
       ok("DE. 「月1回の定期検診が明日」は予定・「週5日勤務」「週2で在宅」はわたしのこと（日付にしない）・「〜ようにしてる」は続けたいこと（7通り）", fk.length === 0, fk.join(" ／ "));
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings; SAMPLEFN = keep.fn;
+    }
+
+    /* ===== DF. テスター3周目：ふだんの言い方60文で見つけた読み違い（2026-09-28・自律で進めた回） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi, TZ).toISOString();   // 9/15 は火曜
+      const fresh = () => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); };
+      const open = () => state.items.filter(i => i.status === "open");
+      const hmOf = x => x ? hhmm(minOfDay(x, TZ)) : "なし";
+      const show = () => state.items.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.start && !i.timeUnknown ? " " + hmOf(i.start) : ""}${i.estimateMin ? " " + i.estimateMin + "分" : ""}`).join(" ／ ");
+      const one = async (s, h = 9, mi = 0) => { fresh(); await say(s, at(15, h, mi)); return open(); };
+      // ① 見出し
+      const ct = s => cleanTitle(s, null);
+      ok("DF. 「見積もり出す」の「も」は語の一部（「見積をり出す」にしない）・「牛乳も買う」「宿題もやる」は今までどおり",
+         ct("見積もり出す") === "見積もり出す" && ct("牛乳も買う") === "牛乳を買う" && ct("宿題もやる") === "宿題をやる" && ct("勉強もする") === "勉強する",
+         [ct("見積もり出す"), ct("牛乳も買う"), ct("宿題もやる"), ct("勉強もする")].join(" / "));
+      const tl = [];
+      for (const [s, want] of [["お昼過ぎに郵便局", "郵便局"], ["田中さんに電話、15時過ぎに", "田中さんに電話"], ["会議資料、明日の朝までに", "会議資料"], ["疲れた、でもジム行かないと", "ジム行く"], ["運動しないとなあ", "運動する"]]) {
+        const its = await one(s); const hit = its.find(i => i.kind === "task" || i.kind === "event");
+        if (!hit || hit.title !== want) tl.push(`「${s}」→${show()}（正：${want}）`);
+      }
+      ok("DF. 見出しに残りかすを出さない（お郵便局・過ぎに・朝までに・でも・なあ）", tl.length === 0, tl.join(" ／ "));
+      // ② 空けておいて・〜したい・食事を作る
+      let its = await one("明日の15時〜16時は空けておいて");
+      ok("DF. 「明日の15時〜16時は空けておいて」は、その時間をふさぐ「空けておく」", its.length === 1 && its[0].title === "空けておく" && its[0].dayKey === "2026-09-16" && hmOf(its[0].start) === "15:00", show());
+      its = await one("1時間読書したい");
+      ok("DF. 「1時間読書したい」は60分の用事", its.length === 1 && its[0].kind === "task" && its[0].title === "読書する" && its[0].estimateMin === 60, show());
+      its = await one("勉強したい");
+      ok("DF. 「勉強したい」は気になっていること（見出しは言ったまま）", its.length === 1 && its[0].kind === "idea" && its[0].title === "勉強したい", show());
+      its = await one("夜ご飯作る");
+      ok("DF. 「夜ご飯作る」は「夕食を作る」（食べるにしない）", its.length === 1 && its[0].title === "夕食を作る", show());
+      its = await one("お昼ご飯食べる");
+      ok("DF. 「お昼ご飯食べる」は今までどおり「昼食を食べる」", its.length === 1 && its[0].title === "昼食を食べる", show());
+      // ③ 体調のあとの用事・「しないと」
+      its = await one("歯が痛い、歯医者予約しないと");
+      ok("DF. 「歯が痛い、歯医者予約しないと」は体調（読点なし）と用事の2つ", its.length === 2 && its.some(i => i.kind === "condition" && i.selfReport === "歯が痛い") && its.some(i => i.kind === "task" && i.title === "歯医者予約する"), show());
+      const st = [];
+      for (const [s, want] of [["勉強しないと", 1], ["母に電話しないと", 1], ["無理しないと決めた", 0], ["心配しないといいけど", 0]]) {
+        its = await one(s); const n = its.filter(i => i.kind === "task").length; if (n !== want) st.push(`「${s}」→用事${n}件（正：${want}）`);
+      }
+      ok("DF. 「勉強しないと」「母に電話しないと」は用事・「無理しないと決めた」「心配しないといいけど」は用事にしない", st.length === 0, st.join(" ／ "));
+      // ④ 予約が取れた話
+      its = await one("病院の予約取った、来週火曜の10時");
+      ok("DF. 「病院の予約取った、来週火曜の10時」は予定「病院」9/22 10:00", its.length === 1 && its[0].kind === "event" && its[0].title === "病院" && its[0].dayKey === "2026-09-22" && hmOf(its[0].start) === "10:00", show());
+      its = await one("明日の病院の予約取った");
+      ok("DF. 「明日の病院の予約取った」は明日の「病院」（時刻未定）", its.length === 1 && its[0].kind === "event" && its[0].title === "病院" && its[0].dayKey === "2026-09-16", show());
+      fresh(); await say("歯医者の予約を取る", at(15, 9, 0)); await say("歯医者の予約取った", at(15, 10, 0));
+      ok("DF. 「歯医者の予約を取る」→「歯医者の予約取った」は完了（新しい用事を作らない）", state.items.length === 1 && state.items[0].status === "done", show());
+      its = await one("昨日の10時に病院の予約した");
+      ok("DF. 「昨日の10時に病院の予約した」は済んだ話（昨日の予定にしない）", its.length === 0, show());
+      // ⑤ 「夕方ジム」
+      its = await one("明日は8時に家を出て、9時から会議、昼は田中さんとランチ、夕方ジム");
+      ok("DF. 「…、夕方ジム」は分けて、明日のジム（日付を落とさない）", its.some(i => i.title === "ジム" && i.dayKey === "2026-09-16") && its.some(i => i.title === "会議"), show());
+      its = await one("10時から会議、夜ラーメン");
+      ok("DF. 「10時から会議、夜ラーメン」は分けない（「夜ラーメン」だけでは読めず、分けると黙って消える）", its.length === 1 && /ラーメン/.test(its[0].title), show());
+      // ⑥ わたしのこと・言い直しの相手が無い
+      its = await one("コーヒーは飲めない");
+      ok("DF. 「コーヒーは飲めない」はわたしのこと", its.length === 1 && its[0].kind === "profile", show());
+      its = await one("今日はお酒飲めない");
+      ok("DF. 「今日はお酒飲めない」はその日の話（わたしのことにしない）", !its.some(i => i.kind === "profile"), show());
+      its = await one("やっぱり11時からにする");
+      ok("DF. 「やっぱり11時からにする」は、当てる相手が無ければ足さない（「にする」という用事を作らない）", its.length === 0, show());
+      // ⑦ 質問に答える
+      fresh(); await say("明日10時から会議", at(15, 9, 0)); await say("明日14時から歯医者", at(15, 9, 1));
+      const p16 = planFor("2026-09-16", { nowMin: -1 });
+      const a1 = answerQuestion("明日何時から？", p16, "2026-09-16", "明日"), a2 = answerQuestion("明日は何時まで？", p16, "2026-09-16", "明日");
+      ok("DF. 「明日何時から？」「何時まで？」に予定表から答える", /10:00からの「会議」/.test(a1 || "") && /15:00に終わる「歯医者」/.test(a2 || ""), (a1 || "なし") + " / " + (a2 || "なし"));
+      fresh(); await say("今日11時から12時まで打ち合わせ", at(15, 9, 0));
+      const p15 = planFor("2026-09-15", { nowMin: 9 * 60 });
+      const a3 = answerQuestion("今日暇な時間ある？", p15, "2026-09-15", "今日"), a4 = answerQuestion("次何すればいい？", p15, "2026-09-15", "今日");
+      ok("DF. 「今日暇な時間ある？」は空きを時刻で（一日の終わりは24:00）・「次何すればいい？」は次の枠", /09:00〜11:00/.test(a3 || "") && /12:00〜24:00/.test(a3 || "") && /11:00からの「打ち合わせ」/.test(a4 || ""), (a3 || "なし") + " / " + (a4 || "なし"));
+      ok("DF. 「何時間かかる？」は時刻の質問として答えない", answerQuestion("何時間かかる？", p15, "2026-09-15", "今日") === null);
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
