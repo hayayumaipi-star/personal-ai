@@ -3486,12 +3486,16 @@
        **この群は本物の時計を見る**——`planFor` の `todayKey` が実際の今日だから
        （`T()` の演じている日付では、この分岐そのものに入らない）。
        日付は「今日から何日後」で作るので、日をまたいでも壊れない。
-       時計の時刻には寄りかからない（`nowMin: -1` で「いま」を無視する）。 */
+       時計の時刻には寄りかからない（`nowMin: -1` で「いま」を無視する）。
+       **時計の針は、実際の今日の10時に止める**（2026-09-29）——夜中（0〜3時台）の「明日」は寝て起きた日（決まり0o）なので、
+       日本時間の0時台に流すと「明日」が今日になり、この群の7件が落ちていた（前の版でも同じ・日付は実際の今日のまま）。 */
     {
       const tzm = state.settings.timezone;
       const dk = n => dayKey(new Date(Date.now() + n * 86400000), tzm);
       const d0 = dk(0), d1 = dk(1), d2 = dk(2);
       const keepDay = view.day, keepTab2 = view.tab;
+      const RealDateBM = Date, pinBM = zoned(...d0.split("-").map(Number), 10, 0, tzm).getTime();
+      window.Date = class extends RealDateBM { constructor(...a) { if (a.length) super(...a); else super(pinBM); } static now() { return pinBM; } };
 
       reset();
       await say("明日までに資料を作る。1時間くらい。できれば午前中に進めたい。", new Date().toISOString());
@@ -3556,6 +3560,7 @@
       ok("BM. 時刻を言っていない用事も「予定に入れた」とは言わない",
          !/の予定に入れたよ/.test(r3), r3.replace(/\n/g, " ⏎ "));
 
+      window.Date = RealDateBM;
       view.day = keepDay; showTab(keepTab2);
     }
 
@@ -5831,6 +5836,9 @@
       // ⑨ 質問に答える・置いた理由の文
       { reset();
         const keepAI = SAMPLEFN, keepView = view.day, keepChat = view.chatDay; SAMPLEFN = null;
+        // 時計の針は実際の今日の10時に（夜中の「明日」は寝て起きた日＝0時台に流すと落ちていた・BM群と同じ・2026-09-29）
+        const RealDateCQ = Date, pinCQ = zoned(...dayKey(new Date(), TZ).split("-").map(Number), 10, 0, TZ).getTime();
+        window.Date = class extends RealDateCQ { constructor(...a) { if (a.length) super(...a); else super(pinCQ); } static now() { return pinCQ; } };
         const today = dayKey(new Date(), TZ), tmr = addKey(today, 1);
         const mk = (title, k, extra) => { const it = Object.assign({ id: uid(), noteId: null, kind: k, title, status: "open", origin: "user", confirmed: true, corrected: false,
           evidence: { text: title }, createdAt: new Date().toISOString(), updatedAt: "", history: [] }, extra); it.dedupeKey = dedupeKey(it); return it; };
@@ -5843,6 +5851,7 @@
         await sendTurn("今日何するんだっけ");
         const t2 = (state.turns[today] || []).filter(t => t.role === "assistant").pop();
         ok("CQ. 「今日何するんだっけ」（〜っけ）にも答える", !!t2 && /牛乳を買う/.test(t2.text) && !/予定はそのままにしてある/.test(t2.text), t2 ? t2.text.slice(0, 120) : "なし");
+        window.Date = RealDateCQ;
         SAMPLEFN = keepAI; view.day = keepView; view.chatDay = keepChat;
         reset();
         const a = read("夕方に買い物に行く", 10)[0];
@@ -8275,6 +8284,43 @@
       ok("EC. 過ぎた月（8月）は来年の8月", /8\/3「旅行」/.test(an), an);
       an = ask("12月の予定は？");
       ok("EC. 何も無い月は、そう言う", /12月は、予定も期限の来る用事もまだ入っていない/.test(an), an);
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
+    /* ===== ED. 暮らしの言い方（だれかと食べる・三連休・定時後・始業前・給料日・〜たら）（2026-09-29・テスター24周目） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const one = async (s, h) => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); await say(s, at(15, h == null ? 10 : h)); return state.items; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.start && !i.timeUnknown ? " " + hhmm(minOfDay(i.start, TZ)) : ""}`).join(" ／ ") || "（なし）";
+      let its = await one("友達とランチ");
+      ok("ED. 日付の無い「友達とランチ」も捨てない（今日の「昼食を食べる」・決まり6i）", its.length === 1 && its[0].kind === "task" && its[0].title === "昼食を食べる" && its[0].dayKey === "2026-09-15", show(its));
+      its = await one("土曜は家族とディナー");
+      ok("ED. 日付を言った「土曜は家族とディナー」は今までどおりその日の予定（CP群）", its.length === 1 && its[0].kind === "event" && its[0].dayKey === "2026-09-19", show(its));
+      its = await one("明日のお昼、課長に電話");
+      ok("ED. 「明日のお昼、課長に電話」の見出しに「お昼、」を残さない", its.length === 1 && its[0].title === "課長に電話" && its[0].dayKey === "2026-09-16", show(its));
+      its = await one("明日の昼はランチ食べに行く");
+      ok("ED. ひとりの食事は今までどおり「昼食を食べる」", its.length === 1 && its[0].title === "昼食を食べる", show(its));
+      its = await one("パンとご飯を食べる");
+      ok("ED. 「パンとご飯」は人ではない（「昼食を食べる」）", its.length === 1 && its[0].title === "昼食を食べる", show(its));
+      its = await one("昨日友達とランチした");
+      ok("ED. 「昨日友達とランチした」は済んだ話（予定を作らない）", !its.some(i => i.kind === "event" || i.kind === "task"), show(its));
+      its = await one("今度の三連休に実家に帰る");
+      ok("ED. 「今度の三連休に実家に帰る」の見出しは「実家に帰る」（「の三」を残さない）・連休の期限", its.length === 1 && its[0].title === "実家に帰る" && its[0].dayKey === "2026-09-23", show(its));
+      its = await one("定時後に英会話");
+      ok("ED. 「定時後に英会話」は今日の用事（何も記録されなかった）", its.length === 1 && its[0].kind === "task" && its[0].dayKey === "2026-09-15", show(its));
+      its = await one("始業前にメールチェック", 10);
+      ok("ED. 10時の「始業前にメールチェック」は明日の用事", its.length === 1 && its[0].kind === "task" && its[0].dayKey === "2026-09-16", show(its));
+      its = await one("始業前にメールチェック", 7);
+      ok("ED. 朝7時の「始業前にメールチェック」は今日", its.length === 1 && its[0].dayKey === "2026-09-15", show(its));
+      its = await one("給料日にカード払い");
+      ok("ED. 「給料日にカード払い」を捨てない（日付は作らない）", its.length === 1 && its[0].kind === "task" && !its[0].dayKey, show(its));
+      its = await one("子どもが寝たら勉強");
+      ok("ED. 「子どもが寝たら勉強」は体調ではない（用事）", its.length === 1 && its[0].kind === "task", show(its));
+      its = await one("寝たら治った");
+      ok("ED. 「寝たら治った」は今までどおり体調", its.length === 1 && its[0].kind === "condition", show(its));
+      its = await one("明日晴れたら洗車");
+      ok("ED. 「明日晴れたら洗車」は天気しだいなのでメモ", its.length === 1 && its[0].kind === "memo", show(its));
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
