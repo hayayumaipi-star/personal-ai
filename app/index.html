@@ -1992,7 +1992,7 @@ const RE_DONE  = /(した$|しました|終わった(?!ら)|終わりました|�
    **位置はずらさない**（根拠の引用は原文の同じ場所を指す）。 */
 const RE_CLOCK = /\d{1,2}\s*時(?!間)|\d{1,2}:\d{2}/;   // 「2時間」の「2時」は時刻ではない（テストで見つけた）
 // 「来週の水曜にテスト、それまでに単語を覚える」「今日はジョギング休み、代わりに散歩する」も次の話で、前の話の日付が渡る（2026-09-28・テスター11周目）
-const RE_SEQ = /^(そのあと|その後|それから|あとは|次に|終わったら|それまでに|その前に|代わりに|かわりに)/;
+const RE_SEQ = /^(そのあと|その後|それから|あとは|次は|次に|終わったら|それまでに|その前に|代わりに|かわりに)/;
 const RE_WIN_HEAD = /^(午前中|午前|午後|昼過ぎ|お昼|昼|夕方|夜|晩|朝)(に|は|から|で|の|(?=[ァ-ヴ][ァ-ヴー]))/;     // 「夕方ジム」「夜ラーメン」——カタカナの語がすぐ続く形も（2026-09-28）
 const RE_WIN_ANY = /(午前中|午前|午後|昼過ぎ|お昼|昼|夕方|夜|晩|朝)(に|は|から|で)/;
 const RE_DATE_HEAD = /^(今日|明日|明後日|あさって|今夜|今晩|来週|今週|再来週|来月|今度の|次の|[月火水木金土日]曜|\d{1,2}\s*[月\/]|\d{1,2}\s*日(?!間))/;
@@ -2565,6 +2565,9 @@ function classify(rawS, lineWhen) {
      （2026-09-26・実測で予定「会議の資料まだ」ができていた）。開いている用事との照合は ruleOps の NOTYET が受け持つ。 */
   if (/まだ(でき(て(い)?ない)?|終わって(い)?ない|やって(い)?ない)?[。！!]*$/.test(s) && !RE_SELFTASK.test(s)) return null;
   if (RE_CANCELLED.test(s) && !RE_SELFTASK.test(s)) return "memo";
+  // 「明日の会議、延期になった」「リスケになった」——新しい日を言っていない延期は、あとで見返すメモ（予定「会議、延期」ができていた・2026-09-29・テスター27周目）。
+  // 今ある予定に当たれば ruleOps が先に言い直しとして受ける（決まり0m）。「来週火曜に延期」は新しい日を言っているので入れない
+  if (/(?:延期|リスケ(?:ジュール)?)\s*(?:に\s*(?:なった|なりました|なる|なりそう)|です|だって|された|になって)?[。！!]*$/.test(s) && !/(?:に|へ)\s*(?:延期|リスケ)/.test(s) && !RE_SELFTASK.test(s)) return "memo";
   /* 「月曜と木曜はジムが混む」「日曜は銀行が休み」「駅前のカフェは空いてる」——**場所やお店の様子**を言っているだけで、
      行く予定ではない（2026-09-27・ジムの予定「ジムが混む」になっていた）。「混むから10時に行く」のように
      行く・やると言っていれば今までどおり。 */
@@ -3130,7 +3133,10 @@ function extractByRule(note, settings, opts) {
     const lm = base.kind === "task" ? /^(?:タスク|やること|やる事|すること|用事|TODO|ToDo|todo)\s*[:：]\s*(.+)$/.exec(base.title) : null;
     // 「今週やること：資料作成、メール返信、経費精算」は見出しから「今週やること：」が先に落ちている——原文に並べる見出しがあれば、見出しの読点で分ける（2026-09-28・テスター14周目）
     const headed = !lm && base.kind === "task" && /(?:タスク|やること|やる事|すること|用事|TODO|ToDo|todo)\s*[:：]/.test(s) && /[、,，]/.test(base.title) ? base.title.replace(/^.*[:：]\s*/, "") : null;
-    const listed = lm || headed ? (lm ? lm[1] : headed).split(/[、,，・\/]/).map(x => x.trim()).filter(x => x.length >= 1) : null;
+    // 「今日やることは資料作成とメール返信」——「〜は」で並べても同じ（見出しが「は資料作成とメール返信」になっていた・2026-09-29・テスター27周目）
+    const hw = !lm && !headed && base.kind === "task" ? /(?:タスク|やること|やる事|すること|用事)\s*は\s*(.+?)[。．.!！]*$/.exec(s) : null;
+    const hwList = hw ? (splitNounTasks(hw[1].trim()) || (/[、,，・]/.test(hw[1]) ? hw[1].split(/[、,，・]/).map(x => x.trim()).filter(Boolean) : [hw[1].trim()])) : null;
+    const listed = hwList || (lm || headed ? (lm ? lm[1] : headed).split(/[、,，・\/]/).map(x => x.trim()).filter(x => x.length >= 1) : null);
     const parts = listed && listed.length >= 1 ? listed : base.kind === "task" && !base.isMeal && !base.repeat ? splitNounTasks(base.title) : null;
     if (parts) {
       for (const p of parts) {
@@ -7073,7 +7079,7 @@ function openManual() {
    操作
    ======================================================================= */
 function findItem(id) { return state.items.find(i => i.id === id); }
-function note(it, what) { it.history = (it.history || []).concat({ at: new Date().toISOString(), by: "user", what }); }
+function note(it, what, at) { it.history = (it.history || []).concat({ at: validISO(at) ? at : new Date().toISOString(), by: "user", what }); }
 
 /* =======================================================================
    **項目の状態を変える処理は、ここ1か所**（2026-09-27・本人の指示「１と３を実行して」）。
@@ -7117,7 +7123,7 @@ async function setItemState(it, action, opts = {}) {
   } else if (action === "undone") {
     it.status = "open"; delete it.completedAt; note(it, "未完了に戻した" + tag);
   } else if (action === "drop") {
-    it.status = "dropped"; it.confirmed = true; note(it, "取り消した" + tag);
+    it.status = "dropped"; it.confirmed = true; note(it, "取り消した" + tag, opts.at);   // 会話なら言ったとき（「やっぱり行く」が3時間以内かを見る・2026-09-29）
   } else if (action === "undrop") {
     it.status = "open"; note(it, "取り消しを戻した" + tag);
   } else if (action === "defer") {
@@ -7658,7 +7664,7 @@ const RE_WORK_UNTIL = /(午後|夜|夕方)?\s*(\d{1,2})\s*時\s*(半)?\s*(?:で|
 const RE_KEEP = /(見返せる|見返し|残しておき|残しておいて|あとで読|後で読|メモしておいて)/;
 /* 家にあるもの・食材の話。あとで「何を食べよう」と聞かれたときに参照する。 */
 const RE_PANTRY = /(冷蔵庫|家にある|うちにある|家にあった|残ってる|残っている|ストック|買っておいた|買ってある)/;
-const RE_RESTATE = /(じゃなくて|ではなく|やっぱり|やっぱ|に変更|変えて|延期|ずらして|ずらす|ずらそう|ずらした|あと\s*\d+\s*(分|時間)|もう少しかか|もうちょっとかか|思ったより|かかってる|かかりそう|延ばして|後ろに|遅らせ)/;
+const RE_RESTATE = /(じゃなくて|ではなく|やっぱり|やっぱ|に変更|変えて|延期|リスケ|ずらして|ずらす|ずらそう|ずらした|あと\s*\d+\s*(分|時間)|もう少しかか|もうちょっとかか|思ったより|かかってる|かかりそう|延ばして|後ろに|遅らせ)/;
 /* 「会議30分早まった」「会議1時間遅れて始まる」「会議が30分延びた」——ずれた分だけ動かす・延ばす（2026-09-28・テスター5周目・「会議1時間遅れて始まる」という用事ができていた）。
    「待ち合わせに10分遅れる」は自分が遅れる話なので当てない（「に」のすぐ後の長さは外す） */
 /* 「出張は1日延びた」——何日も続く予定の終わりを延ばす（2026-09-28・テスター7周目・「出張は延びた」という予定ができていた） */
@@ -7885,6 +7891,10 @@ function titleSaid(title, text) {
     if (c1 !== w && c1.length >= 2) cores.push(c1);
     if (/[ぁ-ん]/.test(next)) cores.push(w.slice(0, -1));
   }
+  /* 「買い物行く」「買い物に行く」——言い切りの動詞を除いた頭（「買い物」）でも見る（2026-09-29・テスター27周目。「い」を挟むので語に分けられず、
+     「買い物は明日にする」が当たらずに「買い物はする」という2件目ができていた）。漢字かカタカナを含む2文字以上のときだけ */
+  const head = String(title).replace(/(?:を|に|へ|で)?[一-鿿々]{1,2}[ぁ-ん]{1,3}$/, "");
+  if (head !== String(title) && head.length >= 2 && /[一-鿿々ァ-ヴ]/.test(head)) cores.push(head);
   return cores.some(c => c.length >= 2 && String(text).includes(c)) ? 2 : 0;
 }
 function matchOpenTask(text) {
@@ -8122,7 +8132,7 @@ function ruleOpsRead(note) {
     const amend = !restating && !!topicHead && (it.kind === "task" || it.kind === "event") && sameTopic(topicHead, it.title);
     let twins = (restating || amend) ? state.items.filter(x =>
       x.status === "open" && (x.kind === "task" || x.kind === "event") && (it.kind === "task" || it.kind === "event")
-      && (sameTopic(x.title, it.title) || (amend && titleSaid(x.title, topicHead) > 0)) && (!amend || !x.repeat)) : [];   // 「資料は明日の朝やる」の話題「資料」で「資料作成」に当てる（2026-09-29）
+      && (sameTopic(x.title, it.title) || (amend && titleSaid(x.title, topicHead) > 0) || (restating && titleSaid(x.title, it.title) > 0)) && (!amend || !x.repeat)) : [];   // 「買い物は明日にする」→「買い物行く」（2026-09-29）   // 「資料は明日の朝やる」の話題「資料」で「資料作成」に当てる（2026-09-29）
     if (amend && !(twins.length === 1 && amendOK(twins[0]))) twins = [];      // 言い足しと読めないときは、今までどおり新しく足す
     /* **言い直しを、ルールでも反映する**（2026-09-27・テスターで発見）。決まり7「ルール抽出だけで訂正・再計画が成立すること」。
        「会議、15時からに変更」「英語の勉強、明日にする」「面接の時間、11時だった」——当たる予定・用事が**1つだけ**で、
@@ -8158,13 +8168,24 @@ function ruleOpsRead(note) {
        取り消した予定・用事に**1つだけ**当たり、過ぎた日のものではなく、別の日付を言っていないときだけ */
     if (restating && !twins.length && /やっぱ/.test(text) && (it.kind === "task" || it.kind === "event")) {
       const wb = parseWhen(note.text, note.capturedAt, state.settings.timezone);
-      const back = state.items.filter(x => x.status === "dropped" && (x.kind === "task" || x.kind === "event") && !x.repeat
+      let back = state.items.filter(x => x.status === "dropped" && (x.kind === "task" || x.kind === "event") && !x.repeat
         && sameTopic(x.title, it.title) && (!x.dayKey || x.dayKey >= today0) && (!wb || !dateSpokenIn(wb) || wb.dayKey === x.dayKey));
+      /* 「やっぱり歯医者やめた」→「やっぱり行く」——名前を言わずに戻すのは、3時間以内に取り消した1件だけ（2026-09-29・テスター27周目。用事「行く」ができていた） */
+      if (!back.length && !contentWords(it.title).length && !(wb && dateSpokenIn(wb))) {
+        const t0 = new Date(note.capturedAt).getTime();
+        back = state.items.filter(x => x.status === "dropped" && (x.kind === "task" || x.kind === "event") && !x.repeat && (!x.dayKey || x.dayKey >= today0)
+          && (() => { const h = [...(x.history || [])].reverse().find(e => /取り消した/.test(e.what || "")); const d = h && validISO(h.at) ? t0 - new Date(h.at).getTime() : -1; return d >= 0 && d <= 3 * 3600000; })());
+      }
       if (back.length === 1) { ops.push({ op: "undrop", id: back[0].id, quote: String(note.text).slice(0, 60) }); continue; }
     }
     if (twins.length && !amend) { needsAi = true; continue; }
+    // 「やっぱり行く」で戻す相手が決まらない（0件・2件以上）——用事「行く」は作らずに伝える（2026-09-29）
+    if (restating && /やっぱ/.test(text) && !contentWords(it.title).length && it.title.replace(/[ぁ-んー]/g, "").length <= 1) { needsAi = true; continue; }
     // 「やっぱり11時からにする」——言い直しなのに当てる相手が無く、見出しに中身の語も無い（「にする」）。足さずに伝える（2026-09-28・前の版から）
-    if (restating && !/[一-鿿々ァ-ヴA-Za-z]/.test(it.title)) { needsAi = true; continue; }   // contentWords は「打ち合わせ」も数えないので、漢字・カタカナ・英字が1つも無いときだけ       // 既にあるものの言い直し。作らずに本人へ伝える（「〇〇は」の言い足しで読めなければ、今までどおり足す）
+    if (restating && !/[一-鿿々ァ-ヴA-Za-z]/.test(it.title)) { needsAi = true; continue; }
+    // 「掃除終わった、次は洗濯」——「次は」で今ある用事を1つだけ指したなら、それのこと（2件目の「洗濯」を作らない・2026-09-29・テスター27周目）
+    if (it.kind === "task" && /^\s*次(?:は|に)/.test((it.evidence && it.evidence.text) || "")
+      && liveItems().filter(x => x.status === "open" && x.kind === "task" && sameTopic(x.title, it.title)).length === 1) continue;   // contentWords は「打ち合わせ」も数えないので、漢字・カタカナ・英字が1つも無いときだけ       // 既にあるものの言い直し。作らずに本人へ伝える（「〇〇は」の言い足しで読めなければ、今までどおり足す）
     ops.push({ op: "add", _built: it, quote: it.evidence.text });
   }
   /* **言い直しなのに、文から項目が読めなかった**（「飲み会20時からに変わった」「歯医者、来週の火曜に延期」・2026-09-28・テスター4周目）。
@@ -8260,6 +8281,7 @@ function ruleOpsRead(note) {
   // 冷蔵庫にあるもの、家にあるもの。あとで参照できるように残す（断定はしない）
   for (const s of sents) {
     if (!RE_PANTRY.test(s)) continue;
+    if (RE_QUESTION_END.test(halfWidth(s))) continue;   // 「あと何残ってる？」は聞いているだけ（家にあるものの控えにしない・2026-09-29）
     ops.push({ op: "memo", text: s.slice(0, 160), uncertain: /(と思う|たぶん|はず|かも)/.test(s), quote: s.slice(0, 60) });
   }
   // 「今日は」で始まる希望はその日限り。「しばらく」「これから」はずっと。
@@ -9979,6 +10001,16 @@ function answerQuestion(rawText, plan, key, dw = "今日") {
     return `${dw}${wname ? "の" + wname + "で" : ""}空いているのは${ok.slice(0, 3).map(([a, b]) => `${hhmm(a)}〜${b >= 24 * 60 ? "24:00" : hhmm(b)}（${durJa(b - a)}）`).join("、")}${ok.length > 3 ? `ほか${ok.length - 3}つ` : ""}。`;
   }
 
+  /* 「あと何残ってる？」「何が残ってる？」——名前で答える（2026-09-29・テスター27周目。答えずにメモにしていた）。
+     数は leftToday ひとつ（決まり15m）・名前はその日が期限かその日にやる、まだ済んでいない用事と、このあとの予定 */
+  if (/(?:あと|残り|まだ)\s*(?:何|なに)\s*(?:が)?\s*残って|何が\s*残って|(?:何|なに)\s*が?\s*残ってる/.test(t)) {
+    const n = leftToday(plan), from = plan.nowMin >= 0 ? plan.nowMin : 0;
+    const names = [];
+    for (const b of plan.blocks) if (b.item && b.e > from && b.item.status === "open" && !b.item.suggested && !names.includes(b.item.title)) names.push(b.item.title);
+    for (const i of liveItems()) if (i.kind === "task" && i.status === "open" && !i.repeat && (i.dayKey === key || i.targetDay === key) && !names.includes(i.title)) names.push(i.title);
+    if (!n && !names.length) return `${dw}のぶんは、もう残っていないよ。`;
+    return `${dw}残っているのは${names.slice(0, 4).map(x => `「${x}」`).join("、")}${names.length > 4 ? `ほか${names.length - 4}件` : ""}。`;
+  }
   // 「今日あと何件？」「残りいくつ？」——その日の残り（数えるのは leftToday ひとつ・決まり15m）
   if (/(あと|残り|のこり)\s*(何件|なんけん|いくつ|何個|どれくらい|どのくらい)/.test(t)) {
     const n = leftToday(plan), un = dw === "今日" ? liveItems().filter(i => i.kind === "task" && i.status === "open" && !i.dayKey && !i.repeat).length : 0;

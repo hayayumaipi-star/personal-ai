@@ -8401,6 +8401,36 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EG. 会話の流れ（明日にする・やっぱり行く・リスケ・次は洗濯・やることは〜・あと何残ってる？）（2026-09-29・テスター27周目） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); for (const [s, h, mi] of steps) await say(s, at(15, h, mi)); return state.items; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}`).join(" ／ ") || "（なし）";
+      let its = await run([["今日買い物に行く", 9], ["買い物は明日にする", 12]]);
+      ok("EG. 「買い物は明日にする」は今日の「買い物に行く」を明日へ（「買い物はする」を作らない）", its.length === 1 && its[0].dayKey === "2026-09-16" && /買い物に行く/.test(its[0].title), show(its));
+      its = await run([["今日買い物行く", 9], ["買い物終わった", 12]]);
+      ok("EG. 「買い物終わった」で「買い物行く」を完了（言い切りの動詞を除いた頭で当てる）", its.length === 1 && its[0].status === "done", show(its));
+      its = await run([["金曜に歯医者", 9], ["やっぱり歯医者やめた", 9, 5], ["やっぱり行く", 9, 10]]);
+      ok("EG. 名前を言わない「やっぱり行く」は、さっき取り消した歯医者を戻す（用事「行く」を作らない）", its.some(i => i.title === "歯医者" && i.status === "open") && !its.some(i => i.title === "行く"), show(its));
+      its = await run([["やっぱり行く", 9]]);
+      ok("EG. 戻す相手が無い「やっぱり行く」で用事「行く」を作らない", !its.some(i => i.title === "行く"), show(its));
+      its = await run([["明日10時に会議", 8], ["会議、来週火曜にリスケ", 9]]);
+      ok("EG. 「会議、来週火曜にリスケ」は会議を9/22へ（「会議、リスケ」を作らない）", its.length === 1 && its[0].dayKey === "2026-09-22" && its[0].title === "会議", show(its));
+      its = await run([["明日の会議、延期になった", 9]]);
+      ok("EG. 新しい日を言わない「延期になった」は予定を作らずメモ", its.length === 1 && its[0].kind === "memo", show(its));
+      its = await run([["掃除する", 9], ["洗濯する", 9, 1], ["掃除終わった、次は洗濯", 10]]);
+      ok("EG. 「掃除終わった、次は洗濯」は掃除を完了・洗濯は今ある1件のまま", its.length === 2 && its.find(i => i.title === "掃除する").status === "done" && its.filter(i => /洗濯/.test(i.title)).length === 1, show(its));
+      its = await run([["今日やることは資料作成とメール返信", 9]]);
+      ok("EG. 「今日やることは資料作成とメール返信」は2件（見出し「は資料作成と…」にしない）", its.length === 2 && its.some(i => i.title === "資料作成") && its.some(i => i.title === "メール返信") && its.every(i => i.dayKey === "2026-09-15"), show(its));
+      await say("メール返信終わった", at(15, 11));
+      const an = answerQuestion("あと何残ってる？", planFor("2026-09-15", { nowMin: 11 * 60 + 1 }), "2026-09-15", "今日") || "";
+      ok("EG. 「あと何残ってる？」は残っている用事の名前で答える", /「資料作成」/.test(an) && !/メール返信/.test(an), an);
+      await say("あと何残ってる？", at(15, 11, 2));
+      ok("EG. 「あと何残ってる？」を家にあるもののメモにしない", !state.items.some(i => i.kind === "memo"), show(state.items));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
