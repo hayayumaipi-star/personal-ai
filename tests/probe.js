@@ -7104,7 +7104,8 @@
       fresh(); await say("勉強して、夜は映画を見る", at(15, 9, 0));
       ok("DE. 「勉強して、夜は映画を見る」も2件（前半の「〜して、」を用事として読む・黙って消さない）", open().length === 2 && open().some(i => i.title === "勉強する"), show());
       fresh(); await say("掃除して、夜は映画", at(15, 9, 0));
-      ok("DE. 「掃除して、夜は映画」は分けない（「夜は映画」だけでは読めず、分けると黙って消える）", open().length === 1 && /映画/.test(open()[0].title), show());
+      // 2026-09-29：「夜は映画」がそれだけで読めるようになったので（EJ群）、2件に分ける（前は分けると黙って消えるので1件にしていた）
+      ok("DE. 「掃除して、夜は映画」は2件（掃除・夜の映画）", open().length === 2 && open().some(i => i.title === "掃除する") && open().some(i => i.title === "映画" && i.preferWindow === "evening"), show());
       fresh(); await say("疲れて、夜は早く寝る", at(15, 9, 0));
       ok("DE. 「疲れて、夜は早く寝る」は分けない（体調の話）", !state.items.some(i => i.kind === "task" && /疲れ/.test(i.title)), show());
       // ⑥ 「と」でつないだ用事の名詞
@@ -8490,6 +8491,52 @@
       its = await run([["明日の15時〜16時に面談、その前に準備30分", 9]]);
       const prep = its.find(i => i.title === "準備");
       ok("EI. 「その前に準備」は面談の始まり（15時）が締切", !!prep && tm(prep.due) === "15:00" && prep.dueIsDeadline && prep.dayKey === "2026-09-16", show(its));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
+    /* ===== EJ. これまで残した弱点（2026-09-29・本人「まだ読めないものなどを直して」） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); for (const [s, h, mi] of steps) await say(s, at(15, h, mi)); return state.items; };
+      const tm = x => validISO(x) ? hhmm(minOfDay(x, TZ)) : "-";
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""} ${tm(i.start || i.due)}${i.preferWindow ? " @" + i.preferWindow : ""}${i.winFrom != null ? " from" + i.winFrom : ""}`).join(" ／ ") || "（なし）";
+      let its = await run([["明日は9時から18時まで仕事", 9], ["明日の仕事終わりにジム", 9, 1]]);
+      let g = its.find(i => /ジム/.test(i.title));
+      ok("EJ. 「明日の仕事終わりにジム」は仕事の終わり（18時）から（仮）", !!g && g.kind === "event" && g.dayKey === "2026-09-16" && tm(g.start) === "18:00" && g.endUnknown, show(its));
+      its = await run([["明日は9時から18時まで仕事", 9], ["明日の仕事終わりにクリーニング", 9, 1]]);
+      g = its.find(i => /クリーニング/.test(i.title));
+      ok("EJ. 用事なら仕事の終わりから置いてよい（winFrom 18:00）", !!g && g.kind === "task" && g.winFrom === 18 * 60, show(its));
+      its = await run([["明日の仕事終わりにジム", 9]]);
+      ok("EJ. 仕事の予定が無ければ今までどおり（時刻を作らない）", its.length === 1 && !its.some(i => i.start && !i.timeUnknown), show(its));
+      its = await run([["明日9時から12時まで仕事", 9], ["明日13時から18時までバイト", 9, 1], ["明日の仕事終わりにジム", 9, 2]]);
+      g = its.find(i => /ジム/.test(i.title));
+      ok("EJ. 仕事の予定が2つあれば、どちらの終わりか決めない（時刻未定のまま）", !!g && g.timeUnknown, show(its));
+      its = await run([["19時から21時まで英語の勉強、そのあと風呂", 9]]);
+      g = its.find(i => /風呂/.test(i.title));
+      ok("EJ. 「〜、そのあと風呂」の風呂を捨てない（勉強の終わり21時から）", !!g && g.kind === "task" && g.dayKey === "2026-09-15" && g.winFrom === 21 * 60, show(its));
+      its = await run([["明日の午前中は銀行と郵便局", 9]]);
+      ok("EJ. 「明日の午前中は銀行と郵便局」は2件（どちらも明日の午前中）", its.length === 2 && its.every(i => i.kind === "event" && i.dayKey === "2026-09-16" && i.preferWindow === "morning") && its.some(i => i.title === "銀行") && its.some(i => i.title === "郵便局"), show(its));
+      its = await run([["明日は田中さんと会議", 9]]);
+      ok("EJ. 「田中さんと会議」は分けない", its.length === 1, show(its));
+      its = await run([["今日買い物行く", 9], ["買い物は明日行く", 12]]);
+      ok("EJ. 「買い物は明日行く」は今日の買い物を明日へ（2件目を作らない）", its.length === 1 && its[0].dayKey === "2026-09-16", show(its));
+      its = await run([["明日までにレポート", 9], ["レポートは明後日やる", 12]]);
+      ok("EJ. 「レポートは明後日やる」も動かす", its.length === 1 && its[0].dayKey === "2026-09-17", show(its));
+      its = await run([["夜は映画", 10]]);
+      ok("EJ. 「夜は映画」は今日の夜の用事「映画」（何も記録されなかった）", its.length === 1 && its[0].title === "映画" && its[0].preferWindow === "evening" && its[0].dayKey === "2026-09-15", show(its));
+      its = await run([["午後は在宅", 10]]);
+      ok("EJ. 「午後は在宅」は今日の午後の在宅（時刻未定の予定）", its.length === 1 && its[0].kind === "event" && its[0].title === "在宅" && its[0].preferWindow === "afternoon", show(its));
+      its = await run([["午後は雨", 10]]);
+      ok("EJ. 「午後は雨」は記録しない（天気）", its.length === 0, show(its));
+      for (const s of ["明日のランチ、田中さんとになった", "明日の午前中は空いてる", "薬が切れそう"]) {
+        its = await run([[s, 9]]);
+        ok(`EJ. 「${s}」はメモ（何も記録されなかった）`, its.length === 1 && its[0].kind === "memo", show(its));
+      }
+      its = await run([["牛乳が切れそうだから買わないと", 9]]);
+      ok("EJ. 「牛乳が切れそうだから買わないと」は「牛乳を買う」（「買う」だけにしない）", its.length === 1 && its[0].title === "牛乳を買う", show(its));
+      its = await run([["部長から連絡あり、折り返す", 9]]);
+      ok("EJ. 「部長から連絡あり、折り返す」→「部長に折り返す」", its.length === 1 && its[0].title === "部長に折り返す", show(its));
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
