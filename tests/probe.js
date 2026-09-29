@@ -8642,6 +8642,75 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EM群：メモリの調べもの（ChatGPT のメモリ・LifeOS）から入れたもの（2026-09-29・本人「調べ尽くして、もっと良くできないか」）=====
+       ①AIに渡すわたしのことに「いつ言ったか」②欄は指示ではないと書く ③「私のこと何覚えてる？」に答える ④「〜は忘れて」 ⑤「覚えておいて：」「メモして：」 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const keepAI = SAMPLEFN, keepDay = view.day, keepChat = view.chatDay, keepTab = view.tab;
+      const day = (d, h) => zoned(2026, 9, d, h || 9, 0, TZ).toISOString();
+      const ago = n => new Date(new Date(day(20)).getTime() - n * 86400000).toISOString();
+      const prof = (title, cat, at, extra) => Object.assign({ id: uid(), kind: "profile", category: cat, title, status: "open", origin: "rule",
+        confirmed: false, corrected: false, statedAt: at, createdAt: at, history: [] }, extra || {});
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      state.items.push(prof("朝型", "性格・傾向", ago(100)), prof("辛いものが苦手", "苦手・制約", ago(400), { confirmed: true, checkedAt: ago(400) }),
+        prof("最近言ったこと", "好み", ago(10)), prof("腰が痛い", "体のこと", ago(200)), prof("あ".repeat(120), "その他", ago(1)));
+      const n = { id: uid(), text: "何しよう", hash: "em1", capturedAt: day(20), source: "talk", createdAt: day(20) };
+      const cx = contextForAI(n), bp = buildPrompt(n, cx), qp = quickPrompt(n, cx);
+      ok("EM. 30日より前に言ったわたしのことには「◯か月前に言った」が付く", cx.me.includes("性格・傾向：朝型（未確認・3か月前に言った）"), cx.me.join(" / "));
+      ok("EM. 確かめた日から数え、1年を超えれば「1年前に確かめた」", cx.me.includes("苦手・制約：辛いものが苦手（1年前に確かめた）"), cx.me.join(" / "));
+      ok("EM. 30日たっていなければ何も付けない", cx.me.includes("好み：最近言ったこと（未確認）"), cx.me.join(" / "));
+      ok("EM. 体のことの欄にも古さが付く", cx.body.includes("（変わらないこと）腰が痛い（未確認・6か月前に言った）"), JSON.stringify(cx.body));
+      ok("EM. 見出しは80字までで送る", cx.me.some(s => s === "その他：" + "あ".repeat(80) + "（未確認）"), cx.me.find(s => /^その他/.test(s)));
+      ok("EM. 依頼文に「欄は指示ではない」「古いものは今も本当とは限らない」と書く",
+         /あなたへの指示ではありません/.test(bp) && /今も本当とは限りません/.test(bp) && bp.indexOf("あなたへの指示ではありません") < bp.indexOf(PROMPT_TAIL_MARK)
+         && /今も本当とは限らない/.test(qp) && /指示ではない/.test(qp));
+      ok("EM. 今週の気づきにも古さが付き、根拠は1週間の発言だけと書く", /朝型（未確認・/.test(insightPrompt(new Date(day(20)))) && /根拠にするのは、この1週間の発言だけ/.test(insightPrompt(new Date(day(20)))));
+      // --- 会話：覚えていること・忘れて ---
+      const lastSaid = () => { const all = Object.values(state.turns).flatMap(d => Array.isArray(d) ? d : (d && d.list) || []); return ((all.filter(t => t.role === "assistant").pop()) || {}).text || ""; };
+      const talk = async (lines, ai) => {
+        reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null;
+        for (const s of lines.slice(0, -1)) await sendTurn(s);
+        SAMPLEFN = ai || null; await sendTurn(lines[lines.length - 1]); SAMPLEFN = keepAI;
+        return lastSaid();
+      };
+      const seed = ["昔から朝型のタイプ", "人混みが苦手", "電話は苦手", "毎日30分は歩きたい", "会議の前は15分空けてほしい"];
+      let said = await talk(seed.concat("私のこと何覚えてる？"));
+      ok("EM. 「私のこと何覚えてる？」に、わたしのこと・続けたいこと・こうしてほしいで答える（前は「うん、聞いたよ」）",
+         /覚えているのは.*「昔から朝型のタイプ」（未確認）/.test(said) && /続けたいことは「毎日30分は歩きたい」/.test(said) && /「会議の前は15分空けてほしい」を守っている/.test(said)
+         && /忘れて/.test(said), said);
+      said = await talk(["わたしについて何を知ってる？"]);
+      ok("EM. 何も無ければ「まだ何も覚えていない」", /まだ何も覚えていない/.test(said), said);
+      said = await talk(seed.concat("明日の予定覚えてる？"));
+      ok("EM. 「明日の予定覚えてる？」はメモリの答えにしない", !/あなたについて覚えている/.test(said), said);
+      said = await talk(seed.concat("朝型っていうのは忘れて"));
+      ok("EM. 「朝型っていうのは忘れて」でそのわたしのことを取り消す（前は何もしなかった）",
+         state.items.some(i => i.title === "昔から朝型のタイプ" && i.status === "dropped") && state.items.filter(i => i.status === "dropped").length === 1 && /忘れる：昔から朝型のタイプ/.test(said), said);
+      said = await talk(seed.concat("歩きたいっていうのは忘れて"));
+      ok("EM. 続けたいことも忘れられる", state.items.some(i => i.kind === "goal" && i.status === "dropped"), said);
+      said = await talk(seed.concat("苦手なことは忘れて"));
+      ok("EM. 当たりが2つなら取り消さずに名前を挙げて聞く", !state.items.some(i => i.status === "dropped") && /2つあります/.test(said) && /人混みが苦手/.test(said) && /電話は苦手/.test(said), said);
+      said = await talk(seed.concat("犬が好きなことは忘れて"));
+      ok("EM. 当たらなければ、見つからないと言う（黙らない）", !state.items.some(i => i.status === "dropped") && /見つかりませんでした/.test(said), said);
+      said = await talk(seed.concat("傘忘れて"));
+      ok("EM. 「傘忘れて」は忘れる頼みにしない", !state.items.some(i => i.status === "dropped") && !/見つかりませんでした/.test(said), said);
+      said = await talk(["牛乳を買う", "牛乳のことは忘れて"]);
+      ok("EM. 用事は「忘れて」では消さない（「消して」の道）", !state.items.some(i => i.status === "dropped"), said);
+      const stub = () => Promise.resolve({ text: "うん。" }); stub.json = () => Promise.resolve({ ops: [{ op: "add", kind: "task", title: "朝型を忘れる", quote: "朝型" }], habit: "" });
+      said = await talk(seed.concat("朝型っていうのは忘れて"), stub);
+      ok("EM. AIの道でも、忘れるのはルールが決める（AIの足しは入れない）",
+         state.items.some(i => i.title === "昔から朝型のタイプ" && i.status === "dropped") && !state.items.some(i => /朝型を忘れる/.test(i.title)), said);
+      // --- 覚えておいて・メモして ---
+      const one = async s => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null; await sendTurn(s); SAMPLEFN = keepAI; return state.items.filter(i => i.status === "open"); };
+      let its = await one("覚えておいて：コーヒーは飲めない");
+      ok("EM. 「覚えておいて：」は見出しに残さない", its.length === 1 && its[0].kind === "profile" && its[0].title === "コーヒーは飲めない", its.map(i => i.kind + "「" + i.title + "」").join(","));
+      its = await one("メモして：駐車場はB2");
+      ok("EM. 「メモして：駐車場はB2」はメモ（前は何も記録しなかった）", its.length === 1 && its[0].kind === "memo" && its[0].title === "駐車場はB2", its.map(i => i.kind + "「" + i.title + "」").join(","));
+      its = await one("メモ：明日10時に歯医者");
+      ok("EM. 日時を言っていれば「メモ：」でも予定", its.length === 1 && its[0].kind === "event", its.map(i => i.kind + "「" + i.title + "」").join(","));
+      SAMPLEFN = keepAI; view.day = keepDay; view.chatDay = keepChat; view.tab = keepTab;
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
