@@ -8324,6 +8324,50 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EE. 聞き方と言い直し（次の予定は？・夜空いてる？・時間決まった、14時・買い物リスト）（2026-09-29・テスター25周目） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const RealDateEE = Date; let pinEE = 0;
+      window.Date = class extends RealDateEE { constructor(...a) { if (a.length) super(...a); else super(pinEE); } static now() { return pinEE; } };
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); for (const [s, d, h, mi] of steps) { pinEE = new RealDateEE(at(d, h, mi)).getTime(); await say(s, at(d, h, mi)); } };
+      const ask = (q, k, dw) => { const key = k || "2026-09-15"; return answerQuestion(q, planFor(key), key, dw || "今日") || ""; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.start && !i.timeUnknown ? " " + hhmm(minOfDay(i.start, TZ)) : ""}`).join(" ／ ") || "（なし）";
+      await run([["明日15時から会議", 15, 9]]);
+      pinEE = new RealDateEE(at(15, 9, 5)).getTime();
+      let an = ask("次の予定は？");
+      ok("EE. 「次の予定は？」は今日に無くても、いちばん近い予定（明日15時の会議）", /9\/16\(水\) 15:00からの「会議」/.test(an), an);
+      await run([["今日10時から12時まで会議", 15, 9]]);
+      pinEE = new RealDateEE(at(15, 10, 30)).getTime();
+      an = ask("次の予定は？");
+      ok("EE. 予定の最中なら「いまは〜の最中」", /いまは「会議」の最中（12:00まで）/.test(an), an);
+      pinEE = new RealDateEE(at(15, 12, 30)).getTime();
+      an = ask("次の予定は？");
+      ok("EE. 終わった予定は次の予定にしない", /この先の予定は、まだ入っていない/.test(an), an);
+      await run([["毎週木曜19時に英会話", 15, 9]]);
+      pinEE = new RealDateEE(at(17, 20, 30)).getTime();
+      an = ask("次の予定は？", "2026-09-17");
+      ok("EE. くり返しは次の回（木曜20時半に聞けば翌週の木曜）", /9\/24\(木\) 19:00からの「英会話」/.test(an), an);
+      await run([["金曜19時に飲み会", 15, 9]]);
+      pinEE = new RealDateEE(at(15, 9, 5)).getTime();
+      an = ask("金曜の夜空いてる？", "2026-09-18", "9/18(金)");
+      ok("EE. 「金曜の夜空いてる？」は夜の中だけ（朝の空きを言わない）", /夜で空いているのは17:00〜19:00/.test(an) && !/00:00/.test(an), an);
+      await run([["明日は9時から17時まで仕事", 15, 9]]);
+      pinEE = new RealDateEE(at(15, 9, 5)).getTime();
+      an = ask("明日の夜空いてる？", "2026-09-16", "明日");
+      ok("EE. まるごと空いている時間帯は「空いているよ」", /明日の夜は空いているよ（17:00〜24:00）/.test(an), an);
+      await run([["明日歯医者", 15, 9], ["歯医者の時間決まった、14時", 15, 9, 2]]);
+      ok("EE. 「歯医者の時間決まった、14時」は明日の歯医者を14時に（「歯医者の時間」を作らない）", state.items.length === 1 && state.items[0].dayKey === "2026-09-16" && !state.items[0].timeUnknown && hhmm(minOfDay(state.items[0].start, TZ)) === "14:00", show(state.items));
+      await run([["明日歯医者", 15, 9], ["時間決まった、14時", 15, 9, 2]]);
+      ok("EE. 名前を言わない「時間決まった、14時」は直前に言った予定", state.items.length === 1 && !state.items[0].timeUnknown && hhmm(minOfDay(state.items[0].start, TZ)) === "14:00", show(state.items));
+      await run([["明日歯医者", 15, 9], ["明日会議", 15, 9, 1], ["会議の時間決まった、11時", 15, 9, 2]]);
+      ok("EE. 名前で当てる（会議だけ11時・歯医者は時刻未定のまま）", state.items.length === 2 && state.items.find(i => i.title === "会議" && !i.timeUnknown) && state.items.find(i => i.title === "歯医者" && i.timeUnknown), show(state.items));
+      await run([["買い物リスト：牛乳、卵、パン", 15, 9]]);
+      ok("EE. 「買い物リスト：牛乳、卵、パン」は「牛乳、卵、パンを買う」", state.items.length === 1 && state.items[0].title === "牛乳、卵、パンを買う", show(state.items));
+      window.Date = RealDateEE;
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
