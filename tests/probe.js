@@ -8431,6 +8431,41 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EH. 買うもの：・〜も・〜から始めること・〜時に上がる・どこか（2026-09-29・テスター28周目） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); for (const [s, h, mi] of steps) await say(s, at(15, h, mi)); return state.items; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}`).join(" ／ ") || "（なし）";
+      let its = await run([["買うもの: 電池", 10]]);
+      ok("EH. 「買うもの: 電池」は「電池を買う」（何も記録されなかった）", its.length === 1 && its[0].kind === "task" && its[0].title === "電池を買う", show(its));
+      its = await run([["牛乳買う", 9], ["卵も", 9, 1]]);
+      ok("EH. 「牛乳買う」→「卵も」は「卵を買う」（何も記録されなかった）", its.length === 2 && its.some(i => i.title === "卵を買う"), show(its));
+      its = await run([["明日までに牛乳を買う", 9], ["パンも", 9, 1]]);
+      ok("EH. 「パンも」は直前の用事の日付も写す", its.some(i => i.title === "パンを買う" && i.dayKey === "2026-09-16"), show(its));
+      its = await run([["掃除する", 9], ["洗濯も", 9, 1]]);
+      ok("EH. 「掃除する」→「洗濯も」は「洗濯する」", its.some(i => i.title === "洗濯する"), show(its));
+      its = await run([["資料を作る", 9], ["私も", 9, 1]]);
+      ok("EH. 「私も」で「私を作る」を作らない", !its.some(i => /私/.test(i.title)), show(its));
+      its = await run([["明日から禁酒", 10]]);
+      ok("EH. 「明日から禁酒」は続けたいこと（明日1日の予定にしない・明日を期限にしない）", its.length === 1 && its[0].kind === "goal" && its[0].title === "禁酒" && !its[0].due, show(its));
+      its = await run([["今日は在宅で17時に上がる", 10]]);
+      ok("EH. 「17時に上がる」は17時から後に作業を入れない希望（用事「在宅で上がる」にしない）", !its.some(i => i.kind === "task") && its.some(i => i.kind === "preference"), show(its));
+      its = await run([["今夜は早めに寝たい", 10]]);
+      ok("EH. 「今夜は早めに寝たい」を体調にしない（夜は入れない希望だけ）", !its.some(i => i.kind === "condition") && its.some(i => i.kind === "preference"), show(its));
+      its = await run([["病院の予約、来週のどこか", 10]]);
+      ok("EH. 見出しに「、どこか」を残さない", its.length === 1 && its[0].title === "病院の予約", show(its));
+      its = await run([["新しいPCの設定", 10]]);
+      ok("EH. 「新しいPCの設定」は用事（何も記録されなかった）", its.length === 1 && its[0].kind === "task", show(its));
+      { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+        const text = "明日から毎日1時間勉強する";
+        const n = { id: uid(), text, hash: "eh" + Math.random(), capturedAt: at(15, 10), source: "talk", sourceName: null, createdAt: at(15, 10) };
+        await putNote(n);
+        await applyOps([{ op: "add", kind: "goal", title: "毎日1時間勉強する", dueDate: "2026-09-16", dueTime: null, duePrecision: "day", quote: text }], n);
+        ok("EH. AIの道でも「明日から」の明日を続けたいことの期限にしない", state.items.length === 1 && state.items[0].kind === "goal" && !state.items[0].due, show(state.items)); }
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
