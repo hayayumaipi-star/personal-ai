@@ -8037,6 +8037,73 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DY. テスター19周目（2026-09-29）：年末調整・痛いので・〜で送り・胃カメラなので・起きてジョギング・たまってる・旅行の間・ひらがな ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, d, h, mi] of steps) r = await say(s, at(d, h, mi)); return r || { changes: [], asks: [] }; };
+      const hm = i => i.start && !i.timeUnknown && !i.allDay ? hhmm(minOfDay(i.start, TZ)) : i.duePrecision === "exact" && i.due ? hhmm(minOfDay(i.due, TZ)) : "";
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${hm(i) ? " " + hm(i) : ""}${i.allDay ? " 終日" : ""}${i.scopeDay ? " scope" + i.scopeDay + (i.scopeEnd ? "〜" + i.scopeEnd : "") : ""}`).join(" ／ ");
+      const one = async (s, h) => { await run([[s, 15, h || 10]]); return state.items; };
+      let its = await one("年末調整の書類を出す");
+      ok("DY. 「年末調整の書類を出す」の年末は日付ではない（見出しは言ったまま・期限なし）", its.length === 1 && its[0].title === "年末調整の書類を出す" && !its[0].dayKey, show(its));
+      its = await one("今日は頭が痛いので早退した");
+      ok("DY. 「今日は頭が痛いので早退した」は体調（何も記録しなかった）", its.length === 1 && its[0].kind === "condition", show(its));
+      its = await one("疲れたので資料は明日やる");
+      ok("DY. 「疲れたので資料は明日やる」は体調と、明日の資料（「〜から」と同じ）", its.some(i => i.kind === "condition") && its.some(i => i.kind === "task" && i.dayKey === "2026-09-16"), show(its));
+      its = await one("お腹が痛いので、午後は休む");
+      ok("DY. 「お腹が痛いので、午後は休む」は体調1件のまま（用事「休む」を作らない）", its.length === 1 && its[0].kind === "condition", show(its));
+      its = await one("頭が痛いので病院に行かないと");
+      ok("DY. 「頭が痛いので病院に行かないと」は用事1件のまま（痛みは理由）", its.length === 1 && its[0].kind === "task", show(its));
+      its = await one("明日は子どもの習い事で16時に送り");
+      ok("DY. 「子どもの習い事で16時に送り」の見出しは「子どもの習い事の送り」", its.length === 1 && its[0].title === "子どもの習い事の送り" && hm(its[0]) === "16:00", show(its));
+      its = await one("明日の朝は胃カメラなので朝食抜き");
+      ok("DY. 「明日の朝は胃カメラなので朝食抜き」は胃カメラ（明日の朝）を消さない", its.some(i => i.kind === "event" && i.title === "胃カメラ" && i.dayKey === "2026-09-16" && i.preferWindow === "morning") && its.some(i => i.title === "朝食抜き"), show(its));
+      its = await one("明日はテストなので勉強しないと");
+      ok("DY. 「明日はテストなので勉強しないと」はテスト（明日）と勉強の2件", its.some(i => i.kind === "event" && i.title === "テスト" && i.dayKey === "2026-09-16") && its.some(i => i.kind === "task" && i.title === "勉強する" && i.dayKey === "2026-09-16"), show(its));
+      its = await one("明日は健康診断だから朝ごはん抜き");
+      ok("DY. 「〜だから」は範囲の「から」ではない（健康診断を消さない）", its.some(i => i.kind === "event" && i.title === "健康診断" && i.dayKey === "2026-09-16"), show(its));
+      its = await one("明日はテストなので勉強しないといけない");
+      ok("DY. 「〜しないといけない」も分けて明日の用事に", its.some(i => i.title === "テスト") && its.some(i => i.kind === "task" && i.title === "勉強する" && i.dayKey === "2026-09-16"), show(its));
+      its = await one("年末調整の書類");
+      ok("DY. 「年末調整の書類」だけでも、年末の予定にしない", !its.some(i => i.dayKey), show(its));
+      its = await one("明日は6時に起きてジョギング");
+      ok("DY. 「明日は6時に起きてジョギング」は6時に起きる・ジョギングの2件（どちらも明日）", its.length === 2 && its.some(i => i.title === "起きる" && hm(i) === "06:00" && i.dayKey === "2026-09-16") && its.some(i => i.title === "ジョギング" && i.dayKey === "2026-09-16"), show(its));
+      its = await one("Slackの返信たまってる");
+      ok("DY. 「Slackの返信たまってる」は用事「Slackの返信」", its.length === 1 && its[0].kind === "task" && its[0].title === "Slackの返信", show(its));
+      its = await one("ストレスがたまってる");
+      ok("DY. 「ストレスがたまってる」は体調（用事にしない）", its.length === 1 && its[0].kind === "condition", show(its));
+      await run([["明日から3日間旅行", 15, 10], ["旅行の間は予定を入れないで", 15, 10, 5]]);
+      const pf = state.items.find(i => i.kind === "preference");
+      ok("DY. 「旅行の間は予定を入れないで」は旅行の3日間だけ（ずっとの希望にしない）", pf && pf.preferKey === "restDay" && pf.scopeDay === "2026-09-16" && pf.scopeEnd === "2026-09-18", show(state.items));
+      its = await one("あしたの10じにかいぎ");
+      ok("DY. 変換しないで打った「あしたの10じにかいぎ」は明日10時の会議", its.length === 1 && its[0].kind === "event" && its[0].title === "会議" && its[0].dayKey === "2026-09-16" && hm(its[0]) === "10:00", show(its));
+      // AIの道：時刻だけ・日付なしで返しても、始まりの無い予定を作らない（ルールの読みは漢数字・3PM・「10じ」を直した写しで借りる）
+      const aiAdd = async (text, adds) => {
+        reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+        const n = { id: uid(), text, hash: "dy" + Math.random(), capturedAt: at(15, 10), source: "talk", sourceName: null, createdAt: at(15, 10) };
+        await putNote(n); await applyOps(adds.map(a => Object.assign({ op: "add", kind: "event", dueDate: null, duePrecision: "exact", quote: text }, a)), n);
+        return state.items;
+      };
+      its = await aiAdd("3PMから面談", [{ title: "面談", dueTime: "15:00" }]);
+      ok("DY. AIが「3PMから面談」を時刻だけで返しても、今日の15時の予定（ルールの読みを借りる）", its.length === 1 && its[0].kind === "event" && its[0].dayKey === "2026-09-15" && hm(its[0]) === "15:00", show(its));
+      its = await aiAdd("あしたの10じにかいぎ", [{ title: "会議", dueTime: "10:00" }]);
+      ok("DY. AIが「あしたの10じにかいぎ」を時刻だけで返しても、明日10時の予定", its.length === 1 && its[0].dayKey === "2026-09-16" && hm(its[0]) === "10:00", show(its));
+      its = await aiAdd("月曜と木曜の19時からヨガ", [{ title: "ヨガ", dueTime: "19:00" }, { title: "ヨガ", dueTime: "19:00" }]);
+      ok("DY. どの日か決められない AI の予定は、始まりの無い予定にせず日付なしの用事に", its.length >= 1 && its.every(i => i.kind !== "event" || (i.start && isDate(i.dayKey))), JSON.stringify(its.map(i => [i.kind, i.title, i.start || null, i.dayKey || null])));
+      // 午後へずらした範囲の終わり（前は終わりにも12を足して20時間の枠だった）
+      { const w1 = parseWhen("9時から5時まで仕事", at(15, 10), TZ), w2 = parseWhen("夜9時から1時まで勉強", at(15, 10), TZ);
+        const len = w => w && w.start && w.end ? (new Date(w.end) - new Date(w.start)) / 60000 : null;
+        ok("DY. 10時に言った「9時から5時まで仕事」は8時間の枠のまま（夜にずらしても終わりは翌5時・もう一方は明日の9〜17時）",
+          len(w1) === 480 && w1.altStart && fmtDT(w1.altStart, TZ) === "9/16 09:00" && w1.altEnd && fmtDT(w1.altEnd, TZ) === "9/16 17:00", w1 ? fmtDT(w1.start, TZ) + "〜" + fmtDT(w1.end, TZ) : "なし");
+        const w3 = parseWhen("9時5時で仕事", at(15, 10), TZ);
+        ok("DY. 「9時5時で仕事」のもう一方は明日の9:00（9:05にしない）", w3 && w3.altStart && fmtDT(w3.altStart, TZ) === "9/16 09:00", w3 && w3.altStart ? fmtDT(w3.altStart, TZ) : "なし");
+        ok("DY. 「夜9時から1時まで勉強」は21時〜翌1時の4時間", len(w2) === 240, w2 ? fmtDT(w2.start, TZ) + "〜" + fmtDT(w2.end, TZ) : "なし"); }
+      its = await one("きょうだいに電話する");
+      ok("DY. 「きょうだいに電話する」の「きょう」は今日ではない", its.length === 1 && its[0].title === "きょうだいに電話する" && !its[0].dayKey, show(its));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
