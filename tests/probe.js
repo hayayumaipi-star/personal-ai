@@ -8466,6 +8466,33 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EI. 予定表まわり（移動・終わりの時刻・翌2時・長引きそう・一日中予定・その前に）（2026-09-29・テスター29周目） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); for (const [s, h, mi] of steps) await say(s, at(15, h, mi)); return state.items; };
+      const tm = x => validISO(x) ? hhmm(minOfDay(x, TZ)) : "-";
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""} ${tm(i.start || i.due)}〜${tm(i.end)}${i.travelMin ? " 移動" + i.travelMin : ""}${i.dueIsDeadline ? " まで" : ""}`).join(" ／ ") || "（なし）";
+      let its = await run([["明日10時に病院、移動に30分", 9]]);
+      ok("EI. 「明日10時に病院、移動に30分」を捨てない（読点でつないだ移動は予定に付ける）", its.length === 1 && its[0].kind === "event" && its[0].title === "病院" && tm(its[0].start) === "10:00" && its[0].travelMin === 30, show(its));
+      its = await run([["明日10時から会議", 9], ["会議は12時まで", 9, 1]]);
+      ok("EI. 「会議は12時まで」は終わりを12時に（始まりを動かさない）", its.length === 1 && tm(its[0].start) === "10:00" && tm(its[0].end) === "12:00", show(its));
+      its = await run([["明日10時から会議", 9], ["会議は11時半に終わる", 9, 1]]);
+      ok("EI. 「会議は11時半に終わる」も終わり", its.length === 1 && tm(its[0].start) === "10:00" && tm(its[0].end) === "11:30", show(its));
+      its = await run([["明日10時から会議", 9], ["会議は12時からに変更", 9, 1]]);
+      ok("EI. 「12時からに変更」は今までどおり始まりを動かす", its.length === 1 && tm(its[0].start) === "12:00", show(its));
+      its = await run([["今夜23時から翌2時まで作業", 9]]);
+      ok("EI. 「今夜23時から翌2時まで作業」は翌2時まで（見出しに「翌」を残さない）", its.length === 1 && its[0].title === "作業" && tm(its[0].end) === "02:00" && dayKey(new Date(its[0].end), TZ) === "2026-09-16", show(its));
+      its = await run([["明日の会議は長引きそう", 9]]);
+      ok("EI. 「明日の会議は長引きそう」はメモ（予定「会議を長引きそう」を作らない）", its.length === 1 && its[0].kind === "memo", show(its));
+      its = await run([["土曜は一日中予定がある", 9]]);
+      ok("EI. 「土曜は一日中予定がある」は土曜の終日（用事「一日中」にしない）", its.length === 1 && its[0].kind === "event" && its[0].allDay && its[0].dayKey === "2026-09-19" && its[0].title === "一日中予定あり", show(its));
+      its = await run([["明日の15時〜16時に面談、その前に準備30分", 9]]);
+      const prep = its.find(i => i.title === "準備");
+      ok("EI. 「その前に準備」は面談の始まり（15時）が締切", !!prep && tm(prep.due) === "15:00" && prep.dueIsDeadline && prep.dayKey === "2026-09-16", show(its));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
