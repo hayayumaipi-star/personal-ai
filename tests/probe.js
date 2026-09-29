@@ -7805,6 +7805,40 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DS. テスター14周目：何日かにまたがる会話——言い直しの続き・進み具合を聞く・並べた用事（2026-09-28・自律で進めた回） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, d, h, mi] of steps) r = await say(s, at(d, h, mi)); return r; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.duePrecision ? "/" + i.duePrecision : ""}`).join(" ／ ");
+      await run([["今日中に請求書", 15, 9]]);
+      ok("DS. 「今日中に請求書」は今日までの用事（時刻未定の予定にしない）", state.items.length === 1 && state.items[0].kind === "task" && state.items[0].dayKey === "2026-09-15", show(state.items));
+      await run([["今日中に請求書", 15, 9], ["請求書は明日にする", 15, 18], ["やっぱり今日やる", 15, 18, 5]]);
+      ok("DS. 「明日にする」のあとの「やっぱり今日やる」は、直した用事を今日に戻す（直前の発言が直したものにも当てる）", state.items.length === 1 && state.items[0].dayKey === "2026-09-15", show(state.items));
+      await run([["明日10時に会議", 15, 9], ["会議は15時からになった", 15, 12, 30], ["やっぱり14時にして", 15, 12, 35]]);
+      ok("DS. 時刻を直した発言のあとの「やっぱり14時にして」も、直した予定に当てる（作った発言が3時間より前でも）",
+        state.items.length === 1 && hhmm(minOfDay(state.items[0].start, TZ)) === "14:00", show(state.items));
+      await run([["今週やること：資料作成、メール返信、経費精算", 15, 9], ["メール返信終わった", 15, 11]]);
+      ok("DS. 「今週やること：A、B、C」は3件で、「メール返信終わった」はそれだけ完了", state.items.length === 3 && state.items.filter(i => i.status === "done").map(i => i.title).join() === "メール返信", show(state.items));
+      let an = answerQuestion("今週やること残り何？", planFor("2026-09-15", { nowMin: 660 }), "2026-09-15", "今日") || "";
+      ok("DS. 「今週やること残り何？」は今週のうちにやる用事で答える", /今週のうちにやるのは「資料作成」、「経費精算」/.test(an), an);
+      await run([["レポート書く", 15, 9], ["レポート半分終わった", 15, 15]]);
+      an = answerQuestion("レポートあとどれくらい？", planFor("2026-09-15", { nowMin: 905 }), "2026-09-15", "今日") || "";
+      ok("DS. 「レポートあとどれくらい？」は言っていた進み具合で答える（今日の残り件数で答えない）", /「レポート半分終わった」と言っていた/.test(an), an);
+      await run([["明日は8時に家を出る", 15, 21]]);
+      an = answerQuestion("明日何時に起きればいい？", planFor("2026-09-16", { nowMin: -1 }), "2026-09-16", "明日") || "";
+      ok("DS. 「明日何時に起きればいい？」は、時刻を言った用事（8時に家を出る）で答える", /08:00からの「家を出る」/.test(an), an);
+      await run([["毎日薬を飲む", 15, 8], ["薬飲んだ", 15, 8, 30]]);
+      an = answerQuestion("今日薬飲んだっけ", planFor("2026-09-15", { nowMin: 1260 }), "2026-09-15", "今日") || "";
+      ok("DS. 「今日薬飲んだっけ」は、続けたいことにその日「できた」と言ったかで答える", /できたと聞いている/.test(an), an);
+      an = answerQuestion("昨日薬飲んだっけ", planFor("2026-09-14", { nowMin: -1 }), "2026-09-14", "昨日") || "";
+      ok("DS. 言っていない日は「まだ聞いていない」", /まだ「できた」と聞いていない/.test(an), an);
+      await run([["明日は在宅", 15, 20]]);
+      an = answerQuestion("明日の予定は？", planFor("2026-09-16", { nowMin: -1 }), "2026-09-16", "明日") || "";
+      ok("DS. 「明日の予定は？」は終日の予定（在宅）も言う", /「在宅」（終日）/.test(an), an);
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

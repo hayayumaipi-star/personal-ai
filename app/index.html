@@ -2559,7 +2559,8 @@ function datedLeftover(s, lineWhen) {
   const clockShort = lineWhen.hasTime && /[一-鿿ァ-ヶ]/.test(rest) && rest.replace(/[のがはをにへとでも、。,\s]/g, "").length >= 2 && !/[たっ](の|ん)/.test(rest);
   if (!words.length && !RE_MEAL.test(rest) && !clockShort && !((wish || RE_DEADLINE_WORD.test(rest)) && /[一-鿿]/.test(rest))) return null;
   // 「今週の金曜までにレポート」は締切のある用事（予定ではない・2026-09-27）
-  return (RE_DEADLINE_WORD.test(s) || wish || lineWhen.isDeadline) ? "task" : "event";
+  // 「今日中に請求書」「今週中に見積書」の「〜中に」も締切（時刻未定の予定になっていた・2026-09-28）
+  return (RE_DEADLINE_WORD.test(s) || wish || lineWhen.isDeadline || /(今日中|明日中|今週中|今月中|今年中|週内|年内)/.test(s)) ? "task" : "event";
 }
 
 /* **同じ行の時刻は、言った順に並ぶように読む**（2026-09-26・本人の指示「まだ読めていないものも直して」）。
@@ -2972,7 +2973,9 @@ function extractByRule(note, settings) {
        根拠は同じ行のまま（決まり1）。所要時間は1件ずつに持ち込まない（どれの長さか分からない）。 */
     /* 「今日のタスク：洗濯、掃除、買い物」——見出しの後ろに並べた用事は1つずつ（2026-09-28・テスター7周目・「タスク:洗濯、掃除、買い物」1件だった） */
     const lm = base.kind === "task" ? /^(?:タスク|やること|やる事|すること|用事|TODO|ToDo|todo)\s*[:：]\s*(.+)$/.exec(base.title) : null;
-    const listed = lm ? lm[1].split(/[、,，・\/]/).map(x => x.trim()).filter(x => x.length >= 1) : null;
+    // 「今週やること：資料作成、メール返信、経費精算」は見出しから「今週やること：」が先に落ちている——原文に並べる見出しがあれば、見出しの読点で分ける（2026-09-28・テスター14周目）
+    const headed = !lm && base.kind === "task" && /(?:タスク|やること|やる事|すること|用事|TODO|ToDo|todo)\s*[:：]/.test(s) && /[、,，]/.test(base.title) ? base.title.replace(/^.*[:：]\s*/, "") : null;
+    const listed = lm || headed ? (lm ? lm[1] : headed).split(/[、,，・\/]/).map(x => x.trim()).filter(x => x.length >= 1) : null;
     const parts = listed && listed.length >= 1 ? listed : base.kind === "task" && !base.isMeal && !base.repeat ? splitNounTasks(base.title) : null;
     if (parts) {
       for (const p of parts) {
@@ -7622,7 +7625,9 @@ function lastSaidItem(note) {
       && new Date(note.capturedAt) - new Date(n.capturedAt) <= 3 * 3600000)
     .sort((a, b) => String(b.capturedAt).localeCompare(String(a.capturedAt)));
   for (const prev of prevs) {
-    const its = state.items.filter(i => i.noteId === prev.id && (i.kind === "task" || i.kind === "event"));
+    // 作った項目か、その発言で直した項目（「請求書は明日にする」→「やっぱり今日やる」・2026-09-28）
+    const its = state.items.filter(i => (i.kind === "task" || i.kind === "event")
+      && (i.noteId === prev.id || ((i.history || []).slice(-1)[0] || {}).noteId === prev.id));
     if (!its.length) continue;
     const open = its.filter(i => i.status === "open" && !i.repeat);
     return open.length === 1 ? open[0] : null;
@@ -7977,7 +7982,7 @@ function ruleOpsRead(note) {
     // 名前を言わない「あと10分で終わる」——直前に話した用事に付ける（2026-09-28・lastSaidItem と同じ当て方）
     if (!progTarget) { const ls = lastSaidItem(note); if (ls && ls.kind === "task") progTarget = ls; }
   }
-  if (progTarget) ops.push({ op: "progress", id: progTarget.id, remainingMin: rem, quote: q });
+  if (progTarget) ops.push({ op: "progress", id: progTarget.id, remainingMin: rem, quote: q, note: rem == null ? String(note.text).trim().slice(0, 60) : undefined });   // 「半分終わった」を言ったまま残す（「あとどれくらい？」に答える）
   else if (rem != null && !doneIds.size) ops.push({ op: "_needs_ai" });
 
   // 「明日以降に回したい」——この発話で触れたもののうち、完了していないものが1つなら延期
@@ -8420,7 +8425,7 @@ async function applyOps(rawOps0, note) {
       if (o.targetDate) d.push(`${target.targetDay.slice(5).replace("-", "/")}までに終えたい、として扱う`);
       if (rl && before.pw !== target.preferWindow && target.preferWindow) d.push(target.kind === "event" ? `時間帯を ${PW_JA[target.preferWindow]} に` : `${PW_JA[target.preferWindow]}にやる`);
       if (rl && before.tday !== target.targetDay && target.targetDay) d.push(`${target.targetDay.slice(5).replace("-", "/")} にやる`);
-      note2(target, "訂正：" + (d.join(" / ") || "変更なし"));
+      note2(target, "訂正：" + (d.join(" / ") || "変更なし"), note.id);   // どの発言で直したか（「やっぱり今日やる」が直した相手に届くように・lastSaidItem）
       await putItem(target);
       touch(target.dayKey); touch(before.day); touchId(target);
       changes.push(`${target.title}：${d.join(" / ") || "変更なし"}`);
@@ -8437,6 +8442,8 @@ async function applyOps(rawOps0, note) {
         else if (r.why === "noOccur" && o.op === "done") asks.push(`「${target.title}」はくり返し（${repeatJa(target.repeat)}）なので、どの回が終わったのか分かりませんでした。スケジュールの、その日の「完了」を押してください。`);
         continue;
       }
+      // どの発言で変えたかを残す（「請求書は明日にする」→「やっぱり今日やる」を、直した相手に届ける・lastSaidItem・2026-09-28）
+      { const h = (target.history || []).slice(-1)[0]; if (h && !h.noteId) { h.noteId = note.id; await putItem(target); } }
       touchId(target);
       if (o.op === "done") { if (r.day) touch(r.day); changes.push(`完了：${target.title}${r.day ? `（${r.day.slice(5).replace("-", "/")} の分）` : ""}`); }
       else if (o.op === "defer") {
@@ -8803,7 +8810,7 @@ function describeWhen(it, tz) {
 function periodText(it) {
   return it && it.period && it.duePrecision === "week" ? String(it.period) : "";
 }
-function note2(it, what) { it.history = (it.history || []).concat({ at: new Date().toISOString(), by: "user", what }); }
+function note2(it, what, noteId) { it.history = (it.history || []).concat(Object.assign({ at: new Date().toISOString(), by: "user", what }, noteId ? { noteId } : {})); }
 
 /* =======================================================================
    資料を受け取って「わたしのこと」にする
@@ -9562,6 +9569,24 @@ function answerQuestion(rawText, plan, key, dw = "今日") {
       }
       return `「${i.title}」はまだ済んでいないよ${i.dayKey ? `（${i.dayKey.slice(5).replace("-", "/")} まで）` : ""}。`;
     }
+    /* 「今日薬飲んだっけ」——続けたいこと（毎日薬を飲む）は、その日に「できた」と言ったかで答える（2026-09-28・テスター14周目・「聞いたよ」だけ返していた） */
+    if (!hit.length) {
+      const gs = liveItems().filter(i => i.kind === "goal" && i.status === "open" && (titleSaid(i.title, q) === 1 || goalVerbSaid(i.title, q)));
+      if (gs.length === 1) {
+        const g = gs[0];
+        return (g.doneDays || []).includes(key) ? `${dw}は「${g.title}」を、できたと聞いているよ。` : `${dw}は「${g.title}」を、まだ「できた」と聞いていないよ。`;
+      }
+    }
+  }
+  /* 「レポートあとどれくらい？」「資料の進み具合は？」——名前を言って進み具合を聞いたら、言っていた進み具合で答える（2026-09-28・今日の残り件数で答えていた） */
+  if (/(どれくらい|どのくらい|どんくらい|進み具合|進捗)/.test(t)) {
+    const hit = liveItems().filter(i => i.kind === "task" && i.status === "open" && titleSaid(i.title, t) === 1);
+    if (hit.length === 1) {
+      const i = hit[0], pg = [...(i.history || [])].reverse().find(h => /^進捗：/.test(h.what || ""));
+      if (i.remainingMin != null) return `「${i.title}」は、残り${durJa(i.remainingMin)}くらいと聞いているよ。`;
+      if (i.progressNote) return `「${i.title}」は、${pg && validISO(pg.at) ? fmtDT(pg.at, tz) + "に" : ""}「${i.progressNote}」と言っていたよ。`;
+      return `「${i.title}」の進み具合は、まだ聞いていないよ。`;
+    }
   }
   /* 「次何すればいい？」「何からやる？」——次にすることを、予定表から（2026-09-28・テスター3周目。答えずに「聞いたよ」だけ返していた） */
   if (/(次(は)?(何|なに)|次に何|何から(やる|する|始め|手を付け)|次どうする|次は[?？]?$)/.test(t)) {
@@ -9583,7 +9608,10 @@ function answerQuestion(rawText, plan, key, dw = "今日") {
   }
   // 「明日何時から？」「今日は何時まで？」——時刻の決まった予定の、最初と最後
   if (!freeAsk && /何時(から|に|まで|ごろ|頃|スタート|始まり)?/.test(t) && !/何時間/.test(t)) {
-    const ev = plan.blocks.filter(b => b.type === "fixed" && b.sub === "event" && b.e > b.s).sort((a, b) => a.s - b.s);
+    // 時刻を言った用事（「明日は8時に家を出る」）も数える（2026-09-28・「時刻の決まった予定は入っていない」と答えていた）
+    const ev = plan.blocks.filter(b => b.e > b.s && ((b.type === "fixed" && b.sub === "event")
+      || (b.type === "flex" && b.item && b.item.kind === "task" && b.item.duePrecision === "exact" && !b.item.dueIsDeadline && validISO(b.item.due) && minOfDay(b.item.due, tz) === b.s)))
+      .sort((a, b) => a.s - b.s);
     if (!ev.length) return `${dw}は、時刻の決まった予定は入っていないよ。`;
     if (/まで|終わ/.test(t)) { const last = ev.reduce((a, b) => (b.e > a.e ? b : a)); return `${dw}の予定は、${hhmm(last.e)}に終わる「${last.item.title}」までだよ。`; }
     return `${dw}は${hhmm(ev[0].s)}からの「${ev[0].item.title}」がはじめだよ。${ev.length > 1 ? `ほかに${ev.length - 1}件。` : ""}`;
@@ -9620,11 +9648,14 @@ function answerQuestion(rawText, plan, key, dw = "今日") {
         evs.push({ k, i });
     evs.sort((a, b) => a.k < b.k ? -1 : a.k > b.k ? 1 : String(a.i.start || "").localeCompare(String(b.i.start || "")));
     const tks = liveItems().filter(i => i.kind === "task" && i.status === "open" && !i.repeat && isDate(i.dayKey) && i.dayKey >= from && i.dayKey <= to && i.duePrecision !== "week");
-    if (!evs.length && !tks.length) return `${wk[1]}（${md(from)}〜${md(to)}）は、予定も期限の来る用事もまだ入っていないよ。`;
+    // 「今週中に」と言った用事（期限は週の終わり）は、その週にやることとして別に言う（「今週やること残り何？」に「まだ無い」と答えていた・2026-09-28）
+    const wks = liveItems().filter(i => i.kind === "task" && i.status === "open" && !i.repeat && isDate(i.dayKey) && i.dayKey >= from && i.dayKey <= to && i.duePrecision === "week");
+    if (!evs.length && !tks.length && !wks.length) return `${wk[1]}（${md(from)}〜${md(to)}）は、予定も期限の来る用事もまだ入っていないよ。`;
     const at = x => x.i.timeUnknown || x.i.allDay || !validISO(x.i.start) ? "" : " " + hhmm(minOfDay(x.i.start, tz));
     const bits = [];
     if (evs.length) bits.push(`予定は${evs.slice(0, 6).map(x => `${md(x.k)}${at(x)}「${x.i.title}」`).join("、")}${evs.length > 6 ? `ほか${evs.length - 6}件` : ""}`);
     if (tks.length) bits.push(`期限が来るのは${tks.slice(0, 4).map(i => `「${i.title}」（${md(i.dayKey)}）`).join("、")}${tks.length > 4 ? `ほか${tks.length - 4}件` : ""}`);
+    if (wks.length) bits.push(`${wk[1]}のうちにやるのは${wks.slice(0, 4).map(i => `「${i.title}」`).join("、")}${wks.length > 4 ? `ほか${wks.length - 4}件` : ""}`);
     return `${wk[1]}の${bits.join("。")}。`;
   }
   // 「今日何しないといけなかったっけ」
@@ -9634,14 +9665,16 @@ function answerQuestion(rawText, plan, key, dw = "今日") {
     const todays = plan.blocks.filter(b => b.type === "flex" && b.item.kind === "task").map(b => b.item)
       .filter(i => dw === "今日" || !(i.dayKey && i.dayKey < key));
     const fixed = plan.blocks.filter(b => b.type === "fixed" && b.sub === "event").map(b => b.item);
+    const allday = plan.blocks.filter(b => b.type === "fixed" && b.sub === "allday").map(b => b.item);   // 「明日は在宅」も（2026-09-28・「まだ無い」と答えていた）
     // 時刻を決めていないもの：その日が期限（または過ぎた）・その日にやると言った用事と、時刻未定の予定。日付の無い用事は入れない
     const loose = (plan.loose || []).map(x => x.item || x).filter(i => i && i.title && ((i.dayKey && i.dayKey <= key) || i.targetDay === key))
       .concat((plan.timeless || []).map(x => x.item || x).filter(i => i && i.title));
     /* 日付を決めていない用事も、今日聞かれたら名前だけ添える（2026-09-27・「牛乳を買う」があるのに「まだ無い」と答えていた） */
     const undated = dw === "今日" ? liveItems().filter(i => i.kind === "task" && i.status === "open" && !i.dayKey) : [];
     const undatedLine = undated.length ? `日付を決めていないタスクが${undated.slice(0, 3).map(i => `「${i.title}」`).join("、")}${undated.length > 3 ? `ほか${undated.length - 3}件` : ""}あるよ。` : "";
-    if (!todays.length && !fixed.length && !plan.unplaced.length && !loose.length) return `${dw}やることとして記録しているものは、まだ無いよ。` + undatedLine;
+    if (!todays.length && !fixed.length && !allday.length && !plan.unplaced.length && !loose.length) return `${dw}やることとして記録しているものは、まだ無いよ。` + undatedLine;
     const bits = [];
+    if (allday.length) bits.push(`${allday.map(i => `「${i.title}」`).join("と")}（終日）`);
     if (fixed.length) bits.push(`予定は${fixed.map(i => `「${i.title}」`).join("と")}`);
     if (todays.length) bits.push(`やることに入れているのは${todays.slice(0, 3).map(i => `「${i.title}」`).join("、")}${todays.length > 3 ? `ほか${todays.length - 3}件` : ""}`);
     if (loose.length) bits.push(`時刻を決めていないのが${loose.slice(0, 3).map(i => `「${i.title}」`).join("、")}${loose.length > 3 ? `ほか${loose.length - 3}件` : ""}`);
