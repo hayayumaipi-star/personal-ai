@@ -8368,6 +8368,39 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EF. 読点のあとの締切・その時期のうち・頼まれたこと・ほかの人の体（2026-09-29・テスター26周目） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const one = async s => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); await say(s, at(15, 9)); return state.items; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.dueIsDeadline ? "まで" : ""}`).join(" ／ ") || "（なし）";
+      let its = await one("ふるさと納税、年内に");
+      ok("EF. 「ふるさと納税、年内に」は年内の用事（何も記録されなかった）", its.length === 1 && its[0].kind === "task" && its[0].title === "ふるさと納税" && its[0].dayKey === "2026-12-31", show(its));
+      its = await one("年内にふるさと納税");
+      ok("EF. 「年内にふるさと納税」も同じ", its.length === 1 && its[0].kind === "task" && its[0].title === "ふるさと納税", show(its));
+      its = await one("年賀状、今月中");
+      ok("EF. 「年賀状、今月中」は今月中の用事", its.length === 1 && its[0].kind === "task" && its[0].title === "年賀状" && its[0].dayKey === "2026-09-30", show(its));
+      its = await one("ゼミの発表資料、金曜まで");
+      ok("EF. 「ゼミの発表資料、金曜まで」は金曜が締切の用事（予定にしない）", its.length === 1 && its[0].kind === "task" && its[0].dueIsDeadline && its[0].dayKey === "2026-09-18" && its[0].title === "ゼミの発表資料", show(its));
+      its = await one("申込書、9/25まで");
+      ok("EF. 「申込書、9/25まで」も締切の用事", its.length === 1 && its[0].kind === "task" && its[0].dueIsDeadline && its[0].dayKey === "2026-09-25", show(its));
+      its = await one("歯医者、金曜");
+      ok("EF. 「まで」の無い「歯医者、金曜」は今までどおり予定", its.length === 1 && its[0].kind === "event" && its[0].dayKey === "2026-09-18", show(its));
+      its = await one("打ち合わせの資料、明日の朝イチで送る");
+      ok("EF. 見出しに読点を残さない（「打ち合わせの資料送る」）", its.length === 1 && its[0].title === "打ち合わせの資料送る", show(its));
+      its = await one("牛乳、明日買う");
+      ok("EF. 「牛乳、明日買う」→「牛乳買う」", its.length === 1 && its[0].title === "牛乳買う" && its[0].dayKey === "2026-09-16", show(its));
+      its = await one("資料のレビュー依頼が来てる");
+      ok("EF. 「資料のレビュー依頼が来てる」は用事「資料のレビュー」（何も記録されなかった）", its.length === 1 && its[0].kind === "task" && its[0].title === "資料のレビュー", show(its));
+      its = await one("子どもの熱が下がらない");
+      ok("EF. 「子どもの熱が下がらない」はメモ（本人の体調にしない・何も記録されなかった）", its.length === 1 && its[0].kind === "memo", show(its));
+      its = await one("熱が下がらない");
+      ok("EF. 本人の「熱が下がらない」は体調", its.length === 1 && its[0].kind === "condition", show(its));
+      its = await one("子どもが熱を出したので病院に連れて行く");
+      ok("EF. 「〜ので病院に連れて行く」は用事（メモにしない）", its.length === 1 && its[0].kind === "task" && /病院に連れて行く/.test(its[0].title), show(its));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
