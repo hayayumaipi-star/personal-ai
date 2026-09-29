@@ -9921,6 +9921,35 @@ function answerQuestion(rawText, plan, key, dw = "今日") {
     const unLine = un ? `ほかに日付を決めていないタスクが${un}件あるよ。` : "";
     return (n ? `${dw}このあと残っているのは${n}件。` : `${dw}のぶんは、もう残っていないよ。`) + unLine;
   }
+  /* 「11月の予定は？」「来月何がある？」——その月の予定と、期限が来る用事（2026-09-29・テスター23周目・「今日やること」で答えていた）。
+     今月はきょうから。くり返しは1回ずつ並べず、名前と回数で（「英会話（毎週水・4回）」）。日にちを言ったら（11月3日）下のその日の答えへ */
+  const mo = !/\d{1,2}\s*月\s*\d{1,2}\s*日|\d{1,2}\s*\/\s*\d{1,2}/.test(t) && /(今月|来月|再来月|(\d{1,2})\s*月)/.exec(t);
+  if (mo && /(何(か|が)?ある|予定|スケジュール|何する|やること)/.test(t)) {
+    const [ky, km] = key.split("-").map(Number);
+    let y = ky, m = mo[1] === "今月" ? km : mo[1] === "来月" ? km + 1 : mo[1] === "再来月" ? km + 2 : +mo[2];
+    if (mo[2] && m < km) y++;
+    if (m > 12) { y++; m -= 12; }
+    if (m >= 1 && m <= 12) {
+      const pad = n => String(n).padStart(2, "0"), last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const first = `${y}-${pad(m)}-01`, from = first < key ? key : first, to = `${y}-${pad(m)}-${pad(last)}`, md = k => `${+k.slice(5, 7)}/${+k.slice(8)}`;
+      const one = liveItems().filter(i => i.kind === "event" && i.status === "open" && !i.suggested && !i.built && !i.repeat && isDate(i.dayKey) && i.dayKey >= from && i.dayKey <= to)
+        .sort((a, b) => String(a.start || a.dayKey).localeCompare(String(b.start || b.dayKey)));
+      const reps = [];
+      for (const i of liveItems()) if (i.kind === "event" && i.status === "open" && i.repeat) {
+        let n = 0; for (let k = from; k <= to; k = addKey(k, 1)) if (occursOn(i, k, tz)) n++;
+        if (n) reps.push(`「${i.title}」（${repeatJa(Object.assign({}, i.repeat, { until: null }))}・${n}回）`);
+      }
+      const tks = liveItems().filter(i => i.kind === "task" && i.status === "open" && !i.repeat && isDate(i.dayKey) && i.dayKey >= from && i.dayKey <= to);
+      const label = mo[1] === "今月" || mo[1] === "来月" || mo[1] === "再来月" ? mo[1] : `${m}月`;
+      if (!one.length && !reps.length && !tks.length) return `${label}は、予定も期限の来る用事もまだ入っていないよ。`;
+      const at = i => i.timeUnknown || i.allDay || !validISO(i.start) ? "" : " " + hhmm(minOfDay(i.start, tz));
+      const bits = [];
+      if (one.length) bits.push(`予定は${one.slice(0, 6).map(i => `${md(i.dayKey)}${at(i)}「${i.title}」`).join("、")}${one.length > 6 ? `ほか${one.length - 6}件` : ""}`);
+      if (reps.length) bits.push(`くり返しは${reps.join("、")}`);
+      if (tks.length) bits.push(`期限が来るのは${tks.slice(0, 4).map(i => `「${i.title}」（${md(i.dayKey)}）`).join("、")}${tks.length > 4 ? `ほか${tks.length - 4}件` : ""}`);
+      return `${label}の${bits.join("。")}。`;
+    }
+  }
   /* 「来週何がある？」「今週の予定は？」——その週の予定と、期限が来る用事（2026-09-28・テスター5周目・「聞いたよ」だけ返していた）。
      週は月曜から。今週はきょうから。くり返しの予定はその週に当たる回を数える。 */
   // 「今週金曜の予定は？」は金曜の話（週まるごとで答えていた・2026-09-29）——曜日を言ったら、下のその日の答えへ

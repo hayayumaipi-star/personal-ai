@@ -8252,6 +8252,32 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EC. 「11月の予定は？」——月の質問に答える（2026-09-29・テスター23周目） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      for (const [s, mi] of [["毎週月曜19時に英会話", 0], ["英会話は11月から水曜に変わる", 5], ["11月3日に健康診断", 6], ["11月中に年賀状の準備", 7]]) await say(s, at(15, 9, mi));
+      const ask = q => answerQuestion(q, planFor("2026-09-15"), "2026-09-15", "今日") || "";
+      let an = ask("11月の予定は？");
+      ok("EC. 「11月の予定は？」は11月の予定・くり返しの回数・期限を答える", /11\/3「健康診断」/.test(an) && /「英会話」（毎週水・4回）/.test(an) && /「年賀状の準備」/.test(an) && !/毎週月/.test(an), an);
+      an = ask("来月何がある？");
+      ok("EC. 「来月何がある？」は10月（毎週月曜の英会話が4回・11月の水曜は数えない）", /^来月の/.test(an) && /「英会話」（毎週月・4回）/.test(an) && !/毎週水/.test(an), an);
+      an = ask("今月の予定は？");
+      ok("EC. 「今月の予定は？」はきょうから月末まで（9/21・9/28の2回）", /「英会話」（毎週月・2回）/.test(an), an);
+      an = ask("11月3日の予定は？");
+      ok("EC. 日にちを言ったら月まるごとで答えない", !/^11月の/.test(an), an);
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      for (const [s, mi] of [["9月10日に歯医者", 0], ["8月3日に旅行", 1]]) await say(s, at(15, 9, mi));
+      an = ask("今月の予定は？");
+      ok("EC. 「今月の予定は？」は過ぎた日（9/10）を数えない", !/歯医者/.test(an), an);
+      an = ask("8月の予定は？");
+      ok("EC. 過ぎた月（8月）は来年の8月", /8\/3「旅行」/.test(an), an);
+      an = ask("12月の予定は？");
+      ok("EC. 何も無い月は、そう言う", /12月は、予定も期限の来る用事もまだ入っていない/.test(an), an);
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
