@@ -1877,7 +1877,9 @@ function repeatBound(text, w, noteDayKey, tz) {
   const nm = /(\d{1,2})\s*(週間|か月|ヶ月|カ月|ケ月)(?!\s*(後|前|以上))/.exec(t);
   if (nm && /から/.test(t)) {
     let from = noteDayKey;
-    if (/来週から/.test(t)) { const dw = parts(keyToDate(noteDayKey, tz), tz).dow; from = addKey(noteDayKey, ((8 - dw) % 7) || 7); }
+    const wm = /(再来週|来週|今週)\s*から/.exec(t);
+    const wf = wm ? parseWhen(wm[0], keyToDate(noteDayKey, tz).toISOString(), tz) : null;
+    if (wf && isDate(wf.dayKey)) from = later(weekFromStart(wm[1], wf), noteDayKey);
     else if (w.periodFrom) from = w.dayKey;
     const n = +nm[1];
     let until;
@@ -1891,6 +1893,8 @@ function repeatBound(text, w, noteDayKey, tz) {
   if (w.periodFrom) return { from: later(w.dayKey, noteDayKey), until: null };
   return null;
 }
+/* 「来週から」「再来週から」の日付の読みは**その週の終わり（日曜）**なので、始まりはその週の月曜（2026-09-29） */
+function weekFromStart(word, w) { return /週/.test(word) && w.precision === "week" ? addKey(w.dayKey, -6) : w.dayKey; }
 /* くり返しを、その時期の最初の回から始め、終わりの日を持たせる。時期の中に回が無ければ何もしない */
 function applyRepeatBound(base, b, tz) {
   if (!b || !base.repeat) return false;
@@ -7911,6 +7915,35 @@ function ruleOpsEarly(note, text, q) {
     for (const b of planFor(day, { nowMin: 0 }).blocks) if (b.type === "flex" && b.item && b.item.kind === "task" && !b.item.repeat && b.item.status === "open") ids.add(b.item.id);
     return ids.size ? [...ids].map(id => ({ op: "done", id, quote: q })) : [{ op: "_ambiguous_done" }];
   }
+  /* ⑧「英会話は11月で終わり」「ジョギングは今週いっぱいでおしまい」「英会話は年内でやめる」——くり返しの**終わりの日**を決める（2026-09-29・テスター22周目。
+     用事「英会話はやめる」ができたり、何も変わらなかったりしていた）。名前で当たるくり返しが1つだけで、時期の言葉が読めるときだけ。その日より後の回は出ない（決まり4f） */
+  { const m = /^(.{1,20}?)(?:は|って|、|,)\s*(.{1,14}?)\s*(?:いっぱい|中)?\s*(?:で|まで)\s*(?:終わり|おわり|おしまい|やめる|やめます|終了|最後|終わる|終える|終わりにする|終わらせる)[。！!]*$/.exec(text);
+    const w = m ? parseWhen(m[2], note.capturedAt, tz) : null;
+    if (m && w && isDate(w.dayKey) && !w.timeOnly) {
+      const hit = state.items.filter(i => i.status === "open" && i.repeat && (i.kind === "task" || i.kind === "event") && titleSaid(i.title, m[1]) === 1);
+      if (hit.length === 1) return [{ op: "update", id: hit[0].id, _rule: { repeatUntil: w.dayKey }, quote: q }];
+    } }
+  /* ⑨「来月からゴミの日は木曜になる」「英会話は11月から水曜に変わる」——毎週のくり返しの曜日を、その日から変える（2026-09-29・テスター22周目。
+     用事「ゴミの日は木曜になる」ができていた）。前のくり返しはその前日まで、新しい曜日のくり返しを足す（シリーズを書き換えない＝過ぎた回はそのまま） */
+  { const dm = /([月火水木金土日])\s*曜日?\s*(?:に|へ)?\s*(?:なる|なった|なります|なりました|変わる|変わった|変わります|変更|変更になる|変更になった|移る|移った)[。！!]*$/.exec(text);
+    const fm = dm && /(来週|再来週|来月|再来月|\d{1,2}\s*月(?:\s*\d{1,2}\s*日)?|\d{1,2}\s*\/\s*\d{1,2})\s*から/.exec(text);
+    if (dm && fm) {
+      const name = text.replace(fm[0], " ").replace(dm[0], " ");
+      const reps = state.items.filter(i => i.status === "open" && i.repeat && i.repeat.kind === "weekly" && (i.kind === "event" || i.kind === "task") && titleSaid(i.title, name) === 1);
+      let from = null;
+      { const wf = parseWhen(fm[1] + "から", note.capturedAt, tz); if (wf && isDate(wf.dayKey)) from = weekFromStart(fm[1], wf); }
+      const it = reps.length === 1 ? reps[0] : null, dow = DOW_IDX[dm[1]];
+      if (it && from && from > day && dow !== it.repeat.dow) {
+        const now = new Date().toISOString();
+        const copy = Object.assign({}, it, { id: uid(), noteId: note.id, evidence: { text: note.text, start: 0, end: note.text.length }, origin: "rule",
+          corrected: false, confirmed: false, createdAt: now, updatedAt: now, history: [], doneDays: [], skipDays: [], repeat: { kind: "weekly", dow } });
+        delete copy.gcalRef; delete copy.gcalUpdated; delete copy.gcalSent;
+        if (applyRepeatBound(copy, { from, until: it.repeat.until || null }, tz)) {
+          copy.dedupeKey = dedupeKey(copy);
+          return [{ op: "update", id: it.id, _rule: { repeatUntil: addKey(from, -1) }, quote: q }, { op: "add", _built: copy, quote: q }];
+        }
+      }
+    } }
   // ③ 名前の言い直し：「会議の名前を定例に変えて」「打ち合わせじゃなくて面談だった」「牛乳じゃなくて豆乳を買う」（時刻・日付の言い直しは今までどおり restateOp）
   const rn = /^(.{1,20}?)の?(?:名前|タイトル|見出し|件名)を\s*[「『]?(.{1,30}?)[」』]?\s*に\s*(?:変えて|変更して|変更|して|する|直して)[。！!]*$/.exec(text)
     || /^(.{1,20}?)(?:じゃなくて|ではなくて|じゃなく|ではなく)[、,\s]*(.{1,20}?)(?:だった|でした|です|だ|に変更|にして)?[。！!]*$/.exec(text);   // 「10時じゃなくて11時」は下の parseWhen の門で外れる
@@ -8626,6 +8659,9 @@ async function applyOps(rawOps0, note) {
         if (isDate(rl.targetDay)) target.targetDay = rl.targetDay;
       }
       if (rl && target.kind === "event" && target.timeUnknown && ["morning", "afternoon", "evening"].includes(rl.preferWindow)) target.preferWindow = rl.preferWindow;
+      // 「英会話は11月で終わり」——くり返しの終わりの日（始まりより前なら、その日までで終わる＝次の回は出ない）
+      const beforeUntil = target.repeat ? target.repeat.until || null : null;
+      if (rl && target.repeat && isDate(rl.repeatUntil)) target.repeat = Object.assign({}, target.repeat, { until: rl.repeatUntil });
       // 「出張は1日延びた」——何日も続く予定の終わりの日（始まりより後・60日まで）
       if (rl && target.kind === "event" && isDate(rl.spanEndKey) && isDate(target.dayKey) && rl.spanEndKey > target.dayKey
           && (keyToDate(rl.spanEndKey, tz) - keyToDate(target.dayKey, tz)) <= 60 * 86400000) target.spanEndKey = rl.spanEndKey;
@@ -8642,6 +8678,7 @@ async function applyOps(rawOps0, note) {
       if (target.kind === "task" && before.due !== target.due && validISO(target.due) && target.duePrecision === "exact" && before.day === target.dayKey) d.push(`時刻を ${fmtDT(target.due, tz)} に`);
       if (before.day !== target.dayKey && target.dayKey) d.push(`日付を ${target.dayKey.slice(5).replace("-", "/")} に`);
       if (before.span !== target.spanEndKey && isDate(target.spanEndKey)) d.push(`終わりの日を ${target.spanEndKey.slice(5).replace("-", "/")} に`);
+      if (target.repeat && isDate(target.repeat.until) && beforeUntil !== target.repeat.until) d.push(`くり返しは ${+target.repeat.until.slice(5, 7)}/${+target.repeat.until.slice(8)} まで`);
       // 予定の長さだけの言い直し（「打ち合わせ1時間半かかる」）——前は終わりが動いたのに「変更なし」と返していた（2026-09-28）
       if (before.start === target.start && before.end !== target.end && validISO(target.end) && before.est === target.estimateMin && !target.allDay) d.push(`終わりを ${hhmm(minOfDay(target.end, tz))} に`);
       if (before.est !== target.estimateMin) d.push(`所要時間を ${before.est == null ? "未設定" : before.est + "分"}→${target.estimateMin == null ? "未設定" : target.estimateMin + "分"} に`);

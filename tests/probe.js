@@ -8219,6 +8219,39 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EB. くり返しの終わり・曜日を会話で変える（2026-09-29・テスター22周目） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, d, h, mi] of steps) r = await say(s, at(d, h, mi)); return r || { changes: [], asks: [] }; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.repeat ? "［" + repeatJa(i.repeat) + "］" : ""}`).join(" ／ ");
+      const said = r => (r.changes || []).concat(r.asks || []).join(" / ");
+      const on = (it, k) => occursOn(it, k, TZ);
+      let r = await run([["毎週月曜19時に英会話", 15, 9], ["英会話は11月で終わり", 15, 9, 5]]);
+      let it = state.items[0];
+      ok("EB. 「英会話は11月で終わり」は毎週月曜の英会話を11/30まで（用事を作らない）", state.items.length === 1 && it.repeat.until === "2026-11-30" && on(it, "2026-11-30") && !on(it, "2026-12-07") && /くり返しは 11\/30 まで/.test(said(r)), show(state.items) + " " + said(r));
+      await run([["毎週月曜19時に英会話", 15, 9], ["英会話は年内でやめる", 15, 9, 5]]);
+      ok("EB. 「英会話は年内でやめる」は12/31まで（用事「英会話はやめる」を作らない）", state.items.length === 1 && state.items[0].repeat.until === "2026-12-31", show(state.items));
+      await run([["毎朝7時にジョギング", 15, 9], ["ジョギングは今週いっぱいでおしまい", 15, 9, 5]]);
+      ok("EB. 「ジョギングは今週いっぱいでおしまい」は今週の日曜（9/20）まで", state.items.length === 1 && state.items[0].repeat.until === "2026-09-20", show(state.items));
+      await run([["毎週月曜19時に英会話", 15, 9], ["毎週木曜19時に英会話", 15, 9, 1], ["英会話は11月で終わり", 15, 9, 5]]);
+      ok("EB. 同じ名前のくり返しが2つなら、どちらの終わりも勝手に決めない", state.items.every(i => !i.repeat || !i.repeat.until), show(state.items));
+      r = await run([["毎週水曜はゴミの日", 15, 9], ["来月からゴミの日は木曜になる", 15, 9, 5]]);
+      const g1 = state.items.find(i => i.repeat && i.repeat.dow === 3), g2 = state.items.find(i => i.repeat && i.repeat.dow === 4);
+      ok("EB. 「来月からゴミの日は木曜になる」は水曜を9/30まで・木曜を10/1から（用事を作らない）",
+        state.items.length === 2 && g1 && g1.repeat.until === "2026-09-30" && g2 && g2.dayKey === "2026-10-01" && on(g1, "2026-09-23") && !on(g1, "2026-10-07") && on(g2, "2026-10-08") && !on(g2, "2026-09-24"), show(state.items) + " " + said(r));
+      await run([["毎週水曜はゴミの日", 15, 9], ["来週からゴミの日は木曜になる", 15, 9, 5]]);
+      const g3 = state.items.find(i => i.repeat && i.repeat.dow === 3), g4 = state.items.find(i => i.repeat && i.repeat.dow === 4);
+      ok("EB. 「来週からゴミの日は木曜になる」は水曜を今週の日曜（9/20）まで・木曜を来週（9/24）から", g3 && g3.repeat.until === "2026-09-20" && g4 && g4.dayKey === "2026-09-24", show(state.items));
+      await run([["再来週から2週間、毎週火曜10時に研修", 15, 9]]);
+      it = state.items[0];
+      ok("EB. 「再来週から2週間、毎週火曜」は9/29と10/6の2回", it && on(it, "2026-09-29") && on(it, "2026-10-06") && !on(it, "2026-09-22") && !on(it, "2026-10-13"), show(state.items));
+      await run([["毎週月曜19時に英会話", 15, 9], ["英会話は11月から水曜に変わる", 15, 9, 5]]);
+      const e2 = state.items.find(i => i.repeat && i.repeat.dow === 3);
+      ok("EB. 「英会話は11月から水曜に変わる」は11/4（水）19時から", e2 && e2.dayKey === "2026-11-04" && hhmm(minOfDay(e2.start, TZ)) === "19:00", show(state.items));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
