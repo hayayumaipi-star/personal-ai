@@ -3359,6 +3359,44 @@ const TELOS_ASKS = [
   { key: "like",  cat: "好み",               q: "気持ちが軽くなる時間や、好きな過ごし方はありますか。" },
   { key: "goal",  cat: "goal",               q: "いま続けたいこと、近づきたい状態はありますか。" }
 ];
+/* 「まだ聞いていないこと」の答えを、**ルールでも**わたしのことに入れる（2026-09-29・本人の指示「ルールでも入れるように直して」）。
+   前は質問をAIの依頼文に渡すだけで、ルールは答えをいつもの独り言として読んでいた。AIの無いAPKでは
+   「資格の勉強に力を入れている」＝何も記録しない・「朝のほうが集中できる」＝その日の体調・「散歩すると気持ちが軽くなる」＝用事、
+   になり、**答えても同じ質問が欄に残り続けた**。
+   「話す」を押して帯が出ているあいだの次の1文だけを、その質問の分類のわたしのこと（続けたいことの質問なら goal）にする。
+   **未確認で入れる**（決まり2・直すのはわたしのことタブ）。見出しは言ったまま（言い換えない・決まり7c）。
+   答えにしないもの：問いかけ・「特にない」「パス」などの断り・日付や時刻を言った文（話が変わった＝いつもの読み取り）。
+   **押しただけでは何も保存しない**（決まり11）——保存するのは、本人が話した答えだけ。 */
+const RE_ASK_SKIP = /^(?:特に|とくに)?(?:ない|無い|ないです|ありません|なし|無し|特になし|わからない|分からない|わかんない|分かんない|思いつかない|パス|スキップ|やめとく|やめておく|やめる|また今度|あとで|後で|いいえ|うーん|んー)[。．.!！…ー〜~]*$/;
+function askAnswerOp(note, key) {
+  const a = TELOS_ASKS.find(x => x.key === key);
+  if (!a || !note || !note.text) return null;
+  const raw = String(note.text), h = halfWidth(raw).trim();
+  if (!h || RE_ASK_SKIP.test(h) || RE_QUESTION_END.test(h) || /[?？]\s*$/.test(h)) return null;
+  const w = parseWhen(readText(raw), note.capturedAt, state.settings.timezone);
+  if (w && (dateSpokenIn(w) || w.hasTime)) return null;
+  const title = raw.trim().replace(/[。．.、，,！!\s]+$/, "").slice(0, 80);
+  if (!title) return null;
+  const now = new Date().toISOString();
+  const it = { id: uid(), noteId: note.id, kind: a.cat === "goal" ? "goal" : "profile", title,
+    evidence: { text: raw, start: 0, end: raw.length }, origin: "rule", corrected: false,
+    status: "open", confirmed: false, createdAt: now, updatedAt: now, history: [] };
+  if (it.kind === "profile") { it.category = a.cat; it.statedAt = note.capturedAt; }
+  else { it.due = null; it.duePrecision = "none"; }
+  it.dedupeKey = dedupeKey(it);
+  return { op: "add", _built: it, quote: raw };
+}
+/* 答えを入れるときに、同じ発言からいつもの読み取りが作った「答えの読み違い」を外す。
+   わたしのこと・続けたいことをもう読めているなら、そちらを採る（「人混みが苦手」は好みの質問でも苦手・制約）。 */
+function withAskAnswer(ops, note, key) {
+  const aa = askAnswerOp(note, key);
+  if (!aa) return ops;
+  // ルールは { op:"add", _built }、AIは { op:"add", kind } か { op:"profile" | "memo" | "condition" | "idea" } で返す
+  const kindOf = o => o.op === "add" ? ((o._built && o._built.kind) || o.kind) : o.op;
+  const list = (ops || []).filter(o => o && typeof o === "object" && o.op !== "_needs_ai");
+  if (list.some(o => kindOf(o) === "profile" || kindOf(o) === "goal")) return ops;
+  return list.filter(o => !["task", "idea", "memo", "condition"].includes(kindOf(o))).concat(aa);
+}
 function telosGaps() {
   const live = liveItems();
   return TELOS_ASKS.filter(a => !live.some(i => i.status === "open" && (a.cat === "goal"
@@ -9783,6 +9821,7 @@ function learnedLine(note, touched) {
 /* 発話ひとつを処理する。どこで失敗しても、原文と既存の記録は必ず残る。 */
 async function sendTurn(text) {
   const tz = state.settings.timezone, at = new Date().toISOString();
+  const askKey = view.ask;             // 「まだ聞いていないこと」の帯が出ていたら、この発言はその答えかもしれない
   const clean = normNote(text);
   if (!clean) return;
 
@@ -9873,6 +9912,8 @@ async function sendTurn(text) {
     const ul = ro2.filter(o => o._undoLast);
     if (ul.length) ops = ul;
   }
+  /* 「まだ聞いていないこと」の答え——AIの道でもルールの道でも、同じ関数で入れる（決まり7e）。組み立ての頼みには当てない */
+  if (askKey && !parseDayRequest(note, tz)) ops = withAskAnswer(ops, note, askKey);
   const quickText = quick ? await quick : "";
 
   // 5. 適用してから、予定を計算し直す

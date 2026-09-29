@@ -8584,6 +8584,64 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EL群：「まだ聞いていないこと」の答えを、ルールでもわたしのことに入れる（2026-09-29・本人の指示）=====
+       前はAIが無いと「資格の勉強に力を入れている」＝何も記録しない・「朝のほうが集中できる」＝その日の体調・
+       「散歩すると気持ちが軽くなる」＝用事、で、答えても同じ質問が欄に残り続けた。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const keepAI = SAMPLEFN, keepAsk = view.ask, keepDay = view.day, keepChat = view.chatDay, keepTab = view.tab;
+      const openOf = () => state.items.filter(i => i.status === "open");
+      const show = its => its.map(i => i.kind + (i.category ? "(" + i.category + ")" : "") + "「" + i.title + "」").join(" / ") || "（なし）";
+      const answer = async (key, text, ai) => {
+        reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+        SAMPLEFN = ai || null; view.ask = key;
+        await sendTurn(text);
+        view.ask = null; SAMPLEFN = keepAI;
+        return openOf();
+      };
+      let its = await answer("work", "いまは資格の勉強に力を入れている");
+      ok("EL. 仕事・勉強の質問に答えると、わたしのこと（仕事・勉強）に入る（前は何も記録しなかった）",
+         its.length === 1 && its[0].kind === "profile" && its[0].category === "仕事・勉強" && its[0].title === "いまは資格の勉強に力を入れている"
+         && its[0].confirmed === false && its[0].origin === "rule", show(its));
+      ok("EL. 答えると、その質問は「まだ聞いていないこと」から消える", !telosGaps().some(a => a.key === "work"), telosGaps().map(a => a.key).join(","));
+      const said = ((state.turns[dayKey(new Date(), TZ)] || []).filter(t => t.role === "assistant").pop() || {}).text || "";
+      ok("EL. 返事で、わたしのことに入れたと言う", /わたしのことを追加：いまは資格の勉強に力を入れている/.test(said), said.slice(0, 60));
+      its = await answer("focus", "朝のほうが集中できる");
+      ok("EL. 集中の質問への答えを、その日の体調にしない（性格・傾向）", its.length === 1 && its[0].kind === "profile" && its[0].category === "性格・傾向", show(its));
+      its = await answer("like", "散歩していると気持ちが軽くなる");
+      ok("EL. 好みの質問への答えを、用事にしない（好み）", its.length === 1 && its[0].kind === "profile" && its[0].category === "好み", show(its));
+      its = await answer("value", "英語の勉強");
+      ok("EL. 名詞だけの答えも用事にしない", its.length === 1 && its[0].kind === "profile" && its[0].category === "大事にしていること", show(its));
+      its = await answer("body", "腰が悪いので長く座れない");
+      ok("EL. 体のことの質問への答えは、体のこと", its.length === 1 && its[0].kind === "profile" && its[0].category === "体のこと", show(its));
+      its = await answer("goal", "体力をつける");
+      ok("EL. 続けたいことの質問への答えは、続けたいこと（ルールだけだと用事だった）", its.length === 1 && its[0].kind === "goal" && its[0].dayKey == null, show(its));
+      its = await answer("like", "人混みが苦手");
+      ok("EL. ルールがわたしのことを読めていれば、そちらを採る（好みの質問でも苦手・制約・2つにしない）",
+         its.length === 1 && its[0].kind === "profile" && its[0].category === "苦手・制約", show(its));
+      its = await answer("like", "毎朝ストレッチを続けたい");
+      ok("EL. ルールが続けたいことと読めていれば、そちらを採る（わたしのことと2つにしない）", its.length === 1 && its[0].kind === "goal", show(its));
+      for (const s of ["特にない", "パス", "わからない"]) {
+        its = await answer("work", s);
+        ok(`EL. 断り「${s}」は答えにしない`, !its.some(i => i.kind === "profile" || i.kind === "goal"), show(its));
+      }
+      its = await answer("work", "どういう意味？");
+      ok("EL. 問いかけは答えにしない", !its.some(i => i.kind === "profile"), show(its));
+      its = await answer("work", "明日10時に歯医者");
+      ok("EL. 日付・時刻を言った文は答えにしない（話が変わった＝予定）", its.length === 1 && its[0].kind === "event", show(its));
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null; view.ask = null;
+      await sendTurn("いまは資格の勉強に力を入れている"); its = openOf(); SAMPLEFN = keepAI;
+      ok("EL. 質問が出ていなければ、今までどおり（わたしのことにしない）", !its.some(i => i.kind === "profile"), show(its));
+      // AIの道：AIが用事で返しても答えにする・AIがわたしのことで返せばそれを採る（2つにしない）
+      const stubOf = ops => { const f = () => Promise.resolve({ text: "うん。" }); f.json = () => Promise.resolve({ ops, habit: "" }); return f; };
+      its = await answer("work", "いまは資格の勉強に力を入れている", stubOf([{ op: "add", kind: "task", title: "資格の勉強", quote: "資格の勉強" }]));
+      ok("EL. AIが用事で返しても、質問の答えとしてわたしのことに入れる", its.length === 1 && its[0].kind === "profile" && its[0].category === "仕事・勉強", show(its));
+      its = await answer("work", "いまは資格の勉強に力を入れている", stubOf([{ op: "profile", text: "資格の勉強に力を入れている", category: "仕事・勉強", quote: "資格の勉強に力を入れている" }]));
+      ok("EL. AIがわたしのことで返せば、それを採る（2つにしない）", its.length === 1 && its[0].kind === "profile" && its[0].origin === "ai", show(its));
+      SAMPLEFN = keepAI; view.ask = keepAsk; view.day = keepDay; view.chatDay = keepChat; view.tab = keepTab;
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
