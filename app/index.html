@@ -6371,6 +6371,21 @@ function reviewNow(now) {
    答えたら `checkedAt` を付けて、次の90日は聞かない（「時々」＝同じことを何度も聞かない）。 */
 const STALE_DAYS = 90;
 function profileCheckedAt(p) { return p.checkedAt || p.statedAt || p.createdAt; }
+/* わたしのことを、AIに渡す「分類：見出し」の1行ずつにする（2026-09-29・本人の指示「まとめて直して」）。
+   **切る前に並べ替える**：確かめた（直した）ものが先、その中は新しい順（言った・確かめた日＝`profileCheckedAt`）。
+   前は確かめたかどうかだけで並べて作成順のまま切っていたので、40件を超えると**最近言ったことから**AIに届かなくなった。
+   確かめていないものには「（未確認）」を付ける（決まり2：推測を確かなこととして渡さない）。
+   体のことは「体のこと」の欄が渡すので、既定では外す（`withBody` で含める・`only` でそれだけ）。
+   読み取り・速い返事・今週の気づきの3か所は、必ずここを通す（決まり7e）。 */
+const PF_AI_MAX = 20;
+function profileLines(limit, opts) {
+  const o = opts || {};
+  const sure = i => i.confirmed === true || i.corrected === true;
+  return liveItems().filter(i => i.kind === "profile"
+      && (o.only ? i.category === o.only : (o.withBody || i.category !== "体のこと")))
+    .sort((a, b) => sure(b) - sure(a) || String(profileCheckedAt(b) || "").localeCompare(String(profileCheckedAt(a) || "")))
+    .slice(0, limit).map(i => `${i.category || "その他"}：${i.title}${sure(i) ? "" : "（未確認）"}`);
+}
 function staleProfiles(now) {
   const lim = now.getTime() - STALE_DAYS * 86400000;
   return state.items.filter(p => p.kind === "profile" && p.status === "open" && validISO(profileCheckedAt(p))
@@ -6407,7 +6422,7 @@ function insightPrompt(now) {
   }
   const done = doneOn(dayKey(now, tz)).length;
   const goals = liveItems().filter(i => i.kind === "goal" && i.status === "open").map(i => i.title + (goalNote(i) ? "（" + goalNote(i) + "）" : ""));
-  const me = liveItems().filter(i => i.kind === "profile").slice(0, 30).map(i => `${i.category || "その他"}：${i.title}`);
+  const me = profileLines(30, { withBody: true });   // 前は並べ替えずに切っていた＝いちばん古い30件・未確認の印も無かった
   return `次の JSON だけを返してください。前後に文章を書かないでください。
 {"insights":[{"text":"気づき（60字以内）","quotes":["本人の発言から、そのまま抜き出した短い言葉"]}]}
 
@@ -9377,11 +9392,14 @@ function contextForAI(note) {
     });
   const pl = planFor(key);
   const plan = pl.blocks.map(b => `${hhmm(b.s)}-${hhmm(b.e)} ${blockTitle(b)}`).join(" / ") || "（まだ何もありません）";
-  const pf = liveItems().filter(i => i.kind === "preference").map(i => i.title);
+  /* 「こうしてほしい」は**新しい順に20件まで**（2026-09-29・本人の指示「まとめて直して」）。
+     前は上限が無く、言えば言うほど毎回2か所に全部載った。**もう過ぎた日だけの希望**
+     （「明日の夜は入れないで」を何日もあとに）は渡さない——その日の計画にはもう効かない（決まり6e）。 */
+  const pf = liveItems().filter(i => i.kind === "preference" && !(i.scopeDay && String(i.scopeEnd || i.scopeDay) < key))
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")))
+    .slice(0, PF_AI_MAX).map(i => i.title);
   // 「わたしのこと」は毎回渡す。資料の全文は渡さない（長すぎるため、読み取り時だけ）。
-  const me = liveItems().filter(i => i.kind === "profile")
-    .sort((a, b) => (b.confirmed === true) - (a.confirmed === true))
-    .slice(0, 40).map(i => `${i.category || "その他"}：${i.title}${i.confirmed || i.corrected ? "" : "（未確認）"}`);
+  const me = profileLines(40);
   const recent = turnsFor(key).slice(-6).map(t => `${t.role === "user" ? "本人" : "あなた"}：${String(t.text).slice(0, 160)}`).join("\n");
   /* LifeOS 側が覚えていることを、毎回の依頼文へ渡す。
      これが「会話を閉じても残り、次回また使われる」の実体。 */
@@ -9398,12 +9416,14 @@ function contextForAI(note) {
      「体のこと」のわたしのことは前から `me` に入っていたが、**その日の体調（本人の申告）は
      1つも渡していなかった**。この7日の申告を、本人の言葉のまま・日時つきで渡す（決まり3：数値にしない）。
      `me` は短い返事では先頭8件しか使わないので、体のことは別の欄にも立てて、切り落とされないようにする。 */
-  const since = Date.now() - 7 * 86400000;
-  const body = liveItems().filter(i => i.kind === "condition" && validISO(i.reportedAt) && new Date(i.reportedAt).getTime() >= since)
+  const since = new Date(note.capturedAt).getTime() - 7 * 86400000;   // 話したときから7日（本物の時計で数えない・決まり4）
+  const bodyNow = liveItems().filter(i => i.kind === "condition" && validISO(i.reportedAt) && new Date(i.reportedAt).getTime() >= since)
     .sort((a, b) => String(b.reportedAt).localeCompare(String(a.reportedAt))).slice(0, 10)
-    .map(i => `${fmtDT(i.reportedAt, tz)}「${String(i.selfReport || i.title).slice(0, 80)}」`)
-    .concat(liveItems().filter(i => i.kind === "profile" && i.category === "体のこと").slice(0, 10).map(i => "（変わらないこと）" + i.title));
-  return { key, p, open, plan, pf, me, recent, lifeos: los, winS: pl.winS, winE: pl.winE, asking, body,
+    .map(i => `${fmtDT(i.reportedAt, tz)}「${String(i.selfReport || i.title).slice(0, 80)}」`);
+  /* 体のことのわたしのことは**この欄だけ**で渡す（`me` からは外した・2回載っていた）。並べ方と印は `profileLines` と同じ。 */
+  const bodyKeep = profileLines(10, { only: "体のこと" }).map(s => "（変わらないこと）" + s.replace(/^体のこと：/, ""));
+  return { key, p, open, plan, pf, me, recent, lifeos: los, winS: pl.winS, winE: pl.winE, asking,
+           body: bodyNow.concat(bodyKeep), bodyNow, bodyKeep,
            omitted: Math.max(0, allOpen.length - open.length) };
 }
 
@@ -9661,6 +9681,13 @@ function quickWhenHint(note, tz) {
 /* ---- 速い返事だけを先に作る（1〜2秒）----
    予定は動かさない。数字も出さない。受け止めて、ひとこと返すだけ。
    丁寧な読み取りは、このあと裏で走る。 */
+/* 速い返事の「体のこと」：この7日の申告と、変わらないことを**4件ずつ**。
+   前は2つをつないだ先頭6件で、申告が6件あると変わらないことが1つも載らなかった
+   （`me` から体のことを外したので、ここで切られると速い返事には届かない）。 */
+function quickBody(cx) {
+  if (!cx.bodyNow && !cx.bodyKeep) return (cx.body || []).slice(0, 6);
+  return (cx.bodyNow || []).slice(0, 4).concat((cx.bodyKeep || []).slice(0, 4));
+}
 function quickPrompt(note, cx) {
   const tz = state.settings.timezone;
   const hint = quickWhenHint(note, tz);
@@ -9671,7 +9698,7 @@ function quickPrompt(note, cx) {
 【この発話の時間帯】${hint || "（時刻は言われていない）"}
 【この人について分かっていること】${cx.me.length ? cx.me.slice(0, 8).join(" / ") : "（まだありません）"}
 【本人が言った「こうしてほしい」】${cx.pf.length ? cx.pf.join(" / ") : "（まだありません）"}
-【体のこと（本人の言葉）】${(cx.body || []).length ? cx.body.slice(0, 6).join(" / ") : "（まだありません）"}
+【体のこと（本人の言葉）】${quickBody(cx).length ? quickBody(cx).join(" / ") : "（まだありません）"}
 
 【守ること】
 - 1〜2文。長くしない。

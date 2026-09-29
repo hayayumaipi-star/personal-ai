@@ -8540,6 +8540,50 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EK群：AIに送るわたしのこと・こうしてほしい（2026-09-29・本人の指示「まとめて直して」）=====
+       ①切る前に並べ替えていなかった（40件を超えると最近言ったことから落ちた）②今週の気づきは並べ替えずに30件＝いちばん古い30件・未確認の印なし
+       ③体のことが読み取りのAIに2回載っていた ④「こうしてほしい」に上限が無かった・過ぎた日だけの希望も送っていた */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const day = (d, h) => zoned(2026, 9, d, h || 9, 0, TZ).toISOString();
+      const prof = (title, cat, at, sure) => ({ id: uid(), kind: "profile", category: cat, title, status: "open", origin: "rule",
+        confirmed: !!sure, corrected: false, statedAt: at, createdAt: at, history: [] });
+      // 古い確かめたもの2件 → 古い未確認41件 → いちばん新しい未確認1件
+      state.items.push(prof("確かめた古いこと", "好み", day(1), true), prof("直したこと", "好み", day(1), false));
+      state.items[1].corrected = true;
+      for (let i = 0; i < 41; i++) state.items.push(prof("古いこと" + i, "その他", day(2, 9), false));
+      state.items.push(prof("いちばん新しいこと", "仕事・勉強", day(20), false));
+      state.items.push(prof("腰が悪く長く座れない", "体のこと", day(10), false));
+      const n = { id: uid(), text: "何しよう", hash: "ek1", capturedAt: day(21), source: "talk", createdAt: day(21) };
+      const cx = contextForAI(n);
+      ok("EK. 40件を超えても、いちばん新しく言ったわたしのことがAIに届く（切る前に新しい順に並べる）",
+         cx.me.length === 40 && cx.me.some(s => /いちばん新しいこと/.test(s)), cx.me.slice(0, 4).join(" / "));
+      ok("EK. 確かめた・直したわたしのことが先に並ぶ", /確かめた古いこと/.test(cx.me[0] + cx.me[1]) && /直したこと/.test(cx.me[0] + cx.me[1]) && !/（未確認）/.test(cx.me[0] + cx.me[1]),
+         cx.me.slice(0, 3).join(" / "));
+      ok("EK. 確かめていないものには「（未確認）」が付く", cx.me[2] === "仕事・勉強：いちばん新しいこと（未確認）", cx.me[2]);
+      const bp = buildPrompt(n, cx);
+      ok("EK. 体のことは「体のこと」の欄だけに載る（2回載せない）",
+         !cx.me.some(s => /腰が悪く/.test(s)) && (bp.match(/腰が悪く長く座れない/g) || []).length === 1
+         && cx.body.some(s => s === "（変わらないこと）腰が悪く長く座れない（未確認）"), JSON.stringify(cx.body));
+      // 速い返事：この7日の申告が多くても、変わらない体のことが載る
+      for (let i = 0; i < 8; i++) state.items.push({ id: uid(), kind: "condition", title: "頭が痛い" + i, selfReport: "頭が痛い" + i, reportedAt: day(20, 8 + i), status: "open", createdAt: day(20, 8 + i), history: [] });
+      const cx2 = contextForAI(n), qp = quickPrompt(n, cx2);
+      ok("EK. 速い返事にも、変わらない体のことが載る（申告が6件以上あっても切られない）", /腰が悪く長く座れない/.test(qp) && /頭が痛い7/.test(qp), qp.split("\n").find(l => /体のこと/.test(l)));
+      // 今週の気づき：いちばん新しいものが入り、未確認の印が付く
+      const ip = insightPrompt(new Date(day(21)));
+      ok("EK. 今週の気づきにも、新しく言ったわたしのことが届く（前は古い30件）", /いちばん新しいこと（未確認）/.test(ip) && /体のこと：腰が悪く/.test(ip), ip.slice(ip.indexOf("【この人について"), ip.indexOf("【この人について") + 120));
+      // こうしてほしい：新しい順に20件・過ぎた日だけの希望は送らない
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      for (let i = 0; i < 25; i++) state.items.push({ id: uid(), kind: "preference", preferKey: "free", title: "希望" + String(i).padStart(2, "0"), status: "open", createdAt: day(1 + i % 25, 9), history: [] });
+      state.items.push({ id: uid(), kind: "preference", preferKey: "noEveningWork", title: "過ぎた日の夜は入れない", scopeDay: "2026-09-20", status: "open", createdAt: day(26), history: [] });
+      state.items.push({ id: uid(), kind: "preference", preferKey: "noEveningWork", title: "明日の夜は入れない", scopeDay: "2026-09-28", status: "open", createdAt: day(26), history: [] });
+      const cx3 = contextForAI({ id: uid(), text: "x", hash: "ek2", capturedAt: day(27), source: "talk", createdAt: day(27) });
+      ok("EK. 「こうしてほしい」は新しい順に20件まで", cx3.pf.length === 20 && cx3.pf.includes("希望24") && !cx3.pf.includes("希望00"), cx3.pf.join(" / "));
+      ok("EK. 過ぎた日だけの希望は送らない・これから来る日の希望は送る", !cx3.pf.includes("過ぎた日の夜は入れない") && cx3.pf.includes("明日の夜は入れない"), cx3.pf.slice(0, 3).join(" / "));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
