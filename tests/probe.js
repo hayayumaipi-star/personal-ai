@@ -7999,6 +7999,44 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DX. テスター18周目（2026-09-29）：半日の休み・今日の夜・「〜の掃除とゴミ出しと衣替え」・終わったら議事録・〜で6時起き・心配ごと・出張でいない・〜予定 ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, d, h, mi] of steps) r = await say(s, at(d, h, mi)); return r || { changes: [], asks: [] }; };
+      const hm = i => i.start && !i.timeUnknown && !i.allDay ? hhmm(minOfDay(i.start, TZ)) : "";
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${hm(i) ? " " + hm(i) : ""}${i.allDay ? " 終日" : ""}${i.spanEndKey ? "〜" + i.spanEndKey : ""}${i.timeUnknown ? " 時刻未定" : ""}${i.preferWindow ? "@" + i.preferWindow : ""}`).join(" ／ ");
+      const one = async (s, h) => { await run([[s, 15, h || 10]]); return state.items; };
+      let its = await one("来週の水曜、午後から有休");
+      ok("DX. 「来週の水曜、午後から有休」は終日にしない（時刻未定の予定に午後を添える）", its.length === 1 && its[0].title === "有休" && !its[0].allDay && its[0].timeUnknown && its[0].preferWindow === "afternoon" && its[0].dayKey === "2026-09-23", show(its));
+      its = await one("来週の水曜は午後休");
+      ok("DX. 「午後休」の見出しから「午後」を落とさない（「休」だけにしない）", its.length === 1 && its[0].title === "午後休" && its[0].preferWindow === "afternoon", show(its));
+      its = await one("明日は在宅勤務");
+      ok("DX. 時間帯を言わない「明日は在宅勤務」は今までどおり終日", its.length === 1 && its[0].allDay, show(its));
+      its = await one("今日の夜、友達と電話");
+      ok("DX. 「今日の夜、友達と電話」は夜に（時間帯が消えていた）", its.length === 1 && its[0].preferWindow === "evening" && its[0].title === "友達と電話", show(its));
+      its = await one("明日の夜勤");
+      ok("DX. 「明日の夜勤」の夜は時間帯ではない（終日の夜勤のまま）", its.length === 1 && its[0].title === "夜勤" && its[0].allDay, show(its));
+      its = await one("月末までに部屋の掃除とゴミ出しと衣替え");
+      ok("DX. 「部屋の掃除とゴミ出しと衣替え」は3件（「〜の」の飾り・送りがなのある語も）", its.length === 3 && ["部屋の掃除", "ゴミ出し", "衣替え"].every(t => its.some(i => i.title === t && i.dayKey === "2026-09-30")), show(its));
+      its = await one("牛乳とパンを買う");
+      ok("DX. 「牛乳とパンを買う」は1件のまま", its.length === 1, show(its));
+      its = await one("13時から打ち合わせ、終わったら議事録");
+      ok("DX. 「13時から打ち合わせ、終わったら議事録」の議事録を黙って捨てない", its.length === 2 && its.some(i => i.kind === "task" && i.title === "議事録"), show(its));
+      its = await one("次の日曜は子どもの運動会で朝6時起き");
+      ok("DX. 「子どもの運動会で朝6時起き」は運動会（9/20）と6時に起きるの2件", its.length === 2 && its.some(i => i.title === "子どもの運動会" && i.dayKey === "2026-09-20") && its.some(i => i.title === "起きる" && i.dayKey === "2026-09-20" && hm(i) === "06:00"), show(its));
+      its = await one("明日の会議、資料が間に合わないかも");
+      ok("DX. 「明日の会議、資料が間に合わないかも」は予定「会議」と心配ごとのメモ（見出しに混ぜない）", its.some(i => i.kind === "event" && i.title === "会議" && i.dayKey === "2026-09-16") && its.some(i => i.kind === "memo" && /間に合わないかも/.test(i.title)), show(its));
+      its = await one("来週は出張で水曜から金曜までいない");
+      ok("DX. 「来週は出張で水曜から金曜までいない」は「出張」9/23〜9/25（見出しを「は出張で金曜までいない」にしない）", its.length === 1 && its[0].title === "出張" && its[0].allDay && its[0].dayKey === "2026-09-23" && its[0].spanEndKey === "2026-09-25", show(its));
+      its = await one("明日提出のレポート");
+      ok("DX. 「明日提出のレポート」の見出しは「レポート提出」", its.length === 1 && its[0].title === "レポート提出", show(its));
+      const t2 = [];
+      for (const [s, want] of [["12月に引っ越し予定", "引っ越し"], ["金曜に飲み会の予定", "飲み会"], ["明日病院に行く予定", "病院に行く"]]) { its = await one(s); if (!(its.length === 1 && its[0].title === want)) t2.push(s + "→" + show(its)); }
+      ok("DX. 見出しの終わりの「予定」「の予定」は落とす", t2.length === 0, t2.join(" ／ "));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
