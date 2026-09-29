@@ -1995,11 +1995,13 @@ function splitLines(text) {
           && /[一-鿿々ァ-ヴー]{2,}\s*(?:を|も)?\s*[一-鿿][ぁ-ん]*(?:ないと|なきゃ|なくちゃ|なければ)/.test(t) && sansDate(cur.text);
         /* ⑭「疲れたから資料は明日の朝やる」「熱があるから明日の飲み会はキャンセル」——**体調の理由のあとの話**は次の話（2026-09-29・テスター15周目。
            体調1件になり、資料は動かなかった）。体調は理由の文だけ（決まり3c） */
+        // ⑮「資料作成2時間、メール返信30分」——長さを付けた用事が読点で並べば、1つずつ（1件「資料作成メール返信」になっていた・2026-09-29）
+        const durList = cur && /[一-鿿ァ-ヴー]{2,}\s*\d{1,3}\s*(?:時間|分)半?[、，,]\s*$/.test(cur.text) && /^[^、，,。]*[一-鿿ァ-ヴー]{2,}\s*\d{1,3}\s*(?:時間|分)半?/.test(t);
         const condFrom = cur && /(疲れた|疲れてる|疲れている|眠い|だるい|しんどい|痛い|熱がある|体調が悪い)から[、，,]?\s*$/.test(cur.text)
           && contentWords(t).filter(w => !/^(今日|明日|明後日|あさって|今週|来週|今夜|今晩)$/.test(w)).length > 0
           && !RE_SELFTASK.test(t);   // 「頭が痛いから病院に行かないと」の痛みは理由（用事1件のまま・BT群）   // 「明日の朝やる」だけでは中身が無い（「朝やる」という用事にしない）
         const dues = cur && cur.dated && /までに/.test(cur.text) && RE_DATE_HEAD.test(t) && /^[^、，,。]{0,12}までに/.test(t) && contentWords(t.replace(/^[^、，,。]{0,12}までに/, "")).length > 0;
-        if (cur && t && (!openRange || condFrom) && ((clock && cur.clock) || (seq && cur.text.trim().length >= 2) || but || newDay || (win && (cur.win || cur.clock || te)) || chore || body || dues || info || dayRun || period || choreDay || condFrom)) { topics.push(cur); cur = null; }
+        if (cur && t && (!openRange || condFrom) && ((clock && cur.clock) || (seq && cur.text.trim().length >= 2) || but || newDay || (win && (cur.win || cur.clock || te)) || chore || body || dues || info || dayRun || period || choreDay || condFrom || durList)) { topics.push(cur); cur = null; }
         if (!cur) cur = { text: "", start: c.start, clock: false, dated: false, win: false, carry: !!(topics.length && (period || choreDay)) };
         cur.text += c.text; cur.clock = cur.clock || clock; cur.dated = cur.dated || RE_DATE_HEAD.test(t);
         cur.win = cur.win || RE_WIN_ANY.test(t);
@@ -2378,6 +2380,7 @@ function classify(rawS, lineWhen) {
   { const s2 = s.replace(/ことに(なった|なりました|した|しました)([。！!]*)$/, "$2");
     if (s2 !== s && s2.replace(/[。！!]+$/, "").length >= 2) return classify(s2, lineWhen); }
   const isCond = RE_COND.test(s) || (RE_PAIN.test(s) && !RE_SELFTASK.test(s) && !RE_GOTO.test(s));
+  if (RE_WORK_UNTIL.test(s) && !RE_EVENT.test(s.replace(RE_WORK_UNTIL, ""))) return null;     // 「15時で終わりにしたい」は希望（ruleOps が拾う）
   /* 「午前中に大事な予定は入れないでほしい」「会議の前は15分空けてほしい」——**予定の組み方への頼み**は、用事にも予定にもしない（希望は ruleOps が拾う）。
      日付を言っていないときだけ（「明日の15時〜16時は空けておいて」は今までどおり、その時間をふさぐ枠・2026-09-29・テスター15周目） */
   if (/(入れ|詰め|空け|置か|組ま)(ないで|て)(ほしい|ください|ね)?[。！!]*$/.test(s) && (!lineWhen || lineWhen.timeOnly || lineWhen.routine) && !RE_CLOCK.test(s)) return isCond ? "condition" : null;
@@ -4472,7 +4475,7 @@ function normNote(t) {
    そのせいで「8時から10まで適当に予定を埋めて」が、組み立てとして一度も動かなかった。
    足すのは**「スケジュール／予定／一日／日程」が前にあるとき**だけ——
    単独の「埋めて」（穴を埋めて）まで拾わないため。 */
-const RE_BUILD_DAY = /(組み立て|組みたて|くみたて|組んで)|((スケジュール|予定|一日|1日|日程).{0,8}(作って|つくって|立てて|考えて|埋めて|うめて))|提案して/;
+const RE_BUILD_DAY = /(組み立て|組みたて|くみたて|組んで)|((スケジュール|予定|一日|1日|日程).{0,8}(作って|つくって|立てて|考えて|埋めて|うめて))|((午前中|午前|午後|夕方|夜)\s*を\s*(適当に)?\s*(埋めて|うめて))|提案して/;   // 「午後を適当に埋めて」も（2026-09-29）
 /* 文のどこに「時刻の範囲」があるかを数える（決まり7e・同じ判定を2か所に書かない）。
    使うのは2つ：①組み立ての時間帯を、依頼の言葉の**直前の範囲**から採るとき
    ②範囲を2つ言われたのに1つしか使えなかったときに、**黙らずに言う**とき。 */
@@ -4866,6 +4869,24 @@ function parseDayRequest(note, tz) {
         for (const pc of pieces(text.slice(at))) for (const y of wantsIn(pc, note.capturedAt, tz)) ws.push(y);
         // 時間帯より前に言ったこと（「おはよう、起きるのが遅かった」）は、ふつうの読み取りへ回す（決まり0b）
         return { win: [start, end], wants: ws, dayKey: dayKey(new Date(note.capturedAt), tz), movedFrom: null, startedAt: null, headLen: at };
+      }
+    }
+  }
+  /* **「午後を組み立てて」「明日の午前中を組み立てて」——時間帯の言葉も時間帯として読む**（2026-09-29・テスター16周目。
+     組み立てられず、「明日の午前中を組み立てて」は「組み立てて」という予定になっていた）。範囲は予定表と同じ `WIN_RANGE`。
+     今日の話なら始まりはいま（過ぎていれば明日のその時間帯）。日付を言っていればその日。 */
+  if (!w) {
+    const wm = /(午前中|午前|午後|夕方|夜)\s*(?:を|の|は|に)?\s*(?:予定を?|スケジュールを?|時間を?)?\s*(?:適当に)?\s*(?:組み立て|組みたて|くみたて|組んで|埋めて|うめて|作って|つくって|考えて|立てて)/.exec(text);
+    if (wm) {
+      const [a, b] = WIN_RANGE[/午前/.test(wm[1]) ? "morning" : /午後/.test(wm[1]) ? "afternoon" : "evening"];
+      const spoke = dayKey(new Date(note.capturedAt), tz), nowMin = minOfDay(note.capturedAt, tz);
+      const wd = parseWhen(text.slice(0, wm.index), note.capturedAt, tz);
+      let dk = wd && dateSpokenIn(wd) && isDate(wd.dayKey) ? wd.dayKey : spoke, start = a;
+      if (dk === spoke) { start = Math.max(a, Math.ceil(nowMin / 5) * 5); if (b - start < 15 && !(wd && dateSpokenIn(wd))) { dk = addKey(spoke, 1); start = a; } }
+      if (b - start >= 15) {
+        const ws = [];
+        for (const pc of pieces(text.slice(0, wm.index) + " " + text.slice(wm.index + wm[0].length))) for (const y of wantsIn(pc, note.capturedAt, tz)) ws.push(y);
+        return { win: [start, Math.min(b, 24 * 60)], wants: ws, dayKey: dk, movedFrom: null, startedAt: null, headLen: 0 };
       }
     }
   }
@@ -7465,6 +7486,8 @@ const RE_NOEVENING = /(夜まで.{0,6}(したくない|やりたくない|作業
 /* 「18時以降は予定を入れないで」——**何時からか**を言った夜の希望（2026-09-27・何も記録されていなかった）。
    午前か午後かを言っていない1〜11時は、夜の話なので午後（「9時以降は」＝21時）。 */
 const RE_NOEVENING_AT = /(午後|夜|夕方)?\s*(\d{1,2})\s*時\s*(半)?\s*(以降|以後|から後|より後|過ぎ)(は|に|には)?.{0,8}(入れない|やらない|空けて|空けと|作業しない|何もしない|何もしたくない)/;
+// 「今日は15時で終わりにしたい」「17時で切り上げる」——その時刻から後は作業を入れない（用事「終わりにする」になっていた・2026-09-29）。組の並びは RE_NOEVENING_AT と同じ
+const RE_WORK_UNTIL = /(午後|夜|夕方)?\s*(\d{1,2})\s*時\s*(半)?\s*(?:で|まで(?:で)?)\s*(?:終わり|おわり|切り上げ|上がり|あがり|おしまい)/;
 const RE_KEEP = /(見返せる|見返し|残しておき|残しておいて|あとで読|後で読|メモしておいて)/;
 /* 家にあるもの・食材の話。あとで「何を食べよう」と聞かれたときに参照する。 */
 const RE_PANTRY = /(冷蔵庫|家にある|うちにある|家にあった|残ってる|残っている|ストック|買っておいた|買ってある)/;
@@ -7847,7 +7870,8 @@ function ruleOpsRead(note) {
   /* **頼まれたのに組み立てられなかったことを、黙らない**（v6.8・決まり5 と同じ理屈）。
      「9時から12時の間で」を17時に言うと 21:00〜翌0:00 と読めてしまい、時間帯が決まらない。
      何も言わないと、依頼文が目標として保存されるだけで**組み立てられなかったことが分からない**。 */
-  if (RE_BUILD_DAY.test(text) && /\d{1,2}\s*時/.test(text)) ops.push({ op: "buildfail" });
+  // 「今日の予定を組んで」のように範囲を言っていない頼みも、黙らない（2026-09-29・「聞いたよ」だけ返していた）
+  if (RE_BUILD_DAY.test(text) && (/\d{1,2}\s*時/.test(text) || /(予定|スケジュール|一日|1日|今日|明日|日程|やること)/.test(text))) ops.push({ op: "buildfail" });
   const early = ruleOpsEarly(note, text, q);
   if (early) return early;
   // 「明日の打ち合わせ、14時にして」は言い直し。ルールでは対象を決められないが、
@@ -8018,10 +8042,10 @@ function ruleOpsRead(note) {
   /* 「明日の夜は予定を入れないで」は**明日の夜だけ**（2026-09-26・休みの日の希望を足したときに見つけた）。
      前は「今日」と言わない限り**ずっと**の希望になり、毎晩が使えなくなっていた。
      その文で日付を言っていて、「から／以降／しばらく」が無いときだけ、その日に限る。 */
-  if (RE_NOEVENING.test(text) || RE_NOEVENING_AT.test(halfWidth(text))) {
-    const hit = x => RE_NOEVENING.test(x) || RE_NOEVENING_AT.test(halfWidth(x));
+  if (RE_NOEVENING.test(text) || RE_NOEVENING_AT.test(halfWidth(text)) || RE_WORK_UNTIL.test(halfWidth(text))) {
+    const hit = x => RE_NOEVENING.test(x) || RE_NOEVENING_AT.test(halfWidth(x)) || RE_WORK_UNTIL.test(halfWidth(x));
     const sx = sents.find(hit) || text;
-    const at = RE_NOEVENING_AT.exec(halfWidth(sx));
+    const at = RE_NOEVENING_AT.exec(halfWidth(sx)) || RE_WORK_UNTIL.exec(halfWidth(sx));
     let value = EVENING_DEFAULT_MIN;
     if (at) { const h = +at[2]; value = ((h < 12 ? h + 12 : h) * 60) + (at[3] ? 30 : 0); }
     // 「18時以降は」の「以降」は時刻のことで、「ずっと」の意味ではない。日付の読み取りからは時刻の言葉を外して見る
@@ -8030,7 +8054,10 @@ function ruleOpsRead(note) {
     const dated = !scope && dw && !dw.timeOnly && dw.precision === "day" && !/(から|以降|しばらく|これから|ずっと|いつも|今後|毎日|基本的に)/.test(sd);
     /* 「早く寝る」だけなら今夜の話（2026-09-27・ずっとの希望になり、毎晩が使えなくなっていた）。
        「いつも」「これから」「しばらく」を言えば今までどおりずっと。 */
-    const tonight = !scope && !dated && !at && /(早めに寝|早く寝)/.test(sx) && !/(しばらく|これから|ずっと|いつも|今後|毎日|毎晩|基本的に|最近)/.test(sx)
+    // 「17時で切り上げる」「15時で終わりにしたい」は、ふつうその日の話（「毎日」「いつも」を言わなければ今日だけ・2026-09-29）
+    const untilToday = !scope && !dated && RE_WORK_UNTIL.test(halfWidth(sx)) && !/(しばらく|これから|ずっと|いつも|今後|毎日|平日|基本的に)/.test(sx)
+      ? dayKey(new Date(note.capturedAt), state.settings.timezone) : null;
+    const tonight = untilToday || !scope && !dated && !at && /(早めに寝|早く寝)/.test(sx) && !/(しばらく|これから|ずっと|いつも|今後|毎日|毎晩|基本的に|最近)/.test(sx)
       ? dayKey(new Date(note.capturedAt), state.settings.timezone) : null;
     ops.push({ op: "prefer", key: "noEveningWork", value, scopeDay: dated ? dw.dayKey : (scope || tonight),
       text: at ? `${hhmm(value)}以降は作業を入れないでほしい` : "夜は作業を入れないでほしい", quote: q });
@@ -8187,7 +8214,7 @@ async function applyOps(rawOps0, note) {
     }
     if (o.op === "buildfail") {
       asks.push("組み立てを頼まれましたが、どの時間帯かを読み取れませんでした。"
-        + "「夜6時から11時半までの間で」のように、始まりと終わりの両方を言ってください。");
+        + "「13時から17時まで組み立てて」「午後を組み立てて」のように、時間帯を言ってください。");
       continue;
     }
     if (o.op === "buildday") {
@@ -8369,6 +8396,12 @@ async function applyOps(rawOps0, note) {
         }
         // 「明日の午前中に病院」の時間帯も、ルールの読みから借りる（AIの予定には時間帯を受け取らない・決まり6q ④）
         if (tw && tw.kind === "event" && tw.timeUnknown && tw.preferWindow && it.timeUnknown && it.dayKey === tw.dayKey) it.preferWindow = tw.preferWindow;
+      }
+      /* 「朝ヨガ」「明日の朝やる」——AIが用事の時間帯を返さなかったら、ルールがこの用事に読んだ時間帯を借りる（2026-09-29・比べる道具で見つけた。
+         日付と同じ考え方・決まり7d。言っていない時間帯は wordCheck ④ が外すので、借りるのはルールが原文から読んだものだけ） */
+      if (it.origin === "ai" && it.kind === "task" && !it.preferWindow && it.winFrom == null) {
+        const tw = ruleTwinFor(it, note, soleAdd);
+        if (tw && tw.kind === "task" && tw.preferWindow && (!it.dayKey || !tw.dayKey || it.dayKey === tw.dayKey)) it.preferWindow = tw.preferWindow;
       }
       // AIが「ご飯食べに行こうかな」のような言い方で返してきても、食事は名前を揃える
       /* **予定（event）でも揃える**（2026-09-28・本物の Gemini で比べて見つけた）。ルールは「12時からランチ」の予定も揃えるのに、
@@ -9608,8 +9641,11 @@ function answerQuestion(rawText, plan, key, dw = "今日") {
     }
   }
   /* 「次何すればいい？」「何からやる？」——次にすることを、予定表から（2026-09-28・テスター3周目。答えずに「聞いたよ」だけ返していた） */
-  if (/(次(は)?(何|なに)|次に何|何から(やる|する|始め|手を付け)|次どうする|次は[?？]?$)/.test(t)) {
+  if (/(次(は)?(何|なに)|次に何|何から(やる|する|始め|手を付け|手をつけ|手を着け)|次どうする|次は[?？]?$)/.test(t)) {
     const na = nextAction(plan);
+    // 置いてあるものが無くても、日付を決めていない用事があれば名前で言う（「もう無いよ」だけ返していた・2026-09-29）
+    const und = !na ? liveItems().filter(i => i.kind === "task" && i.status === "open" && !i.dayKey && !i.repeat) : [];
+    if (!na && und.length) return `${dw}時刻を決めて置いてあるものは無いよ。日付を決めていない${und.slice(0, 3).map(i => `「${i.title}」`).join("、")}${und.length > 3 ? `ほか${und.length - 3}件` : ""}から選べるよ。`;
     if (!na) return `${dw}このあとに置いてあるものは、もう無いよ。`;
     return `次は${hhmm(na.block.s)}からの「${blockTitle(na.block)}」。`;
   }

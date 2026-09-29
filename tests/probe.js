@@ -7875,6 +7875,47 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DU. テスター16周目：組み立ての頼み方・終わりにする時刻・長さつきの並び・AIの時間帯（2026-09-29・自律で進めた回） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (h, mi) => zoned(2026, 9, 15, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, h, mi] of steps) r = await say(s, at(h, mi)); return r || { changes: [], asks: [] }; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.due && i.duePrecision === "exact" ? " " + hhmm(minOfDay(i.due, TZ)) : ""}${i.estimateMin ? " " + i.estimateMin + "分" : ""}`).join(" ／ ");
+      const said = r => (r.changes || []).concat(r.asks || []).join(" / ");
+      let r = await run([["明日の午前中を組み立てて", 20]]);
+      const b1 = state.items.filter(i => i.built || i.suggested);
+      ok("DU. 夜の「明日の午前中を組み立てて」は明日の6:00〜12:00に組み立てる（「組み立てて」という予定を作らない）",
+        b1.length > 0 && b1.every(i => i.dayKey === "2026-09-16" && minOfDay(i.due, TZ) >= 360 && minOfDay(i.due, TZ) < 720) && !state.items.some(i => /組み立て/.test(i.title)), show(state.items));
+      r = await run([["午前中を組み立てて", 20]]);
+      const b0 = state.items.filter(i => i.built || i.suggested);
+      ok("DU. 夜の「午前中を組み立てて」（日付なし・もう過ぎた）は明日の午前中に組み立てる", b0.length > 0 && b0.every(i => i.dayKey === "2026-09-16"), show(state.items));
+      r = await run([["午後を適当に埋めて", 9]]);
+      const b2 = state.items.filter(i => i.built || i.suggested);
+      ok("DU. 「午後を適当に埋めて」は今日の12:00〜18:00に組み立てる", b2.length > 0 && b2.every(i => i.dayKey === "2026-09-15" && minOfDay(i.due, TZ) >= 720 && minOfDay(i.due, TZ) < 1080), show(state.items));
+      r = await run([["今日の予定を組んで", 9]]);
+      ok("DU. 範囲を言わない「今日の予定を組んで」は、時間帯を言ってと伝える（黙らない・何も作らない）", !state.items.length && /時間帯を言ってください/.test(said(r)), said(r));
+      await run([["資料作成2時間、メール返信30分", 9]]);
+      ok("DU. 「資料作成2時間、メール返信30分」は2件で、長さもそれぞれ", show(state.items) === "open task「資料作成」 120分 ／ open task「メール返信」 30分", show(state.items));
+      await run([["今日は15時で終わりにしたい", 9]]);
+      const pf = state.items.find(i => i.kind === "preference");
+      ok("DU. 「今日は15時で終わりにしたい」は今日の15時から後に作業を入れない希望（用事「終わりにする」を作らない）",
+        state.items.length === 1 && pf && pf.preferKey === "noEveningWork" && pf.preferValue === 900 && pf.scopeDay === "2026-09-15", show(state.items));
+      await run([["17時で切り上げる", 9]]);
+      ok("DU. 「17時で切り上げる」（今日と言っていない）も今日だけの希望", state.items[0] && state.items[0].preferValue === 1020 && state.items[0].scopeDay === "2026-09-15", show(state.items));
+      await run([["いつも18時で切り上げる", 9]]);
+      ok("DU. 「いつも18時で切り上げる」はずっとの希望", state.items[0] && state.items[0].preferValue === 1080 && !state.items[0].scopeDay, show(state.items));
+      await run([["資料作成", 9]]);
+      let an = answerQuestion("何から手をつければいい？", planFor("2026-09-15", { nowMin: 545 }), "2026-09-15", "今日") || "";
+      ok("DU. 「何から手をつければいい？」は、置いてあるものが無くても日付を決めていない用事の名前を言う", /「資料作成」から選べる/.test(an), an);
+      // AIが用事の時間帯を返さなかったら、ルールが読んだ時間帯を借りる（決まり7d）
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const n = { id: uid(), text: "朝ヨガ", hash: "du" + Math.random(), capturedAt: at(6), source: "talk", sourceName: null, createdAt: at(6) };
+      await putNote(n);
+      await applyOps([{ op: "add", kind: "task", title: "ヨガ", dueDate: "2026-09-15", dueTime: null, duePrecision: "day", quote: "朝ヨガ" }], n);
+      ok("DU. AIが時間帯を返さなかった「朝ヨガ」も、ルールの読みから朝を借りる", state.items.length === 1 && state.items[0].preferWindow === "morning", JSON.stringify(state.items.map(i => [i.title, i.preferWindow])));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
