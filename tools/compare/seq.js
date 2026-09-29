@@ -20,7 +20,7 @@
      const last = turns.filter(x => x.role === "assistant").pop();
      out.push("  > " + text + " @" + hm);
      out.push("     reply: " + (last ? last.text.replace(/\s+/g, " ") : "(none)"));
-     for (const i of state.items) out.push("     " + i.status + " " + i.kind + "「" + i.title + "」 " + (i.start ? (i.timeUnknown ? i.dayKey + " 時刻未定" : fmtDT(i.start,TZ) + (i.end?"〜"+fmtDT(i.end,TZ).slice(-5):"")) : i.due ? fmtDT(i.due,TZ) + (i.dueIsDeadline?"まで":"") + "/" + i.duePrecision : "") + (i.repeat ? "［" + repeatJa(i.repeat) + "］" : "") + (i.estimateMin?" "+i.estimateMin+"分":"") + (i.remainingMin?" 残"+i.remainingMin:"") + ((i.doneDays||[]).length ? " done:" + i.doneDays.join(",") : "") + ((i.skipDays||[]).length ? " skip:" + i.skipDays.join(",") : ""));
+     for (const i of state.items) out.push("     " + i.status + " " + i.kind + "「" + i.title + "」 " + (i.start ? (i.timeUnknown ? i.dayKey + " 時刻未定" : fmtDT(i.start,TZ) + (i.end?"〜"+fmtDT(i.end,TZ).slice(-5):"")) : i.due ? fmtDT(i.due,TZ) + (i.dueIsDeadline?"まで":"") + "/" + i.duePrecision : "") + (i.repeat ? "［" + repeatJa(i.repeat) + "］" : "") + (i.estimateMin?" "+i.estimateMin+"分":"") + (i.remainingMin?" 残"+i.remainingMin:"") + ((i.doneDays||[]).length ? " done:" + i.doneDays.join(",") : "") + ((i.skipDays||[]).length ? " skip:" + i.skipDays.join(",") : "") + (i.scopeDay ? " scope:" + i.scopeDay : "") + (i.preferWindow ? " @" + i.preferWindow : "") + (i.allDay ? " 終日" : ""));
    }
  }
  window.Date = RealDate;

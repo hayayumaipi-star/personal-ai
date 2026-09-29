@@ -5895,10 +5895,11 @@
         ok("CR. 「32時」も読めなかったと言う", opsOf("32時に寝る").some(x => x.op === "_bad_clock")); }
       // ⑥ 見出しの理由
       { const t = [["雨が降りそうだから洗濯物を取り込む", "洗濯物を取り込む"], ["時間があるから本を読む", "本を読む"], ["買ってから行く", "買ってから行く"],
-                   ["10時から会議", "会議"], ["明日は早いから今日は早く寝る", "早く寝る"]]
+                   ["10時から会議", "会議"], ["明日は早いから今日は早く帰る", "早く帰る"]]
           .map(([s, want]) => { const its = read(s); return its.some(i => i.title === want) ? null : s + "→" + (show(its) || "なし"); }).filter(Boolean);
         ok("CR. 見出しから理由（〜だから・〜ので）を落とす（「〜てから」「10時から」は残す）", t.length === 0, t.join(" ／ "));
-        const e = read("明日は早いから今日は早く寝る").find(i => /寝る/.test(i.title));
+        // 「早く寝る」は用事ではなく、その日の「夜は入れない」（2026-09-29・DW群）。理由の中の日付を採らないのは同じ
+        const e = read("明日は早いから今日は早く帰る").find(i => /帰る/.test(i.title));
         ok("CR. 理由の中の日付（明日）より、言っていることの日付（今日）", !!e && e.dayKey === "2026-09-15", e ? show([e]) : "なし"); }
       // ⑦ 次にすることを、直前の返事と同じなら出さない
       { const mkT = (title, s) => ({ id: uid(), role: "assistant", text: "a", at: new Date().toISOString(), plan: { isToday: true, next: { t: title, s, e: s + 60 }, blocks: [] } });
@@ -7935,6 +7936,66 @@
       ok("DV. 「朝礼終わった？」と聞いただけでは完了にしない", !(state.items[0].doneDays || []).length, show(state.items));
       r = await run([["毎週火曜9時に朝礼", 15, 8], ["毎週金曜9時に朝礼", 15, 8, 1], ["朝礼終わった", 15, 10]]);
       ok("DV. 同じ名前のくり返しが2つあるときは、どちらも勝手に完了にしない", state.items.every(i => !(i.doneDays || []).length), show(state.items));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
+    /* ===== DW. テスター17周目（2026-09-29）：毎日の予定を会話で済ませて聞く・「前日は」・朝から晩まで仕事・宅配便が届く・晩ご飯の支度・早く寝る ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, d, h, mi] of steps) r = await say(s, at(d, h, mi)); return r || { changes: [], asks: [] }; };
+      const hm = i => i.start && !i.timeUnknown ? hhmm(minOfDay(i.start, TZ)) : "";
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${hm(i) ? " " + hm(i) : ""}${i.allDay ? " 終日" : ""}${i.timeUnknown ? " 時刻未定" : ""}${i.preferWindow ? "@" + i.preferWindow : ""}${i.scopeDay ? " scope" + i.scopeDay : ""}${(i.doneDays || []).length ? " 済" + i.doneDays.join("/") : ""}`).join(" ／ ");
+      const said = r => (r.changes || []).concat(r.asks || []).join(" / ");
+      // ① 毎日の予定を「今日の薬飲んだ」で済ませる（漢字を並べた当たり）・「薬飲んだっけ」に答える
+      await run([["毎朝7時に薬を飲む", 15, 6]]);
+      let an = answerQuestion("今日薬飲んだっけ", planFor("2026-09-15"), "2026-09-15", "今日") || "";
+      ok("DW. 済ませる前の「今日薬飲んだっけ」は、まだ済んでいないと答える", /「薬を飲む」は、まだ済んでいない/.test(an), an);
+      await say("今日の薬飲んだ", at(15, 8, 30));
+      const med = state.items.find(i => i.kind === "event");
+      ok("DW. 「今日の薬飲んだ」で、毎日の「薬を飲む」を今日のぶんだけ完了", med && med.status === "open" && (med.doneDays || []).join() === "2026-09-15", show(state.items));
+      an = answerQuestion("今日薬飲んだっけ", planFor("2026-09-15"), "2026-09-15", "今日") || "";
+      ok("DW. 済ませたあとの「今日薬飲んだっけ」は、済んでいると答える（その日の回が済んでいても聞ける）", /「薬を飲む」は済んでいる/.test(an), an);
+      await run([["毎週火曜9時に朝礼", 15, 8], ["朝礼出た", 15, 10]]);
+      ok("DW. 「朝礼出た」も済んだ報告（その日のぶんだけ）", (state.items[0].doneDays || []).join() === "2026-09-15", show(state.items));
+      await run([["結果を確認する", 15, 8], ["結果が出た", 15, 10]]);
+      ok("DW. 「結果が出た」は済んだ報告ではない（用事「結果を確認する」を完了にしない）", state.items.filter(i => i.kind === "task").every(i => i.status === "open"), show(state.items));
+      // ② 日付を言った話のあとの「前日・翌日」
+      await run([["来週の木曜に健康診断、前日の21時以降は食事禁止", 15, 10]]);
+      let hc = state.items.find(i => i.title === "健康診断"), fa = state.items.find(i => i.title === "食事禁止");
+      ok("DW. 「来週の木曜に健康診断、前日の21時以降は食事禁止」は、健康診断（9/24）と前日21時の「食事禁止」の2件",
+        state.items.length === 2 && hc && hc.dayKey === "2026-09-24" && fa && fa.dayKey === "2026-09-23" && hm(fa) === "21:00", show(state.items));
+      await run([["来週の木曜に健康診断。前日の21時から絶食", 15, 10]]);
+      ok("DW. 句点で切っても、前日の話を黙って捨てない", state.items.some(i => i.title === "絶食" && i.dayKey === "2026-09-23"), show(state.items));
+      await run([["土曜に引っ越し、翌日は片付け", 15, 10]]);
+      ok("DW. 「土曜に引っ越し、翌日は片付け」の片付けは日曜（見出しに「翌日は」を残さない）", state.items.some(i => i.kind === "task" && i.title === "片付け" && i.dayKey === "2026-09-20"), show(state.items));
+      await run([["明日は遠足、当日は7時に家を出る", 15, 10]]);
+      ok("DW. 「当日は7時に家を出る」は遠足の日の7時", state.items.some(i => i.title === "家を出る" && i.dayKey === "2026-09-16") && state.items.some(i => i.title === "遠足"), show(state.items));
+      // ③ 早く寝る＝その日の「夜は入れない」（用事にしない）
+      let r = await run([["明日は早く寝る", 15, 10]]);
+      ok("DW. 「明日は早く寝る」は明日の夜は入れない希望だけ（用事「早く寝る」を作らない）・返事も「明日の出し方」",
+        state.items.length === 1 && state.items[0].kind === "preference" && state.items[0].scopeDay === "2026-09-16" && /明日の出し方/.test(said(r)), show(state.items) + " " + said(r));
+      await run([["来週の木曜に健康診断、前日は早く寝る", 15, 10]]);
+      ok("DW. 「前日は早く寝る」は健康診断の前日（9/23）の希望", state.items.some(i => i.kind === "preference" && i.scopeDay === "2026-09-23") && !state.items.some(i => i.kind === "task"), show(state.items));
+      // ④ 朝から晩まで仕事＝終日
+      await run([["明日は朝から晩まで仕事", 15, 10]]);
+      ok("DW. 「明日は朝から晩まで仕事」は明日の終日の予定（締切の用事にしない）", state.items.length === 1 && state.items[0].kind === "event" && state.items[0].allDay && state.items[0].dayKey === "2026-09-16", show(state.items));
+      await run([["金曜は一日研修", 15, 10]]);
+      ok("DW. 「金曜は一日研修」は終日（見出しは言ったまま「一日研修」）", state.items.length === 1 && state.items[0].allDay && state.items[0].title === "一日研修", show(state.items));
+      // ⑤ 届くものは予定
+      await run([["今日の夕方に宅配便が届く", 15, 10]]);
+      ok("DW. 「今日の夕方に宅配便が届く」は時刻未定の予定（夕方）——作業枠を置く用事にしない", state.items.length === 1 && state.items[0].kind === "event" && state.items[0].timeUnknown && state.items[0].preferWindow === "evening", show(state.items));
+      await run([["14時に荷物が届く", 15, 10]]);
+      ok("DW. 「14時に荷物が届く」は14時の予定", state.items.length === 1 && state.items[0].kind === "event" && hm(state.items[0]) === "14:00", show(state.items));
+      // ⑥ 見出し
+      await run([["晩ご飯の支度", 15, 10]]);
+      ok("DW. 「晩ご飯の支度」は「夕食を作る」（何も記録しないでいた）", state.items.length === 1 && state.items[0].title === "夕食を作る", show(state.items));
+      await run([["夕飯の準備", 15, 10]]);
+      ok("DW. 「夕飯の準備」も「夕食を作る」（「夕食を食べる」にしない）", state.items.length === 1 && state.items[0].title === "夕食を作る", show(state.items));
+      await run([["午前中は集中して企画書を書く", 15, 10]]);
+      ok("DW. 「集中して」は見出しに要らない", state.items.length === 1 && state.items[0].title === "企画書を書く", show(state.items));
+      await run([["明日から3日間、出張します", 15, 10]]);
+      ok("DW. 「明日から3日間、出張します」の見出しの頭に「、」を残さない", state.items.length === 1 && state.items[0].title === "出張する" && state.items[0].allDay, show(state.items));
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 

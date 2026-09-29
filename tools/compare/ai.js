@@ -4,7 +4,7 @@
     for (let i = 0; i < 200 && !state.ready; i++) await new Promise(r => setTimeout(r, 20));
     const TZ = "Asia/Tokyo";
     const fmt = i => {
-      const w = i.kind === "event" ? (i.allDay ? "終日" + i.dayKey : i.timeUnknown ? i.dayKey + " 時刻未定" + (i.preferWindow ? "@" + i.preferWindow : "") : (i.start ? fmtDT(i.start, TZ) : "?") + (i.end ? "-" + fmtDT(i.end, TZ).slice(6) : ""))
+      const w = i.kind === "event" ? (i.allDay ? "終日" + i.dayKey : i.timeUnknown ? i.dayKey + " 時刻未定" + (i.preferWindow ? "@" + i.preferWindow : "") : (i.start ? fmtDT(i.start, TZ) : "?") + (i.end ? "-" + fmtDT(i.end, TZ).slice(-5) : ""))
         : (i.kind === "task" || i.kind === "goal") ? (i.due ? fmtDT(i.due, TZ) + (i.dueIsDeadline ? "まで" : "") + "/" + i.duePrecision : "期限なし") + (i.estimateMin ? " " + i.estimateMin + "分" : "") + (i.preferWindow ? " " + i.preferWindow : "") : "";   // 時間帯も出す（出していなかったので、AIの道で時間帯が消えても差に出なかった・2026-09-29）
       return `${i.status} ${i.kind}「${i.title}」${w}${i.repeat ? "［" + repeatJa(i.repeat) + "］" : ""}${i.whenAlt ? " alt=" + (i.whenAlt.start ? fmtDT(i.whenAlt.start, TZ) : i.whenAlt.dayKey) : ""}`;
     };

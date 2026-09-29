@@ -4,7 +4,7 @@
     for (let i = 0; i < 200 && !state.ready; i++) await new Promise(r => setTimeout(r, 20));
     const TZ = "Asia/Tokyo";
     const fmt = i => {
-      const w = i.kind === "event" ? (i.allDay ? "終日" + i.dayKey + (i.spanEndKey ? "〜" + i.spanEndKey : "") : i.timeUnknown ? i.dayKey + " 時刻未定" + (i.preferWindow ? "@" + i.preferWindow : "") : fmtDT(i.start, TZ) + (i.end ? "-" + fmtDT(i.end, TZ).slice(6) : ""))
+      const w = i.kind === "event" ? (i.allDay ? "終日" + i.dayKey + (i.spanEndKey ? "〜" + i.spanEndKey : "") : i.timeUnknown ? i.dayKey + " 時刻未定" + (i.preferWindow ? "@" + i.preferWindow : "") : fmtDT(i.start, TZ) + (i.end ? "-" + fmtDT(i.end, TZ).slice(-5) : ""))
         : i.kind === "task" ? (i.due ? fmtDT(i.due, TZ) + (i.dueIsDeadline ? "まで" : "") + "/" + i.duePrecision : "期限なし") + (i.estimateMin ? " " + i.estimateMin + "分" : "") + (i.preferWindow ? " " + i.preferWindow : "") + (i.targetDay ? " target" + i.targetDay : "")
         : i.kind === "preference" ? i.preferKey + "=" + JSON.stringify(i.preferValue) + " scope=" + i.scopeDay : i.kind === "condition" ? i.selfReport : "";
       return `${i.status} ${i.kind}「${i.title}」${w}${i.repeat ? "［" + repeatJa(i.repeat) + "］" : ""}${i.whenAlt ? " alt=" + fmtDT(i.whenAlt.start || i.whenAlt.dayKey, TZ) : ""}`;
