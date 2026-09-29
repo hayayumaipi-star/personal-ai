@@ -7988,6 +7988,13 @@ function ruleOpsRead(note) {
     if (t) continue;
     /* 「牛乳とパン買った」——名詞を「と」「、」で並べて1つの動詞で済ませた。1つずつ「牛乳買った」「パン買った」として当てる（2026-09-28・テスター4周目） */
     for (const x of finishedEach(s)) if (!doneIds.has(x.id)) { ops.push({ op: "done", id: x.id, quote: s.slice(0, 60) }); doneIds.add(x.id); }
+    /* 「今日は日記書いた」「朝礼終わった」——くり返しの予定も、会話で**その日のぶんだけ**完了にする（2026-09-29・本人の指示「完了してほしい」）。
+       前は「くり返しは丸ごと消える」のを避けて会話では完了にしなかったが、完了は `setItemState` がその回（`doneDays`）だけにする（決まり4f・7f）ので、シリーズは残る。
+       名前で当たるくり返しの予定が1つだけのときだけ */
+    if (!t && !ops.some(o => o.op === "done" && o.quote === s.slice(0, 60))) {
+      const re = liveItems().filter(i => i.kind === "event" && i.status === "open" && i.repeat && !i.allDay && titleSaid(i.title, s) === 1);
+      if (re.length === 1 && !doneIds.has(re[0].id)) { ops.push({ op: "done", id: re[0].id, quote: s.slice(0, 60) }); doneIds.add(re[0].id); continue; }
+    }
     /* 「今日は英語30分やった」——当たる用事が無く、続けたいことに1つだけ当たれば、その日を数える（2026-09-28・テスター6周目で残したもの）。
        日付を言っていて、それが今日より前なら（「昨日走った」）その日 */
     if (!ops.some(o => o.op === "done" && o.quote === s.slice(0, 60))) {

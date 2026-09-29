@@ -7916,6 +7916,28 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== DV. 会話の「日記書いた」「朝礼終わった」で、くり返しの予定をその日のぶんだけ完了（2026-09-29・本人の指示） ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, d, h, mi] of steps) r = await say(s, at(d, h, mi)); return r || { changes: [], asks: [] }; };
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.repeat ? " くり返し" : ""}${(i.doneDays || []).length ? " 済" + i.doneDays.join("/") : ""}`).join(" ／ ");
+      const said = r => (r.changes || []).concat(r.asks || []).join(" / ");
+      let r = await run([["毎日22時に日記を書く", 15, 9], ["今日は日記書いた", 15, 22, 30]]);
+      const d1 = state.items.find(i => i.kind === "event");
+      ok("DV. 「今日は日記書いた」で、毎日の日記の予定を今日のぶんだけ完了（くり返しは残る）",
+        d1.status === "open" && (d1.doneDays || []).join() === "2026-09-15" && /完了：日記を書く（09\/15 の分）/.test(said(r)), show(state.items) + " " + said(r));
+      ok("DV. 次の日の日記は、まだ済んでいない（予定表に出る）", !(d1.doneDays || []).includes("2026-09-16") && occursOn(d1, "2026-09-16", TZ), show(state.items));
+      r = await run([["毎週火曜9時に朝礼", 15, 8], ["朝礼終わった", 15, 10]]);
+      const d2 = state.items.find(i => i.kind === "event");
+      ok("DV. 「朝礼終わった」で、毎週の朝礼をその日のぶんだけ完了", d2.status === "open" && (d2.doneDays || []).join() === "2026-09-15", show(state.items));
+      r = await run([["毎週火曜9時に朝礼", 15, 8], ["朝礼終わった？", 15, 10]]);
+      ok("DV. 「朝礼終わった？」と聞いただけでは完了にしない", !(state.items[0].doneDays || []).length, show(state.items));
+      r = await run([["毎週火曜9時に朝礼", 15, 8], ["毎週金曜9時に朝礼", 15, 8, 1], ["朝礼終わった", 15, 10]]);
+      ok("DV. 同じ名前のくり返しが2つあるときは、どちらも勝手に完了にしない", state.items.every(i => !(i.doneDays || []).length), show(state.items));
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
