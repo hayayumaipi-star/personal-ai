@@ -263,6 +263,9 @@
 4f. **くり返しの予定は、項目を増やさずに組み立てる**。`repeat{kind,dow,dom,nth,month}` を1件だけ持ち、`occursOn()` が当たる日に `planFor` が**写して**作る（`occurCopy`・id は元のまま）。
    **見出しから「毎週」「毎月」「毎年」を落とす**（`RE_REPEAT_WORD`・印は `repeatJa()` のチップ）。**完了は「その日のぶん」だけ**（`doneDays`）・「この日はやらない」は `skipDays`。
    **時刻つきのくり返しは goal より先に予定と判定する。**
+   **終わりのあるくり返し**（2026-09-29・EA群）：`repeat.until`（その日まで・`repeatHits` が見る）。「来週月曜から金曜まで毎朝」「10月いっぱい」「年内は」「12月まで」「来週から3週間」は、
+   **時期の最初の回から始めて、終わりの日を持つ**（`repeatBound` / `applyRepeatBound`・前は時期の終わりの日＝12/31 から始めていた）。「来月から」は始まりだけ。「毎日22時までに」の「まで」は終わりではない。
+   印は「毎週水・10/31まで」（`repeatJa`）・Google へは `UNTIL`（`gcalRRule`）・AIの道も同じ読み（決まり7e）。
 4g. **何日も続く予定は、全部の日に出す**。時刻が無ければ `allDay`。**終日の枠は作業時間をふさがない**。終日は幅ゼロの帯で先頭に・時間軸を進めない・`.past` で薄くしない。
 4h. **予定どうしの重なりを黙って重ねない**。`planFor` が `conflicts` を返し、**タイムラインより下に**出す。どちらを動かすかは本人に選ばせる。
 4i. **午前・午後の判定は、AIが返した時刻にもかけること**。`applyFields` は同じ発言を `parseWhen` でも読み、**12時間ちょうどのズレならルールを採る**。
@@ -551,7 +554,7 @@ items/{id}     { noteId, kind, title, evidence{text,start,end},
                  travelMin, prepMin, endUnknown,      // event
                  allDay, spanEndKey,                  // 何日も続く予定・終日
                  winFrom, winTo,                      // 「6時から9時の間に」＝置いてよい時間帯（分）
-                 repeat{kind,dow,dom,nth,month}, doneDays[], skipDays[],   // くり返し（項目は1件のまま・kind は daily/weekday/weekly/biweekly/monthly/yearly・dom:-1＝月末・nth:-1＝最終）
+                 repeat{kind,dow,dom,nth,month,until}, doneDays[], skipDays[],   // くり返し（項目は1件のまま・kind は daily/weekday/weekly/biweekly/monthly/yearly・dom:-1＝月末・nth:-1＝最終）
                  whenAlt{start,end,dayKey},           // 午前/午後どちらとも読めたときの、もう一方
                  preferKey, preferValue, scopeDay, scopeEnd,   // preference（scopeEnd＝続く日の終わり・決まり0f）
                  selfReport, reportedAt,              // condition
@@ -674,13 +677,13 @@ localStorage "hitohi.gcal"  { on, email, lastSync, lastError, gone[] }   Google�
 
 - 抽出・計画・重複判定・ops を触ったら **必ず `tests/harness.js` を追記して実行**する。現在194件が通る。
 - **`tests/scenario.js` は一日ぶんの会話を1発言ずつ流す通し検証**（51件）。会話の扱いを変えたら必ずこれも実行する。
-- **`tests/probe.js` は境界と寿命の確認**（1786件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,119件）。
+- **`tests/probe.js` は境界と寿命の確認**（1800件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,133件）。
 - **`server/test.mjs` は中継サーバーの確認**（59件・`node server/test.mjs`・Node 22 以上）。`server/` を触ったら必ず流す。
 - **`tools/ai-eval/` は本物の Gemini で読み取りの質を比べる道具**（42件の正解つき＝1回の発言30・会話の続き12・`GEMINI_API_KEY` が要る・鍵なしなら `--configs rules`）。
   依頼文・考える深さ・モデルを変えたら流す。**鍵が無ければ「本物では測っていない」とそのまま言う。**
   **アプリを直したら `--reuse` で、前に呼んだ AI の答えのまま採点し直せる**（呼び直さない・同じ答えでアプリだけ比べられる）。
   **正解が減ったら、まず AI の答えそのものを見る**（2026-09-28 の3件は、AI は正しく、アプリが受け取るところで落としていた）。
-- **大きく変えたら、変える前の版と同じ入力で比べる**（2026-09-28）：ルールの読み取り（781文×5つの時刻）・会話の流れ（101本）・AIが返しそうな形（6通り）。
+- **大きく変えたら、変える前の版と同じ入力で比べる**（2026-09-28）：ルールの読み取り（790文×5つの時刻）・会話の流れ（101本）・AIが返しそうな形（6通り）。
   **道具は `tools/compare/run.py`**（`python3 tools/compare/run.py` でいまのファイルと HEAD を比べる・`--old` で前の版を選ぶ・AIは呼ばない・結果はリポジトリの外）。
   差が出たものを1件ずつ「良くなった／悪くなった／前からの弱点」に分ける。**テストが全部通っても、悪化は比べて初めて見つかった。**
   文を足すときは作った例文だけ（本人の生活データを入れない）。

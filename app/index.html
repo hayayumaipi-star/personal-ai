@@ -1783,6 +1783,8 @@ function parseRepeat(rawText) {
 }
 function repeatJa(r) {
   if (!r) return "";
+  // 終わりのあるくり返しは「毎週水・10/31まで」（2026-09-29）
+  if (isDate(r.until)) { const b = repeatJa(Object.assign({}, r, { until: null })); return b ? `${b}・${+r.until.slice(5, 7)}/${+r.until.slice(8)}まで` : ""; }
   if (r.kind === "daily") return "毎日";
   if (r.kind === "weekday") return "平日";
   if (r.kind === "biweekly") return "隔週";
@@ -1804,6 +1806,7 @@ function repeatHits(it, key, tz) {
   const r = it && it.repeat;
   if (!r) return false;
   if (it.dayKey && key < it.dayKey) return false;                 // 始まる前
+  if (isDate(r.until) && key > r.until) return false;             // 終わったあと（「10月いっぱい毎週水曜」・2026-09-29）
   const p = parts(keyToDate(key, tz), tz);
   const first = validISO(it.start) ? parts(new Date(it.start), tz) : (it.dayKey ? parts(keyToDate(it.dayKey, tz), tz) : null);
   const last = new Date(Date.UTC(p.y, p.mo, 0)).getUTCDate();    // その月の終わりの日
@@ -1863,6 +1866,41 @@ function firstOccur(base, fromKey, tz) {
   const f = repeatHits(probe, fromKey, tz) ? fromKey : stepOccur(probe, fromKey, tz, 1, 62);
   if (f && f < base.dayKey) Object.assign(base, occurCopy(base, f, tz), { occurDay: undefined, duePrecision: base.duePrecision });
   delete base.occurDay;
+}
+/* **終わりのあるくり返し**（2026-09-29・テスター21周目）。「来週月曜から金曜まで毎朝」「10月いっぱい毎週水曜」「年内は毎週月曜」「12月まで毎週金曜」「来週から3週間、毎週火曜」「来月から毎週水曜」。
+   前は、言った時期の**終わりの日**をくり返しの始まりにして（年内＝12/31から毎週月曜）、終わりは持てなかった。{from, until} を返す（until は無いこともある） */
+function repeatBound(text, w, noteDayKey, tz) {
+  const t = halfWidth(text);
+  if (!w || !isDate(w.dayKey)) return null;
+  const later = (a, b) => (a > b ? a : b);
+  if (w.spanEndKey && w.spanEndKey > w.dayKey) return { from: w.dayKey, until: w.spanEndKey, range: true };
+  const nm = /(\d{1,2})\s*(週間|か月|ヶ月|カ月|ケ月)(?!\s*(後|前|以上))/.exec(t);
+  if (nm && /から/.test(t)) {
+    let from = noteDayKey;
+    if (/来週から/.test(t)) { const dw = parts(keyToDate(noteDayKey, tz), tz).dow; from = addKey(noteDayKey, ((8 - dw) % 7) || 7); }
+    else if (w.periodFrom) from = w.dayKey;
+    const n = +nm[1];
+    let until;
+    if (/週間/.test(nm[2])) until = addKey(from, n * 7 - 1);
+    else { const [y, m, d] = from.split("-").map(Number), e = new Date(Date.UTC(y, m - 1 + n, d)); until = addKey(`${e.getUTCFullYear()}-${String(e.getUTCMonth() + 1).padStart(2, "0")}-${String(e.getUTCDate()).padStart(2, "0")}`, -1); }
+    return { from, until };
+  }
+  if (/(\d{1,2}\s*月|今月|来月|再来月)\s*(いっぱい|中|の間|のあいだ)/.test(t) && w.precision === "week") return { from: later(w.dayKey.slice(0, 8) + "01", noteDayKey), until: w.dayKey };
+  if (/(年内|今年いっぱい|今年中)/.test(t)) return { from: noteDayKey, until: w.dayKey.slice(0, 4) + "-12-31" };
+  if (/(\d{1,2}\s*月(末)?|\d{1,2}\s*[\/月]\s*\d{1,2}\s*日?|年末|月末|今月|来月|再来月|年度末)\s*(いっぱい)?\s*まで/.test(t) && w.dayKey > noteDayKey) return { from: noteDayKey, until: w.dayKey };
+  if (w.periodFrom) return { from: later(w.dayKey, noteDayKey), until: null };
+  return null;
+}
+/* くり返しを、その時期の最初の回から始め、終わりの日を持たせる。時期の中に回が無ければ何もしない */
+function applyRepeatBound(base, b, tz) {
+  if (!b || !base.repeat) return false;
+  const probe = { repeat: base.repeat, dayKey: b.from, start: base.start };
+  const f = repeatHits(probe, b.from, tz) ? b.from : stepOccur(probe, b.from, tz, 1, 400);
+  if (!f || (b.until && f > b.until)) return false;
+  Object.assign(base, occurCopy(base, f, tz));
+  delete base.occurDay; delete base.period; delete base.periodFrom; delete base.spanEndKey; delete base.allDay;
+  base.repeat = Object.assign({}, base.repeat, b.until ? { until: b.until } : {});
+  return true;
 }
 /* くり返しの、その日のぶんの写し（表示と予定表のため・id は元のまま）。 */
 function occurCopy(i, key, tz) {
@@ -2252,6 +2290,8 @@ function cleanTitle(s, when, opts) {
   t = t.replace(/^(?:朝|昼|夕方|夜|晩|午前中|午後)\s*まで(?:に)?\s*(?=\S{2})/, "");
   { const sw = /^([一-鿿ァ-ヴー]{2,6})[、,，]\s*([^、,，]{1,15})$/.exec(t); if (sw && RE_NOUN_TASK.test(sw[1])) t = sw[2] + sw[1]; }
   t = t.replace(RE_PILED, "");
+  // 終わりのあるくり返しの時期の言葉（「10月いっぱい」の「いっぱい」・「来週から3週間、」）は、くり返しの印（・10/31まで）に移したので見出しに残さない（2026-09-29）
+  t = t.replace(/^(?:いっぱい|中は|の間は|のあいだは|内は)[、,\s]*(?=\S{2})/, "").replace(/(?:^|(?<=\s))(?:(?:今週|来週|再来週|今月|来月)\s*)?から\s*\d{1,2}\s*(?:週間|か月|ヶ月|カ月|ケ月)(?:の間|のあいだ)?(?:は)?[、,]?\s*(?=\S{2})/, "");
   // 「子どもの習い事で送り」→「子どもの習い事の送り」・「胃カメラなので」→「胃カメラ」（2026-09-29・テスター19周目）
   t = t.replace(/^([一-鿿々ァ-ヴーぁ-ん]{2,20}?)で(送り迎え|送迎|送り|お迎え|迎え)$/, "$1の$2").replace(/(?<=[一-鿿々ァ-ヴー]{2})(?:なので|だから)$/, "");
   t = t.replace(/[、，,]\s*(?:する|やる|します|やります)$/, "");   // 「レポート、木曜までにする」の日付を落とした跡（「レポート、する」だった・2026-09-29）
@@ -2922,7 +2962,7 @@ function extractByRule(note, settings, opts) {
       base.title = said.length > 60 ? said.slice(0, 58) + "…" : said;
       base.reportedAt = note.capturedAt;      // 出典の日時。現在の事実として扱わない
       base.selfReport = said;                 // 本人の言葉そのまま（全角も原文のまま）
-    } else if (kind === "event" && w && w.precision === "week" && !w.hasTime && !w.spanEndKey) {
+    } else if (kind === "event" && w && w.precision === "week" && !w.hasTime && !w.spanEndKey && !(parseRepeat(s) || parseRepeat(line.text))) {   // くり返しは下で時期の最初の回から
       /* 「来月引っ越す」「今月中に歯医者」——日にちを言っていない予定を、その月・週の**最後の日**に置かない
          （2026-09-27・10/31 の時刻未定の予定になっていた）。いつかは決まっていないので、期限あいまいの用事にする（決まり2）。 */
       base.kind = "task"; base.fixed = false;
@@ -2960,11 +3000,12 @@ function extractByRule(note, settings, opts) {
       if (travelMin != null) base.travelMin = travelMin;
       // 午前とも午後とも読める時刻だった。もう一方を持っておいて、本人に選んでもらう
       if (w.altStart) base.whenAlt = { start: w.altStart, end: w.altEnd || null, dayKey: w.altDayKey, dateOnly: !!w.altDateOnly || undefined };
-      { const rep = parseRepeat(s) || parseRepeat(line.text); if (rep) { base.repeat = rep; firstOccur(base, noteDayKey, tz); } }
+      let bounded = false;
+      { const rep = parseRepeat(s) || parseRepeat(line.text); if (rep) { base.repeat = rep; firstOccur(base, noteDayKey, tz); bounded = applyRepeatBound(base, repeatBound(line.text, w, noteDayKey, tz), tz); } }
       /* 何日も続く予定（v4.3）。時刻を言われていなければ「終日」にする。
          終日の枠は**作業時間をふさがない**（旅行中でも読書はできる）。
          ふさいでほしいときは「その日は予定を入れないで」と言えば止まる。 */
-      if (w.spanEndKey) {
+      if (w.spanEndKey && !bounded) {
         const [ey, em, ed] = w.spanEndKey.split("-").map(Number);
         base.spanEndKey = w.spanEndKey;
         base.allDay = !w.hasTime;
@@ -3008,7 +3049,7 @@ function extractByRule(note, settings, opts) {
       if (w && w.routine) base.dayImplied = true;          // 日付は言っていない（決まり0l）。理由の文で「言っていました」と書かない
       if (w && w.altStart) base.whenAlt = { start: w.altStart, end: w.altEnd || null, dayKey: w.altDayKey, dateOnly: !!w.altDateOnly || undefined };
       { const rep = parseRepeat(s) || parseRepeat(line.text);
-        if (rep && base.dayKey) { base.repeat = rep; firstOccur(base, noteDayKey, tz); }
+        if (rep && base.dayKey) { base.repeat = rep; firstOccur(base, noteDayKey, tz); applyRepeatBound(base, repeatBound(line.text, w, noteDayKey, tz), tz); }
         else if (rep) base._repeatNoDay = repeatJa(rep);   // 「毎月美容院に行く」——何日か分からない。黙って1回きりにしない（決まり5）
       }
       // 食事は揃えた名前にして、その日の予定として置く
@@ -3360,7 +3401,15 @@ function gcalToItem(ev, tz) {
   return it;
 }
 /* この項目のくり返しを、Google の RRULE に写す（決まり4f・0p と同じ日に当たるように）。 */
+/* 終わりのあるくり返しは UNTIL を付ける（終日・時刻未定は日付の形、時刻つきは UTC の形・RFC 5545）（2026-09-29） */
 function gcalRRule(it, tz) {
+  const b = gcalRRuleBase(it, tz);
+  const u = it.repeat && it.repeat.until;
+  if (!b || !isDate(u)) return b;
+  if (it.allDay || it.timeUnknown) return b + ";UNTIL=" + u.replace(/-/g, "");
+  return b + ";UNTIL=" + zoned(...u.split("-").map(Number), 23, 59, tz).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+function gcalRRuleBase(it, tz) {
   const r = it.repeat; if (!r) return null;
   const BY = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
   const f = parts(new Date(it.start), tz);
@@ -8498,7 +8547,12 @@ async function applyOps(rawOps0, note) {
            その項目の根拠の文から読み、1件だけのときは発言まるごとからも読む。日付の無いものには付けない（ルールの道と同じ）。 */
         if ((it.kind === "task" || it.kind === "event") && it.dayKey && !it.repeat) {
           const rep = parseRepeat(readText(it.evidence && it.evidence.text || "")) || (soleAdd ? parseRepeat(readText(note.text || "")) : null);
-          if (rep) it.repeat = rep;
+          if (rep) {
+            it.repeat = rep;
+            // 終わりのあるくり返し（「年内は毎週月曜」）も、ルールの道と同じに読む——AIの日付（12/31 など）を始まりにしない（2026-09-29・決まり7e）
+            const src = readText(it.evidence && it.evidence.text || note.text || "");
+            applyRepeatBound(it, repeatBound(src, parseWhen(src, note.capturedAt, tz), dayKey(new Date(note.capturedAt), tz), tz), tz);
+          }
         }
       }
       // **本人の言葉と時刻を突き合わせる**（決まり6q）。ルールの項目もAIの項目も、ここを必ず通る
@@ -8919,7 +8973,8 @@ function applyFields(it, o, tz, note, opts) {
   /* **「春から」「来月ごろ」は、AIの道でもルールと同じに読む**（決まり0j・決まり7e）。
      AIは「新しい仕事」に 3/31 や 5/31 の期限を付けたり、時刻未定の予定にしたりする。
      時期しか言っていない（時刻が無い）発言で、用事が1件だけなら、ルールの読みに揃える。 */
-  if (opts && opts.soleAdd && rw && rw.periodJa && !rw.hasTime && (it.kind === "task" || it.kind === "event")) {
+  // くり返し（「10月中は毎週水曜に英会話」）は時期のあいまいな用事にしない——ルールの道と同じく、時期の最初の回から（2026-09-29）
+  if (opts && opts.soleAdd && rw && rw.periodJa && !rw.hasTime && (it.kind === "task" || it.kind === "event") && !parseRepeat(readText(note.text || ""))) {
     if (it.kind === "event") { it.kind = "task"; delete it.start; delete it.end; delete it.timeUnknown; delete it.endUnknown; it.fixed = false; }
     it.dayKey = rw.dayKey; it.due = rw.iso; it.duePrecision = "week"; it.dueIsDeadline = !!rw.isDeadline;
     it.period = rw.periodJa; if (rw.periodFrom) it.periodFrom = true; else delete it.periodFrom;

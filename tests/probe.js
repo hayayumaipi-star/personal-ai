@@ -8161,6 +8161,64 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EA. 終わりのあるくり返し（2026-09-29・テスター21周目）：来週月曜から金曜まで毎朝・10月いっぱい毎週水曜・年内は毎週月曜・12月まで・来週から3週間 ===== */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();   // 9/15 は火曜
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); let r = null; for (const [s, d, h, mi] of steps) r = await say(s, at(d, h, mi)); return r || { changes: [], asks: [] }; };
+      const hm = i => i.start && !i.timeUnknown && !i.allDay ? hhmm(minOfDay(i.start, TZ)) : "";
+      const show = its => its.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${hm(i) ? " " + hm(i) : ""}${i.end && i.start ? "〜" + hhmm(minOfDay(i.end, TZ)) : ""}${i.repeat ? "［" + repeatJa(i.repeat) + "］" : ""}`).join(" ／ ");
+      const on = (it, k) => occursOn(it, k, TZ);
+      await run([["来週月曜から金曜まで毎朝7時にジョギング", 15, 9]]);
+      let it = state.items[0];
+      ok("EA. 「来週月曜から金曜まで毎朝7時にジョギング」は9/21〜9/25の毎日7時（1時間・7時〜23:59の枠にしない）",
+        state.items.length === 1 && it.repeat && it.repeat.kind === "daily" && it.repeat.until === "2026-09-25" && it.dayKey === "2026-09-21" && hm(it) === "07:00" && (new Date(it.end) - new Date(it.start)) === 3600000, show(state.items));
+      ok("EA. その回は9/21〜9/25だけ（9/20・9/26には出ない）", on(it, "2026-09-21") && on(it, "2026-09-25") && !on(it, "2026-09-20") && !on(it, "2026-09-26"), show(state.items));
+      ok("EA. くり返しの印は「毎日・9/25まで」", repeatJa(it.repeat) === "毎日・9/25まで", repeatJa(it.repeat));
+      await run([["年内は毎週月曜19時に英会話", 15, 9]]);
+      it = state.items[0];
+      ok("EA. 「年内は毎週月曜19時に英会話」は次の月曜（9/21）から12/31まで（12/31から始めない）", it && it.dayKey === "2026-09-21" && it.repeat.until === "2026-12-31" && on(it, "2026-12-28") && !on(it, "2027-01-04"), show(state.items));
+      await run([["10月いっぱい毎週水曜にヨガ", 15, 9]]);
+      it = state.items[0];
+      ok("EA. 「10月いっぱい毎週水曜にヨガ」は10/7から10/31まで（見出しに「いっぱい」を残さない）", it && it.title === "ヨガ" && it.dayKey === "2026-10-07" && it.repeat.until === "2026-10-31" && !on(it, "2026-09-30") && !on(it, "2026-11-04"), show(state.items));
+      await run([["10月中は毎週水曜に英会話", 15, 9]]);
+      it = state.items[0];
+      ok("EA. 時刻の無い「10月中は毎週水曜に英会話」は時刻未定のくり返しの予定（10/7〜10/31・あいまいな用事にしない）", it && it.kind === "event" && it.timeUnknown && it.dayKey === "2026-10-07" && it.repeat.until === "2026-10-31", show(state.items));
+      await run([["12月まで毎週金曜にジム", 15, 9]]);
+      it = state.items[0];
+      ok("EA. 「12月まで毎週金曜にジム」は今週の金曜（9/18）から12/31まで", it && it.dayKey === "2026-09-18" && it.repeat.until === "2026-12-31", show(state.items));
+      await run([["来週から3週間、毎週火曜10時に研修", 15, 9]]);
+      it = state.items[0];
+      ok("EA. 「来週から3週間、毎週火曜10時に研修」は9/22・9/29・10/6の3回（見出しは「研修」）", it && it.title === "研修" && on(it, "2026-09-22") && on(it, "2026-10-06") && !on(it, "2026-10-13"), show(state.items));
+      await run([["来月から毎週水曜はヨガ", 15, 9]]);
+      it = state.items[0];
+      ok("EA. 「来月から毎週水曜はヨガ」は10月の最初の水曜（10/7）から（終わりは無い）", it && it.dayKey === "2026-10-07" && !it.repeat.until && on(it, "2026-12-30"), show(state.items));
+      await run([["毎日22時までに日記を書く", 15, 9]]);
+      it = state.items[0];
+      ok("EA. 「毎日22時までに日記を書く」の「まで」は終わりの日ではない", it && it.repeat && !it.repeat.until, show(state.items));
+      await run([["毎週水曜19時にヨガ", 15, 9]]);
+      ok("EA. 時期を言わない「毎週水曜19時にヨガ」は今までどおり（明日から・終わりなし）", state.items[0].dayKey === "2026-09-16" && !state.items[0].repeat.until, show(state.items));
+      // Google へ送るくり返しにも終わりを付ける
+      await run([["来週月曜から金曜まで毎朝7時にジョギング", 15, 9]]);
+      ok("EA. Google へ送るくり返しに UNTIL（9/25 の終わり）", /^RRULE:FREQ=DAILY;UNTIL=20260925T145900Z$/.test(gcalRRule(state.items[0], TZ) || ""), gcalRRule(state.items[0], TZ));
+      // AIの道：AIが「年内」を12/31の日付で返しても、次の月曜から
+      { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+        const text = "年内は毎週月曜19時に英会話";
+        const n = { id: uid(), text, hash: "ea" + Math.random(), capturedAt: at(15, 9), source: "talk", sourceName: null, createdAt: at(15, 9) };
+        await putNote(n);
+        await applyOps([{ op: "add", kind: "event", title: "英会話", dueDate: "2026-12-31", dueTime: "19:00", duePrecision: "exact", quote: text }], n);
+        it = state.items[0];
+        ok("EA. AIの道でも「年内は毎週月曜」は9/21から12/31まで", it && it.dayKey === "2026-09-21" && it.repeat && it.repeat.until === "2026-12-31", show(state.items)); }
+      { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+        const text = "10月中は毎週水曜に英会話";
+        const n = { id: uid(), text, hash: "ea" + Math.random(), capturedAt: at(15, 9), source: "talk", sourceName: null, createdAt: at(15, 9) };
+        await putNote(n);
+        await applyOps([{ op: "add", kind: "event", title: "英会話", dueDate: "2026-10-07", dueTime: null, duePrecision: "day", quote: text }], n);
+        it = state.items[0];
+        ok("EA. AIの道でも「10月中は毎週水曜に英会話」は予定のまま10/7〜10/31（時期のあいまいな用事にしない）", it && it.kind === "event" && it.dayKey === "2026-10-07" && it.repeat && it.repeat.until === "2026-10-31", show(state.items)); }
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
