@@ -1985,7 +1985,7 @@ function looksDurable(s) {
   return false;
 }
 const RE_GOAL  = /(目標|目指|なりたい|続けたい|習慣|毎日|毎朝|毎晩|週\d回|\d日(?:おき|置き|ごと)に|\d日に\s*\d\s*回|ようにしたい|していきたい|平日(?:の朝|の夜|は|の間)|痩せたい|やせたい|キロ(?:減らしたい|落としたい)|体重を(?:減らしたい|落としたい))/;
-const RE_COND  = /(疲れ|眠(い|く|れ|すぎ|たい|気)|やる気(が)?(出|で)ない|やる気ない|だる|体調|調子|寝(て|た(?!い)|られ|れ)|寝不足|寝つけ|寝付け|睡眠|頭痛|元気|集中(でき|が)|しんどい|回復|風邪|むくみ|食欲)/;
+const RE_COND  = /(疲れ|眠(い|く|れ|すぎ|たい|気)|やる気(が)?(出|で)ない|やる気ない|だる|体調|調子|寝(て|た(?!い)|られ|れ)|寝不足|寝つけ|寝付け|熱が(?:下がっ|引い)|睡眠|頭痛|元気|集中(でき|が)|しんどい|回復|風邪|むくみ|食欲)/;
 /* **体の不調の言い方**（2026-09-26・本人の指示）。「頭痛」は拾えるのに「頭が痛い」が拾えず、
    「今日は少し頭が痛い。」を言っても**何も記録されなかった**。
    ただし「頭が痛いから病院に行かないと」は用事なので、自分に課す言い方・「〜に行く」があるときは
@@ -7396,6 +7396,14 @@ async function setItemState(it, action, opts = {}) {
   } else if (action === "defer") {
     // くり返しの用事は日付を動かさない。dayKey はくり返しの始まりなので、動かすと次の回からずれる（決まり0p）
     if (it.repeat) return { ok: false, why: "repeat" };
+    /* 「今日は軽くしよう」で明日に回す（決まり15w）——締切が明日以降なら締切は動かさず、手を付ける日だけ明日へ（締切を手前に引かない） */
+    if (opts.lighten && isDate(opts.toDate) && isDate(it.dayKey) && it.dayKey >= opts.toDate) {
+      const from = it.targetDay || base;
+      it.targetDay = opts.toDate; it.corrected = true; it.confirmed = true;
+      note(it, `手を付ける日を ${from} から ${opts.toDate} へ（今日は軽くする）${tag}`);
+      await putItem(it);
+      return { ok: true, from, to: opts.toDate, hadDay: true, soft: true };
+    }
     const cur = it.dayKey || base, hadDay = !!it.dayKey;
     const to = isDate(opts.toDate) ? opts.toDate : addKey(cur, 1);
     const old = validISO(it.due) ? parts(new Date(it.due), tz) : null;
@@ -8224,6 +8232,14 @@ function ruleOpsEarly(note, text, q) {
     const near = prev && validISO(prev.capturedAt) && new Date(note.capturedAt) - new Date(prev.capturedAt) <= 3 * 3600000;
     return [{ op: "_norecord", noteId: near ? prev.id : null, _noRecord: true }];
   }
+  /* ⓪'' 「明日に回して」——直前の返事が「今日は軽くしよう」の案なら、その用事を明日へ（決まり15w）。
+     「うん」「お願い」だけでも、直前の返事が案のときだけ受ける（3時間まで）。案が無ければ、いつもの読み取りへ */
+  if (RE_LIGHTEN_YES.test(text.trim())) {
+    const last = turnsFor(day).filter(t => t.role === "assistant").pop(), off = last && last.lighten;
+    if (off && off.day === day && Array.isArray(off.ids) && off.ids.length && validISO(last.at)
+        && Math.abs(new Date(note.capturedAt) - new Date(last.at)) <= 3 * 3600000)
+      return [{ op: "_lighten", ids: off.ids.slice(0, 20), day: off.day, _lighten: true }];
+  }
   /* ⓪ 「朝型っていうのは忘れて」——覚えていること（わたしのこと・こうしてほしい・続けたいこと・気になっていること・メモ）を忘れる
      （2026-09-29・本人「LifeOS や OpenAI のメモリを調べ尽くして」。ChatGPT・Claude のメモリは会話で「忘れて」と言える。
      このアプリは「うん、聞いたよ」とだけ返して何もしていなかった＝決まり7「黙って無視しない」）。
@@ -8779,6 +8795,20 @@ async function applyOps(rawOps0, note) {
       changes.push(`記録から消す：直前の発言${r.items ? `（ここから作った${r.items}件も）` : ""}${r.quoted ? `（引用していた今週の気づき${r.quoted}件も）` : ""}`);
       /* AIの提供元へもう送った分は、ここからは取り消せない——言わずにいると「どこにも残っていない」と読める（同じ資料の「完全に消すには、残っている場所を全部」） */
       if (r.aiSeen) asks.push("この発言は読み取りのときにAIへ送っていたので、AIの提供元に届いた分はここからは取り消せません。");
+      continue;
+    }
+    if (o.op === "_lighten") {
+      const to = isDate(o.day) ? addKey(o.day, 1) : null, moved = [];
+      for (const id of (Array.isArray(o.ids) ? o.ids : []).slice(0, 20)) {
+        const it = findItem(id);
+        if (!to || !it || it.kind !== "task" || it.status !== "open" || it.repeat) continue;
+        const r = await setItemState(it, "defer", { base: o.day, toDate: to, lighten: true, via: "talk", at: note.capturedAt });
+        if (!r.ok) continue;
+        { const h = (it.history || []).slice(-1)[0]; if (h && !h.noteId) { h.noteId = note.id; await putItem(it); } }
+        touchId(it); touch(o.day); touch(to); moved.push(it.title);
+      }
+      if (moved.length) changes.push(`明日へ：${moved.slice(0, 3).join("、")}${moved.length > 3 ? `ほか${moved.length - 3}件` : ""}`);
+      else asks.push("明日に回せる用事は、もう残っていませんでした。");
       continue;
     }
     if (o.op === "_forget_ask") {
@@ -10126,6 +10156,9 @@ async function sendTurn(text) {
     /* 「今のは記録しないで」——消すのはルールが決める（AIの「こうしてほしい」の足しは入れない） */
     const nr = ro2.filter(o => o._noRecord);
     if (nr.length) ops = nr;
+    /* 「明日に回して」——今日を軽くする案への返事はルールが受ける（AIは直前の案を知らない） */
+    const lt = ro2.filter(o => o._lighten);
+    if (lt.length) ops = lt;
   }
   /* 「まだ聞いていないこと」の答え——AIの道でもルールの道でも、同じ関数で入れる（決まり7e）。組み立ての頼みには当てない */
   if (askKey && !parseDayRequest(note, tz)) ops = withAskAnswer(ops, note, askKey);
@@ -10186,8 +10219,9 @@ async function sendTurn(text) {
   // その日だけの希望（「早く寝る」「今日は詰めないで」）なら「これからは」と言わない（決まり6e）
   const prefOps = (ops || []).filter(o => o && o.op === "prefer");
   const prefDayOnly = prefOps.length > 0 && prefOps.every(o => isDate(o.scopeDay));
+  const lighten = lightenOffer(note);       // 体調がよくない日に、今日を軽くする案（決まり15w）
   const ctx = { changes, asks, kinds, plan, na, isToday: key === today, answer, feelingOnly, raw: clean, scheduleChanged, askedSchedule, learned, prefDayOnly,
-    sameNext: sameNext(prevAI, { plan: sn }) };
+    sameNext: sameNext(prevAI, { plan: sn }), lighten };
 
   /* **「◯日の予定に入れたよ」は、本当にその日に置かれたときだけ**（2026-09-21・実機で報告）。
      「明日までに資料を作る。できれば午前中に進めたい。」で、**明日には何も置いていない**のに
@@ -10218,6 +10252,7 @@ async function sendTurn(text) {
     if (answer) bits.push(answer);
     if (learned) bits.push(learned);
     if (dayNote) bits.push(dayNote);
+    if (lighten) bits.push(lighten.text);
     if (asks.length) bits.push(...asks);
     reply = bits.concat(tail).join("\n");
   } else {
@@ -10235,6 +10270,7 @@ async function sendTurn(text) {
     aiSent: useAI,                      // この発言をAIに送ったか（読み取りに使わなかったときも送ってはいる・「記録しないで」の断りに使う）
     aiText: [quickText, habit].filter(x => typeof x === "string" && x.trim()),   // AI が書いた部分だけ（報告に使う・決まり18）
     habitDay: applied.habitDay || null,
+    lighten: lighten ? { day: lighten.day, ids: lighten.ids } : null,   // 今日を軽くする案（「明日に回して」で受ける・決まり15w）
     showTable: shouldShowTable(ctx)     // 毎回は出さない
   });
   renderChat(true); renderDay(); renderMe(); renderSettings();
@@ -10244,6 +10280,34 @@ async function sendTurn(text) {
    質問への答えは、保存されている状態から計算する。AIの記憶に頼らない。
    ======================================================================= */
 const RE_NO_RECORD = /^(?:さっきの|今の|いまの|これ|それ|今言った(?:の|こと)?|さっき言った(?:の|こと)?)?\s*(?:は|も|、|,)?\s*(?:記録|保存)(?:は)?(?:しないで|しなくていい|しなくていいよ|しなくて大丈夫|しないでおいて|しないでね)(?:ほしい|ください)?[。！!]*$|^(?:さっきの|今の|いまの|これ|それ)\s*(?:は|も|、|,)?\s*(?:残さないで|残さなくていい|記録に残さないで)(?:ほしい|ください)?[。！!]*$/;
+/* ===== 体調に合わせて今日を軽くする（決まり15w・2026-09-30・本人「Bから進めて」＝Gemini との差をつける「無理させない秘書」）=====
+   その日の体調がよくないと言ったら、今日の急がない用事を明日に回す案を**1日に1回だけ**出す。動かすのは本人が「明日に回して」と言ったときだけ（決まり2）。
+   回すもの：今日やると言った用事（今日が締切のものは除く）・今日手を付けたいと言った用事（締切は先）。
+   回さないもの：今日が締切・時刻を言った用事・予定・くり返し・アプリの提案。体調は点数にしない（決まり3）。 */
+const RE_LOW_BODY = /(疲れ|眠い|眠れ(?:なかった|ない|なくて)|寝不足|寝つけ|寝付け|だる|しんど|つらい|辛い|体調が(?:悪|よくな|良くな)|具合が悪|気分が悪|吐き気|めまい|風邪|熱|頭痛|腹痛|痛い|痛くて|痛む|やる気(?:が)?(?:出|で)ない|元気が(?:ない|出ない))/;
+const RE_LOW_OK = /(よく眠れ|ぐっすり|元気(?!が(?:ない|出ない))|治った|楽になった|良くなった|よくなった|回復|すっきり|下がった|引いた)/;
+const RE_LIGHTEN_YES = /^(?:うん|はい|ええ|そうだね|そうしよう|お願い|おねがい)?[、,\s]*(?:(?:明日に?|あしたに?)(?:回して|まわして|回そう|回す|する)(?:ください|ほしい|おいて|といて)?|(?:回して|まわして)(?:ください|ほしい|おいて)?|(?:今日は)?軽くして(?:ください|ほしい)?|そうして(?:ください|ほしい)?|そうする|それで(?:お願い(?:します)?)?|お願い(?:します)?|うん|はい)[。！!\s]*$/;
+const RE_TODAY_DUE = /(今日中|今日まで|本日中|本日まで|今日のうち|きょう中|きょうまで)/;     // 「今日中に請求書を出す」は今日が締切（回さない）
+function lightenCands(day) {
+  return liveItems().filter(i => i.kind === "task" && i.status === "open" && !i.repeat && !i.suggested && !i.built && i.duePrecision !== "exact"
+    && ((i.dayKey === day && !i.dueIsDeadline && !RE_TODAY_DUE.test((i.evidence && i.evidence.text) || i.title)) || (i.targetDay === day && isDate(i.dayKey) && i.dayKey > day)));
+}
+function lightenOffer(note) {
+  const tz = state.settings.timezone, day = dayKey(new Date(note.capturedAt), tz);
+  const low = state.items.filter(i => i.kind === "condition" && i.noteId === note.id && i.status !== "dropped"
+    && validISO(i.reportedAt) && dayKey(new Date(i.reportedAt), tz) === day
+    && RE_LOW_BODY.test(i.selfReport || i.title || "") && !RE_LOW_OK.test(i.selfReport || i.title || ""));
+  if (!low.length) return null;
+  // 「明日は疲れそう」のように別の日の話なら出さない
+  const w = parseWhen(note.text, note.capturedAt, tz);
+  if (w && dateSpokenIn(w) && isDate(w.dayKey) && w.dayKey !== day) return null;
+  if (turnsFor(day).some(t => t.role === "assistant" && t.lighten)) return null;     // 1日に1回だけ（しつこくしない）
+  const c = lightenCands(day);
+  if (!c.length) return null;
+  const names = c.slice(0, 3).map(i => `「${i.title.slice(0, 20)}」`).join("、") + (c.length > 3 ? `ほか${c.length - 3}件` : "");
+  return { day, ids: c.map(i => i.id).slice(0, 20),
+    text: `今日は軽めにしよう。急がない${names}は明日に回せるよ。回すなら「明日に回して」と言ってね。` };
+}
 const FORGET_KINDS = ["profile", "preference", "goal", "idea", "memo"];
 const RE_FORGET = /^(.+?)(?:って(?:いう|言う|いった|言った)?(?:の|こと)|という(?:の|こと)|の?こと|の件)?(?:は|を|も)?(?:もう)?忘れて(?:ほしい|ください|下さい|くれ|いいよ|いい|OK|ok)?[。．.!！]*$/;
 const RE_FORGET_ASK = /(?:って(?:いう|言う|いった|言った)?(?:の|こと)|という(?:の|こと)|こと|の件)(?:は|を)?(?:もう)?忘れて|忘れて(?:ほしい|ください|下さい|くれ|いいよ|いい)/;
@@ -10600,7 +10664,7 @@ function templateReply(ctx) {
 
   if (feelingOnly && !changes.length) {
     // 気持ちを言っただけ。行動を押し付けない。
-    return "うん、聞いたよ。" + (na ? `無理のない範囲で、次は「${blockTitle(na.block)}」かな。` : "");
+    return "うん、聞いたよ。" + (ctx.lighten ? ctx.lighten.text : na ? `無理のない範囲で、次は「${blockTitle(na.block)}」かな。` : "");
   }
 
   if (!answer && only(["condition", "prefer", "profile", "memo", "idea"])) {
@@ -10627,10 +10691,11 @@ function templateReply(ctx) {
     else bits.push("うん、聞いたよ。予定はそのままにしてある。");
   }
 
+  if (ctx.lighten) bits.push(ctx.lighten.text);     // 今日を軽くする案を出すときは「次は〜から」を重ねない（決まり15w）
   const already = answer && na && answer.includes(blockTitle(na.block));
   // 「次は◯◯から」は、吹き出しの下の「次にすること」の欄と同じことを言う。
   // AIが無いときはこの文しか出ないので、ここでは今までどおり書く。
-  if (isToday && !already && na && !ctx.sameNext)
+  if (isToday && !already && na && !ctx.sameNext && !ctx.lighten)
     bits.push(`次は「${blockTitle(na.block)}」から。${hhmm(na.block.s)}に${durJa(na.block.e - na.block.s)}とっておいたよ。`);
   if (asks.length) bits.push(asks.join(" "));
   return bits.join(" ");

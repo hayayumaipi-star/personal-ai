@@ -9021,6 +9021,74 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== ET群：体調に合わせて今日を軽くする（決まり15w・2026-09-30・本人「Bから進めて」＝Gemini との差をつける「無理させない秘書」）=====
+       体調がよくないと言った日に、今日の急がない用事を明日に回す案を1日1回だけ出し、「明日に回して」と言われたときだけ動かす。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const keepAI = SAMPLEFN, keepTab = view.tab;
+      const at = (h, mi) => zoned(2026, 9, 15, h, mi || 0, TZ).getTime();   // 9/15 は火曜
+      const RealDateET = Date; let pinET = at(9);
+      window.Date = class extends RealDateET { constructor(...a) { if (a.length) super(...a); else super(pinET); } static now() { return pinET; } };
+      const all = () => Object.values(state.turns).flatMap(d => Array.isArray(d) ? d : (d && d.list) || []);
+      const last = () => all().filter(t => t.role === "assistant").pop() || {};
+      const said = () => last().text || "";
+      const talk = async (s, h, mi, ai) => { pinET = at(h, mi); SAMPLEFN = ai || null; await sendTurn(s); SAMPLEFN = keepAI; };
+      const run = async steps => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); for (const [s, h, mi, ai] of steps) await talk(s, h, mi, ai); };
+      const byT = re => state.items.find(i => re.test(i.title));
+      const show = () => state.items.map(i => `${i.status} ${i.kind}「${i.title}」${i.dayKey || ""}${i.targetDay ? " target:" + i.targetDay : ""}`).join(" ／ ");
+      const base = [["今日は部屋の掃除をする", 9, 0], ["今日中に請求書を出す", 9, 1], ["明日までに資料を作る。できれば今日中に進めたい。", 9, 2], ["14時から企画書を作る", 9, 3], ["毎日薬を飲む", 9, 4]];
+      await run(base);
+      // くり返しの用事（会話ではまだ作りにくいので、形を直接入れる）
+      state.items.push({ id: "et-rep", noteId: null, kind: "task", title: "植木に水をやる", status: "open", origin: "user", confirmed: true, corrected: false, history: [],
+        dayKey: "2026-09-15", duePrecision: "day", repeat: { kind: "daily" }, createdAt: new RealDateET(at(9, 5)).toISOString() });
+      await talk("寝不足でだるい", 10, 0);
+      const off = last().lighten;
+      ok("ET. 体調がよくないと言った日は、今日の急がない用事を明日に回す案を出す（今日が締切・時刻を言ったもの・くり返しは入れない）",
+         /今日は軽めにしよう/.test(said()) && /部屋の掃除をする/.test(said()) && /資料を作る/.test(said()) && !/請求書/.test(said()) && !/企画書/.test(said()) && !/植木/.test(said())
+         && !!off && off.day === "2026-09-15" && off.ids.length === 2, said() + " ｜ " + JSON.stringify(off));
+      { const naStub = { block: { s: 840, e: 900, type: "flex", item: { title: "企画書を作る", kind: "task" } } };
+        const tr = lt => templateReply({ changes: [], asks: [], plan: { blocks: [], unplaced: [] }, na: naStub, isToday: true, raw: "疲れた", kinds: ["condition"], lighten: lt });
+        ok("ET. 案を出す返事には「次は〜から」を重ねない（案が無ければ今までどおり付く）", !/次は「/.test(tr({ text: "今日は軽めにしよう。" })) && /次は「企画書を作る」/.test(tr(null)), tr({ text: "今日は軽めにしよう。" }) + " ｜ " + tr(null)); }
+      ok("ET. 案を出しただけでは、何も動かさない", byT(/掃除/).dayKey === "2026-09-15" && byT(/資料/).targetDay === "2026-09-15", show());
+      await talk("明日に回して", 10, 1);
+      const souji = byT(/掃除/), shiryo = byT(/資料/);
+      ok("ET. 「明日に回して」で、案に出した用事を明日へ（今日やると言った用事は日付ごと）", souji.dayKey === "2026-09-16" && souji.status === "open" && /明日へ/.test(said()), show() + " ｜ " + said());
+      ok("ET. 締切が先の用事は、締切を動かさず手を付ける日だけ明日へ", shiryo.dayKey === "2026-09-16" && shiryo.targetDay === "2026-09-16" && (shiryo.history || []).some(h => /今日は軽くする/.test(h.what)), show());
+      ok("ET. 今日が締切・時刻を言ったもの・くり返しは動かさない", byT(/請求書/).dayKey === "2026-09-15" && byT(/企画書/).dayKey === "2026-09-15" && byT(/植木/).dayKey === "2026-09-15" && !(byT(/植木/).skipDays || []).length, show());
+      await run([["今日は部屋の掃除をする", 9, 0], ["疲れた", 10, 0], ["大丈夫", 10, 1], ["頭も痛い", 11, 0]]);
+      ok("ET. 案は1日に1回だけ（回さなかった日に、また体調を言っても、もう聞かない）", !/軽めにしよう/.test(said()) && !last().lighten && byT(/掃除/).dayKey === "2026-09-15", said());
+      await run([["今日は部屋の掃除をする", 9, 0], ["疲れた", 10, 0], ["うん", 14, 0]]);
+      ok("ET. 案から3時間を過ぎた「うん」では回さない", byT(/掃除/).dayKey === "2026-09-15", show());
+      await run([["今日は部屋の掃除をする", 9, 0], ["頭痛が治った", 10, 0]]);
+      ok("ET. よくなった話（頭痛が治った）には出さない", state.items.some(i => i.kind === "condition") && !/軽めにしよう/.test(said()) && !last().lighten, said());
+      await run([["熱が下がった", 10, 0]]);
+      ok("ET. 「熱が下がった」は体調（前は何も記録しなかった）", state.items.length === 1 && state.items[0].kind === "condition", show());
+      // 「うん」だけでも、直前の返事が案のときだけ受ける
+      await run([["今日は部屋の掃除をする", 9, 0], ["疲れた", 10, 0], ["うん", 10, 1]]);
+      ok("ET. 直前の返事が案なら「うん」でも回す", byT(/掃除/).dayKey === "2026-09-16", show() + " ｜ " + said());
+      await run([["今日は部屋の掃除をする", 9, 0], ["疲れた", 10, 0], ["大丈夫", 10, 1], ["うん", 10, 2]]);
+      ok("ET. 案のあとに別の話をしたら、「うん」では回さない（「大丈夫」も回さない）", byT(/掃除/).dayKey === "2026-09-15", show());
+      await run([["今日は部屋の掃除をする", 9, 0], ["明日に回して", 10, 0]]);
+      ok("ET. 案が無いときの「明日に回して」で、勝手に回さない", byT(/掃除/).dayKey === "2026-09-15", show());
+      // 出さないとき
+      await run([["今日は部屋の掃除をする", 9, 0], ["よく眠れた", 10, 0]]);
+      ok("ET. 調子がいい話には出さない", !/軽めにしよう/.test(said()) && !last().lighten, said());
+      await run([["今日は部屋の掃除をする", 9, 0], ["明日は疲れそう", 10, 0]]);
+      ok("ET. 別の日の体調の話には出さない", !/軽めにしよう/.test(said()), said());
+      await run([["今日中に請求書を出す", 9, 0], ["疲れた", 10, 0]]);
+      ok("ET. 回せる用事が無ければ、案は出さない", !/軽めにしよう/.test(said()) && !last().lighten, said());
+      // AIの道：速い返事の下に案を足す・「明日に回して」はルールが受ける（AIの足しは捨てる）
+      const stub = () => Promise.resolve({ text: "それはしんどいね。" }); stub.json = () => Promise.resolve({ ops: [{ op: "add", kind: "task", title: "明日に回す", quote: "明日に回して" }], habit: "" });
+      const stubQ = () => Promise.resolve({ text: "つらいね。" }); stubQ.json = () => Promise.resolve({ ops: [], habit: "" });
+      await run([["今日は部屋の掃除をする", 9, 0], ["寝不足でだるい", 10, 0, stubQ]]);
+      ok("ET. AIの道でも、速い返事の下に案を足す", /つらいね/.test(said()) && /今日は軽めにしよう/.test(said()) && !!last().lighten, said());
+      await talk("明日に回して", 10, 1, stub);
+      ok("ET. AIの道でも「明日に回して」はルールが受け、AIの足し（「明日に回す」）は入れない", byT(/掃除/).dayKey === "2026-09-16" && !state.items.some(i => /明日に回す/.test(i.title)), show());
+      window.Date = RealDateET;
+      SAMPLEFN = keepAI; showTab(keepTab);
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
