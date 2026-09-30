@@ -4603,21 +4603,35 @@ async function wipeCollection(name) {
    前の「原文を消す」（`delnote`）は吹き出しの文を残していたが、ここでは吹き出しも消す（話した文がどこにも残らないように）。 */
 async function forgetNote(n) {
   let items = 0;
-  for (const it of state.items.filter(i => i.noteId === n.id)) {
+  /* 話した文を引用している「今週の気づき」も消す（2026-09-30・本人が渡した ChatGPT のメモリの資料：
+     「完全に消したい情報は、それが残っている場所を全部消す」。気づきは発言を一字一句引用して持っている＝決まり15o）。
+     ほかの発言にも同じ言葉があれば、その引用はそちらの根拠でもあるので残す。 */
+  const flat = s => String(s || "").replace(/\s+/g, " ");
+  const mine = flat(n.text), others = state.notes.filter(x => x.id !== n.id).map(x => flat(x.text));
+  const quoting = state.items.filter(i => i.kind === "insight" && (i.quotes || []).some(q => q && mine.includes(q) && !others.some(t => t.includes(q))));
+  const aiSeen = Object.values(state.turns).some(list => (list || []).some(t => t && t.replyTo === n.id && (t.aiSent || t.ai)));
+  let quoted = 0;
+  for (const it of state.items.filter(i => i.noteId === n.id).concat(quoting)) {
     if (!await deleteFromStore("items/" + it.id)) return { ok: false, items };
-    state.items = state.items.filter(x => x.id !== it.id); items++;
+    state.items = state.items.filter(x => x.id !== it.id);
+    if (it.kind === "insight" && it.noteId !== n.id) quoted++; else items++;
     await gcalForget(it);
   }
   if (!await deleteFromStore("notes/" + n.id)) { lsWrite(); return { ok: false, items }; }
   state.notes = state.notes.filter(x => x.id !== n.id);
+  await scrubTurns(n.id, true);
+  lsWrite();
+  return { ok: true, items, quoted, aiSeen };
+}
+/* 会話の吹き出しから、その発言を消す（`withReply` なら、それへの返事＝`replyTo` も）。原文を消す道は2つとも通す（`delnote`・`forgetNote`）。
+   前の「原文を消す」は吹き出しに話した文を残していた（2026-09-30・同じ資料と突き合わせて見つけた）。 */
+async function scrubTurns(noteId, withReply) {
   for (const k of Object.keys(state.turns)) {
-    const list = state.turns[k] || [], kept = list.filter(t => !(t && (t.noteId === n.id || t.replyTo === n.id)));
+    const list = state.turns[k] || [], kept = list.filter(t => !(t && (t.noteId === noteId || (withReply && t.replyTo === noteId))));
     if (kept.length === list.length) continue;
     state.turns[k] = kept;
     if (DB) { try { await DB.doc("turns/" + k).set({ day: k, list: kept }); } catch (e) { dbTrouble(e); } }
   }
-  lsWrite();
-  return { ok: true, items };
 }
 async function deleteFromStore(path) {
   if (!DB) return true;                        // 保存先が無いときは、手元だけで完結する
@@ -7574,7 +7588,7 @@ async function act(a, id, el) {
     const made = state.items.filter(x => x.noteId === id).length;
     const yes = await askConfirm({
       title: "この発言の原文を消しますか？",
-      body: `消すと、ここから作られた${made}件の項目の「根拠」がたどれなくなります。項目そのものは残ります。<br><br><span class="quote">${esc(n.text.slice(0, 120))}</span>`,
+      body: `会話の吹き出しからも消えます。ここから作られた${made}件の項目の「根拠」がたどれなくなります。項目そのものは残ります。<br><br><span class="quote">${esc(n.text.slice(0, 120))}</span>`,
       yes: "原文を消す", danger: true
     });
     if (!yes) return;
@@ -7582,7 +7596,9 @@ async function act(a, id, el) {
       renderSettings(); toast("保存先から消せませんでした。設定の「最後に起きた不具合」を見てください");
       return;
     }
-    state.notes = state.notes.filter(x => x.id !== id); lsWrite();
+    state.notes = state.notes.filter(x => x.id !== id);
+    await scrubTurns(id, false);       // 吹き出しの話した文も消す（項目が残るので、返事は残す）
+    lsWrite();
     closeSheet();                      // 消した原文の画面を開いたままにしない
     toast("原文を消しました");
     renderAll();
@@ -8693,7 +8709,9 @@ async function applyOps(rawOps0, note) {
       const r = await forgetNote(prev);
       if (!r.ok) { asks.push("保存先から消しきれなかったので、残りはそのままにしています。設定の「最後に起きた不具合」を見てください。"); continue; }
       /* 返事に中身を書き写さない（書けば、その返事が記録として残る） */
-      changes.push(`記録から消す：直前の発言${r.items ? `（ここから作った${r.items}件も）` : ""}`);
+      changes.push(`記録から消す：直前の発言${r.items ? `（ここから作った${r.items}件も）` : ""}${r.quoted ? `（引用していた今週の気づき${r.quoted}件も）` : ""}`);
+      /* AIの提供元へもう送った分は、ここからは取り消せない——言わずにいると「どこにも残っていない」と読める（同じ資料の「完全に消すには、残っている場所を全部」） */
+      if (r.aiSeen) asks.push("この発言は読み取りのときにAIへ送っていたので、AIの提供元に届いた分はここからは取り消せません。");
       continue;
     }
     if (o.op === "_forget_ask") {
@@ -10045,7 +10063,7 @@ async function sendTurn(text) {
     await pushTurn({
       id: uid(), role: "assistant", at: new Date().toISOString(), replyTo: note.id,
       text: "ごめん、読み取ったものを記録するところで止まってしまった。話した内容は残っているから、もう一度言い直してもらえる？",
-      changes: [], plan: null, ai: usedAI, error: "内部エラー：" + lastError, showTable: false
+      changes: [], plan: null, ai: usedAI, aiSent: useAI, error: "内部エラー：" + lastError, showTable: false
     });
     renderChat(true); renderSettings();
     return;
@@ -10133,6 +10151,7 @@ async function sendTurn(text) {
   await pushTurn({
     id: uid(), role: "assistant", text: reply, at: new Date().toISOString(), replyTo: note.id,   // どの発言への返事か（「今のは記録しないで」で一緒に消す）
     changes, plan: sn, ai: usedAI, aiQuiet: aiSaidNothing, error: err,
+    aiSent: useAI,                      // この発言をAIに送ったか（読み取りに使わなかったときも送ってはいる・「記録しないで」の断りに使う）
     aiText: [quickText, habit].filter(x => typeof x === "string" && x.trim()),   // AI が書いた部分だけ（報告に使う・決まり18）
     habitDay: applied.habitDay || null,
     showTable: shouldShowTable(ctx)     // 毎回は出さない

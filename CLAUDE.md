@@ -576,7 +576,7 @@ meta/settings  { timezone, workStart, workEnd（設定欄は無し・既定は�
                ※ `useAI` は廃止（決まり12b）。読むたびに落とすので、古い控えからも持ち越さない。
 notes/{id}     { text, hash, capturedAt, source, sourceName, createdAt }
 turns/{日付}    { day, list:[{id, role:'user'|'assistant', text, at,
-                             noteId, replyTo（返事がどの発言へのものか・2026-09-30 から）, changes[], plan(スナップショット), ai, error}] }
+                             noteId, replyTo（返事がどの発言へのものか・2026-09-30 から）, changes[], plan(スナップショット), ai, aiSent（AIに送ったか）, error}] }
 docs/{id}      { title, text, hash, chars, truncated, source:'paste'|'file',
                  sourceName, aiRead, createdAt }     // 本人が渡した資料そのもの
 items/{id}     { noteId, kind, title, evidence{text,start,end},
@@ -684,6 +684,9 @@ localStorage "hitohi.gcal"  { on, email, lastSync, lastError, gone[] }   Google�
 - **「今のは記録しないで」**（2026-09-30・本人「案2はおすすめどおりに」・EO群）：3時間以内の直前の発言を、そこから作った項目（**完全に消す**・Google に送った予定も `gcalForget`）・原文・
   会話の吹き出し（発言と、`replyTo` でつないだ返事）ごと消す（`RE_NO_RECORD` / `forgetNote`・消せなかったらそこから先は手元も消さない・返事に中身を書き写さない・AIの道でもルールが決める）。
   「これは記録しないで」を「こうしてほしい」にしない。「体重は記録しないで」は今までどおり希望。**記録しない時間（一時的な会話）は作らない**（決まり1・7とぶつかる）。
+- **消すときは、残っている場所を全部消す**（2026-09-30・本人が渡した ChatGPT のメモリの公式まとめ・EP群）：「記録しないで」は、その発言を一字一句引用している今週の気づきも消す
+  （ほかの発言にも同じ言葉があれば残す）／**「原文を消す」（`delnote`）も吹き出しの話した文を消す**（`scrubTurns`・返事と項目は残す）／
+  AIに送っていた発言なら「AIの提供元に届いた分は取り消せない」と言う（返事の `aiSent`＝この発言をAIに送ったか・読み取りに使ったか＝`ai` とは別）。
 - **「送ります」と言った量を、必ず読み切ること**（`AI_MAX_CHUNKS` は `DOC_MAX_CHARS` から出す・読み切れない分は先に言う）。Z群。
 
 ## 使われていないものを消すときの決まり
@@ -723,7 +726,7 @@ localStorage "hitohi.gcal"  { on, email, lastSync, lastError, gone[] }   Google�
 
 - 抽出・計画・重複判定・ops を触ったら **必ず `tests/harness.js` を追記して実行**する。現在194件が通る。
 - **`tests/scenario.js` は一日ぶんの会話を1発言ずつ流す通し検証**（51件）。会話の扱いを変えたら必ずこれも実行する。
-- **`tests/probe.js` は境界と寿命の確認**（1961件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,294件）。
+- **`tests/probe.js` は境界と寿命の確認**（1967件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,300件）。
 - **`server/test.mjs` は中継サーバーの確認**（59件・`node server/test.mjs`・Node 22 以上）。`server/` を触ったら必ず流す。
 - **`tools/ai-eval/` は本物の Gemini で読み取りの質を比べる道具**（42件の正解つき＝1回の発言30・会話の続き12・`GEMINI_API_KEY` が要る・鍵なしなら `--configs rules`）。
   依頼文・考える深さ・モデルを変えたら流す。**鍵が無ければ「本物では測っていない」とそのまま言う。**

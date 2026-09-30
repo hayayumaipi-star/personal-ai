@@ -8791,6 +8791,36 @@
       const stub = () => Promise.resolve({ text: "うん。" }); stub.json = () => Promise.resolve({ ops: [{ op: "prefer", key: "free", text: "これは記録しないで", quote: "これは記録しないで" }], habit: "" });
       await run(["明日10時に歯医者", "これは記録しないで"], stub);
       ok("EO. AIの道でも、消すのはルール（AIの「こうしてほしい」は入れない）", !state.items.some(i => i.kind === "preference") && !state.items.some(i => i.title === "歯医者"), state.items.map(i => i.kind + "「" + i.title + "」").join(","));
+
+      /* ===== EP群：本人が渡した ChatGPT のメモリの資料（公式ヘルプのまとめ）と突き合わせて直したもの（2026-09-30）=====
+         「完全に消したい情報は、それが残っている場所を全部消す」——引用している今週の気づき・「原文を消す」の吹き出し・AIに送った分の断り */
+      const insightsOf = () => state.items.filter(i => i.kind === "insight").map(i => i.title).join(",");
+      const seedIns = () => state.items.push({ id: uid(), noteId: null, kind: "insight", title: "体を動かすと軽くなるようです", quotes: ["散歩すると気分が軽くなる"], status: "open", origin: "ai", createdAt: new Date().toISOString(), history: [] },
+                       { id: uid(), noteId: null, kind: "insight", title: "朝は集中しやすいようです", quotes: ["仕事の前は集中できる"], status: "open", origin: "ai", createdAt: new Date().toISOString(), history: [] });
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null;
+      await sendTurn("仕事の前は集中できる"); await sendTurn("散歩すると気分が軽くなる"); seedIns();
+      await sendTurn("今のは記録しないで");
+      ok("EP. 消した発言を一字一句引用している「今週の気づき」も消し、返事でそう言う（ほかの気づきは残す）",
+         !/体を動かす/.test(insightsOf()) && /集中/.test(insightsOf()) && /引用していた今週の気づき1件も/.test(said()), insightsOf() + " ｜ " + said());
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null;
+      await sendTurn("散歩すると気分が軽くなる"); await sendTurn("仕事の前は集中できる"); await sendTurn("散歩すると気分が軽くなる。"); seedIns();
+      await sendTurn("今のは記録しないで");
+      ok("EP. 同じ言葉がほかの発言にもあれば、その気づきは残す（そちらの根拠でもある）", /体を動かす/.test(insightsOf()), insightsOf());
+      // AIに送っていた発言なら、提供元に届いた分は取り消せないと言う
+      const stub2 = () => Promise.resolve({ text: "うん。" }); stub2.json = () => Promise.resolve({ ops: [], habit: "" });
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      SAMPLEFN = stub2; await sendTurn("明日10時に歯医者"); SAMPLEFN = null; await sendTurn("今のは記録しないで"); SAMPLEFN = keepAI;
+      ok("EP. AIに送っていた発言を消したら、提供元に届いた分は取り消せないと言う", /AIの提供元に届いた分はここからは取り消せません/.test(said()), said());
+      await run(["明日10時に歯医者", "今のは記録しないで"]);
+      ok("EP. AIを使っていなければ、その断りは言わない", !/提供元/.test(said()), said());
+      // 「原文を消す」も、会話の吹き出しから話した文を消す（項目と返事は残す）
+      await run(["明日10時に歯医者", "おはよう"]);
+      const nd = state.notes.find(n => /歯医者/.test(n.text)), keepAsk = window.askConfirm;
+      let asked = ""; window.askConfirm = async o => { asked = String(o && o.body || ""); return true; }; await act("delnote", nd.id, null); window.askConfirm = keepAsk;
+      ok("EP. 「原文を消す」の確認に、吹き出しからも消えると書く", /会話の吹き出しからも消えます/.test(asked), asked.slice(0, 60));
+      ok("EP. 「原文を消す」で、吹き出しの話した文も消える（項目と返事は残る）",
+         !allTurns().some(t => t.role === "user" && /歯医者/.test(String(t.text))) && allTurns().some(t => t.role === "assistant" && /歯医者/.test(String(t.text)))
+         && state.items.some(i => i.title === "歯医者") && !state.notes.some(n => n.id === nd.id), allTurns().map(t => t.role[0] + ":" + String(t.text).slice(0, 16)).join(" ‖ "));
       gcalForget = keepForget; SAMPLEFN = keepAI; view.day = keepDay; view.chatDay = keepChat;
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
