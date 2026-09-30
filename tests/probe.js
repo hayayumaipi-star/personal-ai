@@ -8825,6 +8825,45 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EQ群：「こうしてほしい」も90日で聞き直す（2026-09-30・本人の指示「Bのこうしてほしいも聞き返すようにして」）=====
+       期間を言わずに頼んだ希望は、何か月たっても予定の組み方に効き続けていた。日を言った希望は、その日が過ぎれば効かないので聞かない。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const keepAI = SAMPLEFN, keepTab = view.tab;
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null;
+      const ago = n => new Date(Date.now() - n * 86400000).toISOString();
+      const pref = (title, key, at, extra) => Object.assign({ id: uid(), noteId: null, kind: "preference", title, preferKey: key, preferValue: true, scopeDay: null,
+        origin: "user", confirmed: true, corrected: false, status: "open", createdAt: at, updatedAt: at, history: [] }, extra || {});
+      const pOld = pref("会議の前は15分空けてほしい", "buffer", ago(100)), pNew = pref("夜は入れないでほしい", "noEveningWork", ago(10)),
+            pDay = pref("明日の夜は入れないで", "noEveningWork", ago(100), { scopeDay: dayKey(new Date(Date.now() - 99 * 86400000), TZ) });
+      state.items.push(pOld, pNew, pDay);
+      ok("EQ. 期間を言わずに頼んだ希望は、90日たったら「まだ合っていますか」の対象（前は聞かなかった）",
+         staleProfiles(new Date()).map(p => p.id).join() === pOld.id, staleProfiles(new Date()).map(p => p.title).join(","));
+      ok("EQ. 週に1回の見直しの「確かめたいこと」にも数える", reviewCounts(new Date()).stale === 1);
+      showTab("p-me");
+      const card = [...document.querySelectorAll('#p-me [data-act="stillok"]')].find(b => b.dataset.id === pOld.id);
+      const box = card && card.closest(".card");
+      ok("EQ. 「こうしてほしい」の印と「頼んでいたこと」で出し、直すボタンは出さない（訂正の種類に無いため）・もう違うは出す",
+         !!box && /こうしてほしい/.test(box.textContent) && /頼んでいたこと/.test(box.textContent) && !box.querySelector('[data-act="edit"]') && !!box.querySelector('[data-act="drop"]'),
+         box ? box.textContent.replace(/\s+/g, " ").slice(0, 80) : "カードが無い");
+      await act("stillok", pOld.id, null);
+      ok("EQ. 「まだ合っている」で、しばらく聞かない", !staleProfiles(new Date()).length && !!pOld.checkedAt);
+      pOld.checkedAt = null; pOld.createdAt = ago(100);
+      await act("drop", pOld.id, null);
+      ok("EQ. 「もう違う」で取り消すと、予定の組み方に効かなくなる", pOld.status === "dropped" && !prefs(dayKey(new Date(), TZ)).buffer, pOld.status);
+      // 言い直したら、そこから数え直す
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null;
+      await sendTurn("夜は予定を入れないでほしい");
+      const pv = state.items.find(i => i.kind === "preference");
+      if (pv) { pv.createdAt = ago(100); pv.updatedAt = ago(100); pv.checkedAt = null; }
+      const staleBefore = staleProfiles(new Date()).length;
+      await sendTurn("やっぱり夜は予定を入れないでほしい");
+      ok("EQ. 同じ希望を言い直したら、その日から数え直す（聞かない）", !!pv && staleBefore === 1 && !staleProfiles(new Date()).length && state.items.filter(i => i.kind === "preference").length === 1,
+         state.items.filter(i => i.kind === "preference").map(i => i.title + ":" + i.checkedAt).join(" / "));
+      SAMPLEFN = keepAI; showTab(keepTab);
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

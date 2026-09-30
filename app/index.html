@@ -6485,9 +6485,14 @@ function memoryAge(it, at) {
   const n = days >= 365 ? Math.floor(days / 365) + "年" : Math.floor(days / 30) + "か月";
   return `${n}前に${it.checkedAt ? "確かめた" : "言った"}`;
 }
+/* 「こうしてほしい」も聞き直す（2026-09-30・本人の指示「Bのこうしてほしいも聞き返すようにして」）。
+   期間を言わずに頼んだ希望（「会議の前は15分空けて」）は、何か月たっても予定の組み方に効き続けていた。
+   「明日だけ」「今週だけ」のように日を言った希望（scopeDay）は、その日が過ぎれば自然に効かなくなるので聞かない。
+   数え始めは頼んだ日（言い直したら・確かめたら、その日から）。消さない・薄めない（決まり15o）。 */
+const staleAsked = p => p.status === "open" && (p.kind === "profile" || (p.kind === "preference" && !p.scopeDay && !p.scopeEnd));
 function staleProfiles(now) {
   const lim = now.getTime() - STALE_DAYS * 86400000;
-  return state.items.filter(p => p.kind === "profile" && p.status === "open" && validISO(profileCheckedAt(p))
+  return state.items.filter(p => staleAsked(p) && validISO(profileCheckedAt(p))
       && new Date(profileCheckedAt(p)).getTime() < lim)
     .sort((a, b) => String(profileCheckedAt(a)).localeCompare(String(profileCheckedAt(b))));
 }
@@ -6727,11 +6732,11 @@ function renderMe() {
     h += `<div class="sect"><h2>まだ合っていますか？</h2>
       <p class="hint">しばらく前に聞いたことです。答えたものは、しばらく聞きません。</p></div>
       <div class="stack">${stale.map(p => `<div class="card stack">
-        <div class="meta"><span class="chip">${esc(p.category || "その他")}</span>
-          <span class="mono">${fmtDT(profileCheckedAt(p), tz)} に言っていたこと</span></div>
+        <div class="meta"><span class="chip">${esc(p.kind === "preference" ? "こうしてほしい" : (p.category || "その他"))}</span>
+          <span class="mono">${fmtDT(profileCheckedAt(p), tz)} に${p.kind === "preference" ? "頼んでいた" : "言っていた"}こと</span></div>
         <div class="ttl">${esc(p.title)}</div>
         <div class="row"><button class="btn sm pri" data-act="stillok" data-id="${p.id}">まだ合っている</button>
-          <button class="btn sm" data-act="edit" data-id="${p.id}">直す</button>
+          ${EDIT_KINDS.includes(p.kind) ? `<button class="btn sm" data-act="edit" data-id="${p.id}">直す</button>` : ""}
           <button class="btn sm" data-act="drop" data-id="${p.id}">もう違う</button></div></div>`).join("")}</div>`;
   }
   const insights = state.items.filter(i => i.kind === "insight" && i.status === "open")
@@ -9082,7 +9087,7 @@ async function applyOps(rawOps0, note) {
       const existing = liveItems().find(i => i.kind === "preference" && i.preferKey === key && key !== "free"
         && (i.scopeDay || null) === scopeDay && (i.scopeEnd || null) === scopeEnd
         && (key !== "noSuggest" || i.preferValue === value));
-      if (existing) { existing.preferValue = value; existing.title = text; existing.updatedAt = new Date().toISOString(); note2(existing, "言い直しで更新"); await putItem(existing); }
+      if (existing) { existing.preferValue = value; existing.title = text; existing.updatedAt = new Date().toISOString(); existing.checkedAt = note.capturedAt; note2(existing, "言い直しで更新"); await putItem(existing); }   // 言い直した＝いまも本当（聞き直しの数え直し）
       else {
         await putItem({
           id: uid(), noteId: note.id, kind: "preference", title: text, preferKey: key, scopeDay,
