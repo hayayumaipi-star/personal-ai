@@ -576,7 +576,7 @@ meta/settings  { timezone, workStart, workEnd（設定欄は無し・既定は�
                ※ `useAI` は廃止（決まり12b）。読むたびに落とすので、古い控えからも持ち越さない。
 notes/{id}     { text, hash, capturedAt, source, sourceName, createdAt }
 turns/{日付}    { day, list:[{id, role:'user'|'assistant', text, at,
-                             noteId, changes[], plan(スナップショット), ai, error}] }
+                             noteId, replyTo（返事がどの発言へのものか・2026-09-30 から）, changes[], plan(スナップショット), ai, error}] }
 docs/{id}      { title, text, hash, chars, truncated, source:'paste'|'file',
                  sourceName, aiRead, createdAt }     // 本人が渡した資料そのもの
 items/{id}     { noteId, kind, title, evidence{text,start,end},
@@ -681,6 +681,9 @@ localStorage "hitohi.gcal"  { on, email, lastSync, lastError, gone[] }   Google�
 - **前の日までの本人の発言もAIに渡す**（2026-09-30・本人「案1を取り入れて」・EN群）：前の3日（今日を除く）に話した文を新しい順に10件・1件120字・古い順に並べて依頼文のうしろへ
   （`PAST_SAID_DAYS` / `PAST_SAID_MAX`・`cx.pastSaid`）。**本人の発言だけ**（アプリの返事・貼り付けた資料は入れない）。前半に「ここから新しい項目を作らない」と書く。
   **送るものの説明は2か所とも直す**（わたしのことの「AIに送るのは…」・配る版の「Google アカウント」）。速い返事には渡していない。
+- **「今のは記録しないで」**（2026-09-30・本人「案2はおすすめどおりに」・EO群）：3時間以内の直前の発言を、そこから作った項目（**完全に消す**・Google に送った予定も `gcalForget`）・原文・
+  会話の吹き出し（発言と、`replyTo` でつないだ返事）ごと消す（`RE_NO_RECORD` / `forgetNote`・消せなかったらそこから先は手元も消さない・返事に中身を書き写さない・AIの道でもルールが決める）。
+  「これは記録しないで」を「こうしてほしい」にしない。「体重は記録しないで」は今までどおり希望。**記録しない時間（一時的な会話）は作らない**（決まり1・7とぶつかる）。
 - **「送ります」と言った量を、必ず読み切ること**（`AI_MAX_CHUNKS` は `DOC_MAX_CHARS` から出す・読み切れない分は先に言う）。Z群。
 
 ## 使われていないものを消すときの決まり
@@ -698,7 +701,7 @@ localStorage "hitohi.gcal"  { on, email, lastSync, lastError, gone[] }   Google�
   （.ics の読み込みは 2026-09-28 に外した。また外から読むものを足すときは、`TZID` を検算せず渡して1件でファイルまるごと落ちた前例を思い出すこと）
 - **極端な数値をそのまま入れない**（所要時間 1〜1440分・`need` は5分以上）。**その月に無い日を繰り上げない**（`dayInMonth`）。
 - **消えた証拠を「呼び出した回数」で数えない。消えたかどうかは読み直して確かめる。消せていないなら手元も消さない**（`deleteFromStore(path)`＝消せたときだけ true）。
-  **消す道は5つ**：`tidy` / `delnote` / `delitem` / `delDoc`（資料）/ `wipeCollection`。**毎回まとめて数え直すこと。** 保存先を触るテストは保存先を読み直すところまで。
+  **消す道は6つ**：`tidy` / `delnote` / `delitem` / `delDoc`（資料）/ `wipeCollection` / `forgetNote`（「今のは記録しないで」）。**毎回まとめて数え直すこと。** 保存先を触るテストは保存先を読み直すところまで。
 - **保存の失敗を握りつぶさない**（`lsWrite()` → `lsFailed` / `lastError`）。**バッジの色を変えるのは「知らせた」ことにならない**（`ok` → `local` の1回だけ `toast()`）。
 - **テストを本物の時計に依存させない**（完了が載る日で見る）。**「いま見ている日」と「会話が載っている日」を同じ変数で持たない**（`view.chatDay`）。
 - **開きっぱなしを想定する**（`startClock`・描き直すのは必要なときだけ＝`runningKey()`）。
@@ -720,13 +723,13 @@ localStorage "hitohi.gcal"  { on, email, lastSync, lastError, gone[] }   Google�
 
 - 抽出・計画・重複判定・ops を触ったら **必ず `tests/harness.js` を追記して実行**する。現在194件が通る。
 - **`tests/scenario.js` は一日ぶんの会話を1発言ずつ流す通し検証**（51件）。会話の扱いを変えたら必ずこれも実行する。
-- **`tests/probe.js` は境界と寿命の確認**（1951件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,284件）。
+- **`tests/probe.js` は境界と寿命の確認**（1961件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,294件）。
 - **`server/test.mjs` は中継サーバーの確認**（59件・`node server/test.mjs`・Node 22 以上）。`server/` を触ったら必ず流す。
 - **`tools/ai-eval/` は本物の Gemini で読み取りの質を比べる道具**（42件の正解つき＝1回の発言30・会話の続き12・`GEMINI_API_KEY` が要る・鍵なしなら `--configs rules`）。
   依頼文・考える深さ・モデルを変えたら流す。**鍵が無ければ「本物では測っていない」とそのまま言う。**
   **アプリを直したら `--reuse` で、前に呼んだ AI の答えのまま採点し直せる**（呼び直さない・同じ答えでアプリだけ比べられる）。
   **正解が減ったら、まず AI の答えそのものを見る**（2026-09-28 の3件は、AI は正しく、アプリが受け取るところで落としていた）。
-- **大きく変えたら、変える前の版と同じ入力で比べる**（2026-09-28）：ルールの読み取り（840文×5つの時刻）・会話の流れ（123本）・AIが返しそうな形（6通り）。
+- **大きく変えたら、変える前の版と同じ入力で比べる**（2026-09-28）：ルールの読み取り（841文×5つの時刻）・会話の流れ（124本）・AIが返しそうな形（6通り）。
   **道具は `tools/compare/run.py`**（`python3 tools/compare/run.py` でいまのファイルと HEAD を比べる・`--old` で前の版を選ぶ・AIは呼ばない・結果はリポジトリの外）。
   差が出たものを1件ずつ「良くなった／悪くなった／前からの弱点」に分ける。**テストが全部通っても、悪化は比べて初めて見つかった。**
   文を足すときは作った例文だけ（本人の生活データを入れない）。

@@ -8749,6 +8749,52 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EO群：「今のは記録しないで」（2026-09-30・本人「案2はおすすめどおりに」）=====
+       前は「これは記録しないで」が「こうしてほしい」として保存されていた。直前の発言を、項目・吹き出しごと消す（元に戻せない）。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const keepAI = SAMPLEFN, keepDel = deleteFromStore, keepForget = gcalForget, keepDay = view.day, keepChat = view.chatDay;
+      const allTurns = () => Object.values(state.turns).flatMap(d => Array.isArray(d) ? d : (d && d.list) || []);
+      const said = () => (allTurns().filter(t => t.role === "assistant").pop() || {}).text || "";
+      const run = async (lines, ai) => {
+        reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null;
+        for (const s of lines.slice(0, -1)) await sendTurn(s);
+        SAMPLEFN = ai || null; await sendTurn(lines[lines.length - 1]); SAMPLEFN = keepAI;
+      };
+      let forgot = [];
+      gcalForget = async it => { forgot.push(it.title); };
+      await run(["牛乳を買う", "明日10時に歯医者", "今のは記録しないで"]);
+      ok("EO. 「今のは記録しないで」で、直前の発言から作った項目を完全に消す（取り消しではない）",
+         state.items.length === 1 && state.items[0].title === "牛乳を買う" && !state.items.some(i => i.title === "歯医者"), state.items.map(i => i.title + ":" + i.status).join(","));
+      ok("EO. 直前の発言の原文も消す", !state.notes.some(n => /歯医者/.test(n.text)) && state.notes.some(n => n.text === "牛乳を買う"), state.notes.map(n => n.text).join("|"));
+      ok("EO. 会話の吹き出し（発言とその返事）からも消える", !allTurns().some(t => /歯医者/.test(String(t.text))) && allTurns().some(t => t.text === "牛乳を買う"),
+         allTurns().map(t => t.role[0] + ":" + String(t.text).slice(0, 20)).join(" ‖ "));
+      ok("EO. 返事は中身を書き写さずに消したと言う", /記録から消す：直前の発言（ここから作った1件も）/.test(said()) && !/歯医者/.test(said()), said());
+      ok("EO. Google に送っていた予定も、その1件を消しにいく", forgot.includes("歯医者"), forgot.join(","));
+      await run(["明日10時に歯医者", "これは記録しないで"]);
+      ok("EO. 「これは記録しないで」を「こうしてほしい」にしない", !state.items.some(i => i.kind === "preference") && !state.items.some(i => i.title === "歯医者"), state.items.map(i => i.kind + "「" + i.title + "」").join(","));
+      await run(["明日10時に歯医者", "体重は記録しないで"]);
+      ok("EO. 「体重は記録しないで」は今までどおり希望（直前を消さない）", state.items.some(i => i.title === "歯医者") && state.items.some(i => i.kind === "preference"), state.items.map(i => i.kind + "「" + i.title + "」").join(","));
+      // 3時間より前の発言は消さない
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null;
+      const old = new Date(Date.now() - 4 * 3600000).toISOString();
+      const on = { id: uid(), text: "明日10時に歯医者", hash: "eo1", capturedAt: old, source: "talk", createdAt: old };
+      await putNote(on); await applyOps(ruleOps(on), on);
+      await sendTurn("今のは記録しないで");
+      ok("EO. 3時間より前の発言は消さず、消せないと言う", state.items.some(i => i.title === "歯医者") && state.notes.some(n => n.id === on.id) && /見つかりませんでした/.test(said()), said());
+      // 保存先から消せなかったら、手元も消さない
+      deleteFromStore = async () => false;
+      await run(["明日10時に歯医者", "今のは記録しないで"]);
+      deleteFromStore = keepDel;
+      ok("EO. 保存先から消せなかったら、手元も消さずにそう言う", state.items.some(i => i.title === "歯医者") && state.notes.some(n => /歯医者/.test(n.text)) && /消しきれなかった/.test(said()), said());
+      // AIの道でも、ルールが決める
+      const stub = () => Promise.resolve({ text: "うん。" }); stub.json = () => Promise.resolve({ ops: [{ op: "prefer", key: "free", text: "これは記録しないで", quote: "これは記録しないで" }], habit: "" });
+      await run(["明日10時に歯医者", "これは記録しないで"], stub);
+      ok("EO. AIの道でも、消すのはルール（AIの「こうしてほしい」は入れない）", !state.items.some(i => i.kind === "preference") && !state.items.some(i => i.title === "歯医者"), state.items.map(i => i.kind + "「" + i.title + "」").join(","));
+      gcalForget = keepForget; SAMPLEFN = keepAI; view.day = keepDay; view.chatDay = keepChat;
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

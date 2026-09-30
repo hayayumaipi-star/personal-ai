@@ -4597,6 +4597,28 @@ async function wipeCollection(name) {
    同じ穴が別々に開いていた（実際、v4.8 で直したのは「全部消す」だけだった）。
    手元から消すのは、これが true を返してから。
    **名前は `delDoc`（資料を消す）と間違えないこと。**こちらは保存先の1文書を消すだけ。 */
+/* 「今のは記録しないで」——1つの発言を、そこから作った項目・会話の吹き出し（発言とその返事）ごと消す（2026-09-30）。
+   取り消し（dropped）では根拠の文が残るので、項目は**完全に消す**（Google に送った予定もその1件ずつ消す＝`gcalForget`・決まり17）。
+   **消せなかったら、そこから先は手元も消さない**（消えた証拠は読み直して確かめる型・`deleteFromStore` が true のときだけ）。
+   前の「原文を消す」（`delnote`）は吹き出しの文を残していたが、ここでは吹き出しも消す（話した文がどこにも残らないように）。 */
+async function forgetNote(n) {
+  let items = 0;
+  for (const it of state.items.filter(i => i.noteId === n.id)) {
+    if (!await deleteFromStore("items/" + it.id)) return { ok: false, items };
+    state.items = state.items.filter(x => x.id !== it.id); items++;
+    await gcalForget(it);
+  }
+  if (!await deleteFromStore("notes/" + n.id)) { lsWrite(); return { ok: false, items }; }
+  state.notes = state.notes.filter(x => x.id !== n.id);
+  for (const k of Object.keys(state.turns)) {
+    const list = state.turns[k] || [], kept = list.filter(t => !(t && (t.noteId === n.id || t.replyTo === n.id)));
+    if (kept.length === list.length) continue;
+    state.turns[k] = kept;
+    if (DB) { try { await DB.doc("turns/" + k).set({ day: k, list: kept }); } catch (e) { dbTrouble(e); } }
+  }
+  lsWrite();
+  return { ok: true, items };
+}
 async function deleteFromStore(path) {
   if (!DB) return true;                        // 保存先が無いときは、手元だけで完結する
   try { await DB.doc(path).delete(); return true; }
@@ -8114,6 +8136,15 @@ function ruleOps(note) {
    当たったら ops を返し、ふつうの読み取りはしない。当たらなければ null。 */
 function ruleOpsEarly(note, text, q) {
   const tz = state.settings.timezone, day = dayKey(new Date(note.capturedAt), tz);
+  /* ⓪' 「今のは記録しないで」——直前の発言を、そこから作った項目・会話の吹き出しごと消す（2026-09-30・本人「案2はおすすめどおりに」・`docs/記憶の調査.md` の4）。
+     前は「これは記録しないで」が「こうしてほしい」として保存されていた。相手は3時間以内の直前の発言だけ（名前を言わない言い直しと同じ幅）。 */
+  if (RE_NO_RECORD.test(text.trim())) {
+    // 同じ時刻なら、あとから保存したほうが直前（並べ替えは安定なので、逆順にしてから時刻で並べる）
+    const prev = state.notes.filter(n => n.id !== note.id && String(n.capturedAt) <= String(note.capturedAt)).reverse()
+      .sort((a, b) => String(b.capturedAt).localeCompare(String(a.capturedAt)))[0];
+    const near = prev && validISO(prev.capturedAt) && new Date(note.capturedAt) - new Date(prev.capturedAt) <= 3 * 3600000;
+    return [{ op: "_norecord", noteId: near ? prev.id : null, _noRecord: true }];
+  }
   /* ⓪ 「朝型っていうのは忘れて」——覚えていること（わたしのこと・こうしてほしい・続けたいこと・気になっていること・メモ）を忘れる
      （2026-09-29・本人「LifeOS や OpenAI のメモリを調べ尽くして」。ChatGPT・Claude のメモリは会話で「忘れて」と言える。
      このアプリは「うん、聞いたよ」とだけ返して何もしていなかった＝決まり7「黙って無視しない」）。
@@ -8656,6 +8687,15 @@ async function applyOps(rawOps0, note) {
   const touchId = it => { if (it && it.id && touched.indexOf(it.id) < 0) touched.push(it.id); };
   for (const o of (Array.isArray(rawOps) ? rawOps : [])) {
     if (!o || typeof o !== "object") continue;
+    if (o.op === "_norecord") {
+      const prev = o.noteId ? state.notes.find(n => n.id === o.noteId) : null;
+      if (!prev) { asks.push("記録から消せる直前の発言が見つかりませんでした（消せるのは3時間以内の直前の発言だけです）。それより前の発言は、会話の「原文」から消せます。"); continue; }
+      const r = await forgetNote(prev);
+      if (!r.ok) { asks.push("保存先から消しきれなかったので、残りはそのままにしています。設定の「最後に起きた不具合」を見てください。"); continue; }
+      /* 返事に中身を書き写さない（書けば、その返事が記録として残る） */
+      changes.push(`記録から消す：直前の発言${r.items ? `（ここから作った${r.items}件も）` : ""}`);
+      continue;
+    }
     if (o.op === "_forget_ask") {
       const said = String(o.said || "").slice(0, 20), names = Array.isArray(o.names) ? o.names.slice(0, 3) : [];
       asks.push(names.length > 1
@@ -9984,6 +10024,9 @@ async function sendTurn(text) {
     /* 「〜は忘れて」——覚えていることを忘れるのはルールが決める（当たりが1つのときだけ・AIが新しく足したり別のものを消したりしない） */
     const fg = ro2.filter(o => o._forget);
     if (fg.length) ops = fg;
+    /* 「今のは記録しないで」——消すのはルールが決める（AIの「こうしてほしい」の足しは入れない） */
+    const nr = ro2.filter(o => o._noRecord);
+    if (nr.length) ops = nr;
   }
   /* 「まだ聞いていないこと」の答え——AIの道でもルールの道でも、同じ関数で入れる（決まり7e）。組み立ての頼みには当てない */
   if (askKey && !parseDayRequest(note, tz)) ops = withAskAnswer(ops, note, askKey);
@@ -10000,7 +10043,7 @@ async function sendTurn(text) {
     const el = document.getElementById("thinking"); if (el) el.remove();
     const rr = document.getElementById("reading"); if (rr) rr.parentElement.remove();
     await pushTurn({
-      id: uid(), role: "assistant", at: new Date().toISOString(),
+      id: uid(), role: "assistant", at: new Date().toISOString(), replyTo: note.id,
       text: "ごめん、読み取ったものを記録するところで止まってしまった。話した内容は残っているから、もう一度言い直してもらえる？",
       changes: [], plan: null, ai: usedAI, error: "内部エラー：" + lastError, showTable: false
     });
@@ -10088,7 +10131,7 @@ async function sendTurn(text) {
   const t = document.getElementById("thinking"); if (t) t.remove();
   const r2 = document.getElementById("reading"); if (r2) r2.parentElement.remove();
   await pushTurn({
-    id: uid(), role: "assistant", text: reply, at: new Date().toISOString(),
+    id: uid(), role: "assistant", text: reply, at: new Date().toISOString(), replyTo: note.id,   // どの発言への返事か（「今のは記録しないで」で一緒に消す）
     changes, plan: sn, ai: usedAI, aiQuiet: aiSaidNothing, error: err,
     aiText: [quickText, habit].filter(x => typeof x === "string" && x.trim()),   // AI が書いた部分だけ（報告に使う・決まり18）
     habitDay: applied.habitDay || null,
@@ -10100,6 +10143,7 @@ async function sendTurn(text) {
 /* =======================================================================
    質問への答えは、保存されている状態から計算する。AIの記憶に頼らない。
    ======================================================================= */
+const RE_NO_RECORD = /^(?:さっきの|今の|いまの|これ|それ|今言った(?:の|こと)?|さっき言った(?:の|こと)?)?\s*(?:は|も|、|,)?\s*(?:記録|保存)(?:は)?(?:しないで|しなくていい|しなくていいよ|しなくて大丈夫|しないでおいて|しないでね)(?:ほしい|ください)?[。！!]*$|^(?:さっきの|今の|いまの|これ|それ)\s*(?:は|も|、|,)?\s*(?:残さないで|残さなくていい|記録に残さないで)(?:ほしい|ください)?[。！!]*$/;
 const FORGET_KINDS = ["profile", "preference", "goal", "idea", "memo"];
 const RE_FORGET = /^(.+?)(?:って(?:いう|言う|いった|言った)?(?:の|こと)|という(?:の|こと)|の?こと|の件)?(?:は|を|も)?(?:もう)?忘れて(?:ほしい|ください|下さい|くれ|いいよ|いい|OK|ok)?[。．.!！]*$/;
 const RE_FORGET_ASK = /(?:って(?:いう|言う|いった|言った)?(?:の|こと)|という(?:の|こと)|こと|の件)(?:は|を)?(?:もう)?忘れて|忘れて(?:ほしい|ください|下さい|くれ|いいよ|いい)/;
