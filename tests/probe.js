@@ -8711,6 +8711,44 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EN群：前の日までの本人の発言もAIに渡す（2026-09-30・本人「案1を取り入れて」）=====
+       前は今日の直前6発言だけで、「昨日の続きやる」「昨日言った店」が何か分からなかった。本人の発言だけ・前の3日・10件まで。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const keepAI = SAMPLEFN;
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      const at = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).toISOString();
+      const mk = (text, iso, src) => ({ id: uid(), text, hash: "en" + Math.random(), capturedAt: iso, source: src || "talk", createdAt: iso });
+      state.notes.push(mk("4日前の話", at(16, 21)), mk("3日前の話", at(17, 21)), mk("明日の会議の資料、半分できた", at(19, 21, 10)),
+        mk("貼り付けた資料の中身", at(19, 22), "paste"), mk("今日さっきの話", at(20, 8)), mk("長い".repeat(100), at(19, 23)));
+      const n = mk("昨日の続きやる", at(20, 9));
+      const cx = contextForAI(n), bp = buildPrompt(n, cx);
+      ok("EN. 前の3日の本人の発言を、古い順に渡す（前は今日の分だけ）",
+         cx.pastSaid.length === 3 && /3日前の話/.test(cx.pastSaid[0]) && /明日の会議の資料、半分できた/.test(cx.pastSaid[1]) && /^9\/19 21:10/.test(cx.pastSaid[1]), JSON.stringify(cx.pastSaid));
+      ok("EN. 4日より前・今日の分・貼り付けた資料は入れない",
+         !cx.pastSaid.some(s => /4日前|今日さっき|貼り付けた/.test(s)), JSON.stringify(cx.pastSaid));
+      ok("EN. 1件は120字まで", cx.pastSaid.some(s => s.endsWith("「" + "長い".repeat(60) + "」")), cx.pastSaid[2]);
+      ok("EN. 依頼文のうしろ（毎回変わる側）に欄として載り、ここから項目を作らないと前半に書く",
+         bp.indexOf("【前の日までの本人の発言（3日ぶん・古い順）】") > bp.indexOf(PROMPT_TAIL_MARK) && /明日の会議の資料、半分できた/.test(bp)
+         && bp.indexOf("ここから新しい項目を作らないでください") > 0 && bp.indexOf("ここから新しい項目を作らないでください") < bp.indexOf(PROMPT_TAIL_MARK));
+      for (let i = 0; i < 14; i++) state.notes.push(mk("前の日の発言" + i, at(18, 8, i)));
+      const cx2 = contextForAI(n);
+      ok("EN. 新しい順に10件まで（古いほうから落ちる）", cx2.pastSaid.length === 10 && /明日の会議の資料/.test(cx2.pastSaid.join()) && !/前の日の発言0」/.test(cx2.pastSaid.join()), cx2.pastSaid.length + "件");
+      state.notes = [mk("今日の話", at(20, 8))];
+      const cx3 = contextForAI(n);
+      ok("EN. 前の日の発言が無ければ、欄ごと出さない", cx3.pastSaid.length === 0 && !/【前の日までの本人の発言（/.test(buildPrompt(n, cx3)));
+      // 画面の「AIに送るのは…」も合わせる（新しい外部送信の決まり）
+      SAMPLEFN = keepAI || (() => Promise.resolve({ text: "" })); showTab("p-me");
+      ok("EN. 「わたしのこと」の送るものの説明に、前の3日に話したことが載る", /前の3日に話したこと（10件まで）/.test($("#p-me").textContent), $("#p-me").textContent.slice(-160));
+      SAMPLEFN = keepAI;
+      { const box = document.createElement("div"); document.body.appendChild(box);
+        const keepCap = gcalCap, keepAcct = acct.ok; gcalCap = true; acct.ok = false;
+        try { renderAccount(null, box); } catch (e) { box.textContent = "落ちた：" + e.message; }
+        ok("EN. 配る版の「Google アカウント」の、ログイン前の送るものの説明にも載る", /前の3日に話したことも10件まで/.test(box.textContent), box.textContent.slice(0, 120));
+        gcalCap = keepCap; acct.ok = keepAcct; box.remove(); }
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
