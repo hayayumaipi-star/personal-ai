@@ -1963,10 +1963,14 @@ function profileCategory(s) {
    **文の終わりが傾向の言葉**のときだけ拾う。「Aタイプの資料を作る」のように途中にあるものは用事のまま。 */
 // 「朝型の人間だと思う」「夜型なんです」も（2026-09-27・何も記録されていなかった）
 const RE_PROFILE_END = /(タイプ|体質|性格|しがち|傾向がある|癖がある|になりやすい|(?:朝型|夜型)(?:の人間|人間)?)(だ|です|なんだ|なんです|みたい|らしい|だと思う|だと思います|かも)?(よね|ね|な)?[。！!…\s]*$/;
+/* 「最近は夜型になった」「人混みも平気になった」「コーヒーが飲めなくなった」——**変わったこと**も、わたしのこと（2026-09-30・食い違いの置き換えを作っていて見つけた。
+   何も記録されず、前の「朝型」が残り続けていた）。文の終わりが変わった形のときだけ。 */
+const RE_PROFILE_CHANGE = /(?:朝型|夜型|好き|大好き|嫌い|苦手|得意|平気|大丈夫)(?:に|く)?(?:なった|なってきた|なりました|なってきました)|(?:飲め|食べられ|でき)(?:なくなった|なくなってきた|るようになった|るようになりました|なくなりました)(?=[。．.！!]*$)/;
 function looksDurable(s) {
   if (RE_TODAYISH.test(s)) return false;
   if (RE_PROFILE.test(s)) return true;
   if (RE_PROFILE_END.test(s)) return true;
+  if (RE_PROFILE_CHANGE.test(s) && /(?:なった|なってきた|なりました|なってきました)[。．.！!]*$/.test(s)) return true;
   if (RE_PROFILE_SELF.test(s) && RE_PROFILE_TREND.test(s)) return true;
   return false;
 }
@@ -2496,6 +2500,8 @@ function classify(rawS, lineWhen) {
   const asks = x => RE_QUESTION_END.test(x) || RE_ASK.test(x);
   // 「メモして：駐車場はB2」——はっきり書き留めてと頼んだ文はメモ（2026-09-29・何も記録されていなかった）。日時を言っていれば今までどおり（「メモ：明日10時歯医者」は予定）
   if (RE_MEMO_HEAD.test(full) && !lineWhen && !RE_SAID_WHEN.test(full)) return "memo";
+  // 「コーヒーが飲めなくなった」——変わったことは、否定の形でも済んだ話でもなく、わたしのこと（2026-09-30・メモになっていた）
+  if (RE_PROFILE_CHANGE.test(full) && looksDurable(full) && !RE_SELFTASK.test(full) && !asks(full)) return "profile";
   // 日付を言っていない「午前中に大事な予定は入れないでほしい」は、ずっとの希望（枠にしない・用事にもしない・2026-09-29）
   if (RE_REST_DAY.test(full) && restWindowOf(full) && !RE_CLOCK.test(full) && !(lineWhen && (lineWhen.timeOnly || lineWhen.routine))) return "event";   // 「明日の午後は空けておいて」（日付が無ければ extractByRule が枠にしない）
   /* 話題を「〜して、」で分けた前半（「掃除して、夜は映画」の「掃除して、」）は、**判定のときだけ**言い切り（〜する）として読む（決まり0e ⑦・0d と同じ考え方） */
@@ -6459,6 +6465,23 @@ function profileCheckedAt(p) { return p.checkedAt || p.statedAt || p.createdAt; 
 const PF_AI_MAX = 20;
 const PAST_SAID_DAYS = 3, PAST_SAID_MAX = 10;   // AIに渡す「前の日までの本人の発言」（案1・2026-09-30）
 const itemSure = i => i.confirmed === true || i.corrected === true;
+/* わたしのことの2つが、反対のことを言っているか（2026-09-30・食い違いの自動置き換え）。決まった形だけを見る（AIに判定させない）：
+   ①朝型↔夜型 ②同じ対象の「好き・得意・平気・飲める…」↔「苦手・嫌い・ダメ・飲めない…」（「〜になった」も）。対象は頭の「昔から・最近は・実は」を外して比べる。 */
+const RE_PROF_POS = /^(.+?)(?:が|は|も)?(?:大好き|好き|得意|平気|大丈夫|飲める|食べられる|できる|合う|飲めるようになった|食べられるようになった|できるようになった)(?:な方|なほう)?(?:になった|になってきた|になりました)?(?:だ|です|なんだ)?$/;
+const RE_PROF_NEG = /^(.+?)(?:が|は|も)?(?:大嫌い|嫌い|苦手|ダメ|だめ|無理|飲めない|食べられない|できない|合わない|飲めなくなった|食べられなくなった|できなくなった)(?:な方|なほう)?(?:になった|になってきた|になりました|く?なった)?(?:だ|です|なんだ)?$/;
+function profPolarity(s) {
+  const t = halfWidth(String(s || "")).trim().replace(/[。．.！!]+$/, "").replace(/^(?:昔から|前から|もともと|最近は|最近|今は|いまは|実は|けっこう|結構|わりと|割と)\s*/, "");
+  const n = RE_PROF_NEG.exec(t), p = !n && RE_PROF_POS.exec(t);
+  const m = n || p;
+  return m ? { subj: norm(m[1]), pol: n ? -1 : 1 } : null;
+}
+function profilesClash(a, b) {
+  const A = halfWidth(String(a || "")), B = halfWidth(String(b || ""));
+  const morning = s => /朝型/.test(s) && !/夜型/.test(s), night = s => /夜型/.test(s) && !/朝型/.test(s);
+  if ((morning(A) && night(B)) || (night(A) && morning(B))) return true;
+  const pa = profPolarity(A), pb = profPolarity(B);
+  return !!(pa && pb && pa.pol !== pb.pol && pa.subj.length >= 2 && pb.subj.length >= 2 && (pa.subj === pb.subj || pa.subj.includes(pb.subj) || pb.subj.includes(pa.subj)));
+}
 function profilesSorted(opts) {
   const o = opts || {};
   return liveItems().filter(i => i.kind === "profile"
@@ -6489,12 +6512,19 @@ function memoryAge(it, at) {
    期間を言わずに頼んだ希望（「会議の前は15分空けて」）は、何か月たっても予定の組み方に効き続けていた。
    「明日だけ」「今週だけ」のように日を言った希望（scopeDay）は、その日が過ぎれば自然に効かなくなるので聞かない。
    数え始めは頼んだ日（言い直したら・確かめたら、その日から）。消さない・薄めない（決まり15o）。 */
-const staleAsked = p => p.status === "open" && (p.kind === "profile" || (p.kind === "preference" && !p.scopeDay && !p.scopeEnd));
+/* 続けたいことも「まだ続けていますか？」と聞く（2026-09-30・本人の指示「90日ごとにやってるか聞き返すようにして」）。
+   会話で「今日やった」と言った日（goal の doneDays）があれば、その日から数え直す（やっているのに聞かない）。 */
+const staleAsked = p => p.status === "open" && (p.kind === "profile" || p.kind === "goal" || (p.kind === "preference" && !p.scopeDay && !p.scopeEnd));
+function staleTime(p) {
+  const c = validISO(profileCheckedAt(p)) ? new Date(profileCheckedAt(p)).getTime() : NaN;
+  const d = p.kind === "goal" ? (p.doneDays || []).filter(isDate).sort().pop() : null;
+  const t = d ? new Date(d + "T12:00:00Z").getTime() : NaN;
+  return isFinite(t) && (!isFinite(c) || t > c) ? t : c;
+}
 function staleProfiles(now) {
   const lim = now.getTime() - STALE_DAYS * 86400000;
-  return state.items.filter(p => staleAsked(p) && validISO(profileCheckedAt(p))
-      && new Date(profileCheckedAt(p)).getTime() < lim)
-    .sort((a, b) => String(profileCheckedAt(a)).localeCompare(String(profileCheckedAt(b))));
+  return state.items.filter(p => staleAsked(p) && isFinite(staleTime(p)) && staleTime(p) < lim)
+    .sort((a, b) => staleTime(a) - staleTime(b));
 }
 /* ── 今週の気づき（2026-09-26・本人の指示「AIの今週のあなたについての気づきは採用したい」）──
    調査（docs/わたしのこと調査.md）では「推測を事実に見せる」として採らなかったが、本人が採ると決めた。
@@ -6732,12 +6762,12 @@ function renderMe() {
     h += `<div class="sect"><h2>まだ合っていますか？</h2>
       <p class="hint">しばらく前に聞いたことです。答えたものは、しばらく聞きません。</p></div>
       <div class="stack">${stale.map(p => `<div class="card stack">
-        <div class="meta"><span class="chip">${esc(p.kind === "preference" ? "こうしてほしい" : (p.category || "その他"))}</span>
+        <div class="meta"><span class="chip">${esc(p.kind === "preference" ? "こうしてほしい" : p.kind === "goal" ? "続けたいこと" : (p.category || "その他"))}</span>
           <span class="mono">${fmtDT(profileCheckedAt(p), tz)} に${p.kind === "preference" ? "頼んでいた" : "言っていた"}こと</span></div>
         <div class="ttl">${esc(p.title)}</div>
-        <div class="row"><button class="btn sm pri" data-act="stillok" data-id="${p.id}">まだ合っている</button>
+        <div class="row"><button class="btn sm pri" data-act="stillok" data-id="${p.id}">${p.kind === "goal" ? "まだ続けている" : "まだ合っている"}</button>
           ${EDIT_KINDS.includes(p.kind) ? `<button class="btn sm" data-act="edit" data-id="${p.id}">直す</button>` : ""}
-          <button class="btn sm" data-act="drop" data-id="${p.id}">もう違う</button></div></div>`).join("")}</div>`;
+          <button class="btn sm" data-act="drop" data-id="${p.id}">${p.kind === "goal" ? "もうやめた" : "もう違う"}</button></div></div>`).join("")}</div>`;
   }
   const insights = state.items.filter(i => i.kind === "insight" && i.status === "open")
     .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
@@ -9163,6 +9193,19 @@ async function applyOps(rawOps0, note) {
       changes.push(`体調のことを記録（${fmtDT(note.capturedAt, tz)}時点の申告）`);
     }
     kinds.push(o.op);
+  }
+  /* **食い違いは、聞き返さずに新しいほうへ置き換える**（2026-09-30・本人の指示「食い違いは自動で聞き返さず直すようにして」）。
+     半年前の「朝型」と今日の「最近は夜型になった」が両方残り、AIには両方渡っていた。この発言で新しく入ったわたしのことが、
+     前のわたしのことと反対のこと（`profilesClash`）を言っていたら、前のほうを取り消す（`setItemState`＝振り返りから戻せる・決まり7f）。
+     **黙っては置き換えない**（「捨てるなら、言う」・決まり5）。ルールでもAIでも、入ったあとのここ1か所で見る（決まり7e）。 */
+  for (const nw of state.items.filter(i => i.noteId === note.id && i.kind === "profile" && i.status === "open")) {
+    for (const prev of state.items.filter(x => x.kind === "profile" && x.status === "open" && x.id !== nw.id && x.noteId !== note.id && profilesClash(x.title, nw.title))) {
+      const r = await setItemState(prev, "drop", { via: "talk", at: note.capturedAt });
+      if (!r.ok) continue;
+      note2(prev, `新しく言った「${String(nw.title).slice(0, 30)}」と食い違ったので置き換えた`); await putItem(prev);
+      touchId(prev);
+      changes.push(`置き換え：前の「${prev.title}」→「${nw.title}」`);
+    }
   }
   return { changes, asks: [...new Set(asks)], days, touched, kinds, habitDay };
 }

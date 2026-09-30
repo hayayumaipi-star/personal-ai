@@ -8864,6 +8864,57 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== ER群：食い違いは聞き返さずに新しいほうへ置き換える・続けたいことも90日で聞き直す（2026-09-30・本人の指示）=====
+       前は半年前の「朝型」と今日の「最近は夜型になった」が両方残り（後者はそもそも記録されなかった）、AIには両方渡っていた。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const keepAI = SAMPLEFN, keepTab = view.tab;
+      const all = () => Object.values(state.turns).flatMap(d => Array.isArray(d) ? d : (d && d.list) || []);
+      const said = () => (all().filter(t => t.role === "assistant").pop() || {}).text || "";
+      const profs = () => state.items.filter(i => i.kind === "profile").map(i => i.title + ":" + i.status).join(", ");
+      const pair = async (a, b, ai) => {
+        reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null;
+        await sendTurn(a); SAMPLEFN = ai || null; await sendTurn(b); SAMPLEFN = keepAI;
+      };
+      await pair("昔から朝型のタイプ", "最近は夜型になった");
+      const oldP = state.items.find(i => /朝型/.test(i.title));
+      ok("ER. 「最近は夜型になった」で、前の「朝型」を取り消して置き換え、返事でそう言う",
+         oldP && oldP.status === "dropped" && state.items.some(i => i.kind === "profile" && /夜型/.test(i.title) && i.status === "open")
+         && /置き換え：前の「昔から朝型のタイプ」/.test(said()) && (oldP.history || []).some(h => /食い違ったので置き換えた/.test(h.what)), profs() + " ｜ " + said());
+      await pair("人混みが苦手", "最近は人混みも平気になった");
+      ok("ER. 「苦手」→「平気になった」も置き換える", /人混みが苦手:dropped/.test(profs()) && /平気:open/.test(profs()), profs());
+      await pair("コーヒーが好き", "コーヒーが飲めなくなった");
+      ok("ER. 「飲めなくなった」は、わたしのことにして置き換える（前はメモだった）",
+         /コーヒーが好き:dropped/.test(profs()) && /コーヒーが飲めなくなった:open/.test(profs()) && !state.items.some(i => i.kind === "memo"), profs());
+      await pair("辛いものが苦手", "甘いものが好き");
+      ok("ER. 対象が違えば置き換えない（辛いもの・甘いもの）", !/dropped/.test(profs()), profs());
+      await pair("電話は苦手", "人混みが苦手");
+      ok("ER. 同じ向きなら置き換えない", !/dropped/.test(profs()), profs());
+      await pair("人混みが苦手", "人混みは嫌い");
+      ok("ER. 同じ対象でも同じ向き（苦手・嫌い）なら置き換えない", !/dropped/.test(profs()) && /人混みは嫌い:open/.test(profs()), profs());
+      await pair("朝型のタイプ", "今日は寝坊した");
+      ok("ER. その日の話は、わたしのことにも置き換えにもしない", /朝型のタイプ:open/.test(profs()) && !/dropped/.test(profs()), profs());
+      const stub = () => Promise.resolve({ text: "そうなんだ。" }); stub.json = () => Promise.resolve({ ops: [{ op: "profile", text: "夜型になった", category: "性格・傾向", quote: "最近は夜型になった" }], habit: "" });
+      await pair("昔から朝型のタイプ", "最近は夜型になった", stub);
+      ok("ER. AIの道でも、入ったあとの1か所で置き換える", /朝型のタイプ:dropped/.test(profs()) && /夜型/.test(profs()), profs());
+      // 続けたいことも90日で聞き直す（「今日やった」と言っていれば、その日から数え直す）
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null;
+      const ago = n => new Date(Date.now() - n * 86400000).toISOString();
+      const goal = (title, at, extra) => Object.assign({ id: uid(), noteId: null, kind: "goal", title, status: "open", origin: "rule", confirmed: false, corrected: false,
+        createdAt: at, updatedAt: at, history: [] }, extra || {});
+      const gOld = goal("毎日30分歩く", ago(100)), gDone = goal("毎朝ストレッチ", ago(100), { doneDays: [dayKey(new Date(Date.now() - 5 * 86400000), TZ)] });
+      state.items.push(gOld, gDone);
+      ok("ER. 続けたいことも、90日たったら聞き直す（「今日やった」と言っている続けたいことは聞かない）",
+         staleProfiles(new Date()).map(p => p.id).join() === gOld.id, staleProfiles(new Date()).map(p => p.title).join(","));
+      showTab("p-me");
+      const b = [...document.querySelectorAll('#p-me [data-act="stillok"]')].find(x => x.dataset.id === gOld.id), card = b && b.closest(".card");
+      ok("ER. 「続けたいこと」の印と「まだ続けている」「もうやめた」「直す」で出す",
+         !!card && /続けたいこと/.test(card.textContent) && /まだ続けている/.test(b.textContent) && /もうやめた/.test(card.textContent) && !!card.querySelector('[data-act="edit"]'),
+         card ? card.textContent.replace(/\s+/g, " ").slice(0, 80) : "カードが無い");
+      SAMPLEFN = keepAI; showTab(keepTab);
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
