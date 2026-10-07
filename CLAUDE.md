@@ -38,7 +38,7 @@
 - 本番: **Android アプリ**（`mobile/APKを作る.cmd`。記録は端末の中だけ）
 - 人に配る版: **Google Play**（`mobile/Playに出す.cmd`・キーを持たず `server/` の中継サーバー経由・決まり18・`docs/配る準備.md`）
 - 開発・プレビュー先: `https://claude.ai/code/artifact/8a5f7690-306a-4941-8b7d-bb595c2fab88`（**共有はやめた**・2026-09-26 本人。**共有し直すと、開いた人に記録も見える**）
-- テスト: `tests/harness.js` ほか（下の「変更するときの決まり」）／ 置き場所: `https://github.com/hayayumaipi-star/personal-ai`（**非公開**）
+- テスト: `tests/harness.js` ほか（下の「変更するときの決まり」）／ 置き場所: `https://github.com/hayayumaipi-star/personal-ai`（**公開**・2026-10-07 本人「公開のままでいい」・下の決まり14b）
 
 ## 別の場所で続けるとき（必ず先に読む）
 
@@ -485,6 +485,15 @@
    **版を手で書かない**（`bundledNativeModules.json`）。PowerShell は Linux でも `pwsh` で構文解析と偽の道具での通しができる（**ただし本人は 5.1**）。
    **裸の `{ ... }` は実行されない**／`Read-Host -AsSecureString` は使わない／**出力を捕まえた中で長い取り寄せと問いかけをやらせない**（`--yes`・先に取り寄せる）／
    **Expo が書き足した `app.json` で `git pull` が止まる**→ `mobile/keep-eas.js`（番号は git に入れない・**番号を失くさない**）。BG群。**実機では手で確かめるしかない。**
+
+14b. **リポジトリは公開**（2026-10-07 本人「公開のままでいい」）。**中身・履歴・Actions のログ・成果物・Releases は誰でも読める**と思って書く。
+   - **キー・トークン・本人の生活データを入れない**（今までの決まり13・13b のとおり。履歴も調べた：本物のキーは0件・`sk-ant-` の形はテストの作り物）。
+   - **APK はスマホだけでも作れる**：GitHub の Actions →「APKを作る（自分用）」→ Run workflow（`.github/workflows/apk.yml`）。中身は `APKを作る.cmd` と同じ順
+     （番号を戻す → `npm ci` → `node sync.js`＝キーを焼き込む → `eas build --no-wait`）。**手で押したときだけ動く**（push・よその PR では動かない＝Secrets を渡さない）。
+   - **キー入りの APK を Actions の成果物にも Releases にも置かない。ダウンロードの URL もログに出さない**（`--no-wait`・できた APK は expo.dev にログインして取る）。
+   - 要る設定：Secrets `EXPO_TOKEN`・`HITOHI_AI_KEY`／Variables `EAS_PROJECT_ID`（**アプリの Expo 上の番号。違う番号で作ると署名が変わり、上書きで入らず記録が消える**）・`EXPO_OWNER`・`HITOHI_AI_PROVIDER`・`HITOHI_AI_MODEL`。
+     **どれか欠けたら組み立てる前に止める**（キー無しで作ると、更新したとたん AI が使えなくなる）。
+   - この Claude のクラウド環境からは `api.expo.dev` へ通信できない（ネットワークの決まりで 403）。ここで組み立てるのではなく、Actions に頼む。
 
 ### 見た目と手ざわり（15 番台）
 

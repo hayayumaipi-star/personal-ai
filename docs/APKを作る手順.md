@@ -250,6 +250,29 @@ AIが動いていないと、この一言が出ません（予定そのものは
 
 **キーは聞かれません**（`mobile\secret.json` に残っています）。
 
+### パソコンが無いとき：スマホだけで作る（GitHub Actions・2026-10-07）
+
+最初に1回だけ、GitHub のリポジトリの **Settings → Secrets and variables → Actions** に入れます
+（スマホのブラウザでもできます。**チャットには貼らない**）。
+
+| 種類 | 名前 | 中身 |
+|---|---|---|
+| Secrets | `EXPO_TOKEN` | expo.dev → Account settings → **Access tokens** で作ったもの |
+| Secrets | `HITOHI_AI_KEY` | 焼き込む AI のキー（今の APK と同じもの） |
+| Variables | `EAS_PROJECT_ID` | このアプリの Expo 上の番号（パソコンの `mobile\eas.local.json` の `projectId`・expo.dev のプロジェクトの画面にも出ている） |
+| Variables | `EXPO_OWNER` | （あれば）同じファイルの `owner` |
+| Variables | `HITOHI_AI_PROVIDER` / `HITOHI_AI_MODEL` | 省略すると `gemini` / `gemini-3.5-flash-lite` |
+
+作るとき：
+
+1. GitHub のリポジトリ → **Actions** →「**APKを作る（自分用）**」→ **Run workflow**
+2. 数分で「Expo に組み立てを頼む」まで進みます（緑になれば頼めています）
+3. 10〜20分たったら **expo.dev にログイン** → このアプリ → Builds → いちばん上 → **Install**
+
+- **番号が無い・形が違うときは、組み立てる前に止まります。** 違う番号で作ると署名が変わり、今のアプリに上書きで入りません（入れ直すと記録が消えます）。
+- **キーが無いときも止まります。** キー無しの APK に更新すると、AI が使えなくなるためです。
+- このリポジトリは公開なので、**できた APK（キー入り）は GitHub には置きません**。ダウンロードは expo.dev からだけです。
+
 ### キーを変えたい・やめたいとき
 
 `C:\Users\zaoji\personal-ai\mobile\secret.json` を**消して**、もう一度実行してください。
