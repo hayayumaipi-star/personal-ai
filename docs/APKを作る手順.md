@@ -252,16 +252,21 @@ AIが動いていないと、この一言が出ません（予定そのものは
 
 ### パソコンが無いとき：スマホだけで作る（GitHub Actions・2026-10-07）
 
-最初に1回だけ、GitHub のリポジトリの **Settings → Secrets and variables → Actions** に入れます
+最初に1回だけ、GitHub のリポジトリの **Settings → Secrets and variables → Actions → Secrets** に**2つ**入れます
 （スマホのブラウザでもできます。**チャットには貼らない**）。
 
-| 種類 | 名前 | 中身 |
-|---|---|---|
-| Secrets | `EXPO_TOKEN` | expo.dev → Account settings → **Access tokens** で作ったもの |
-| Secrets | `HITOHI_AI_KEY` | 焼き込む AI のキー（今の APK と同じもの） |
-| Variables | `EAS_PROJECT_ID` | このアプリの Expo 上の番号（パソコンの `mobile\eas.local.json` の `projectId`・expo.dev のプロジェクトの画面にも出ている） |
-| Variables | `EXPO_OWNER` | （あれば）同じファイルの `owner` |
-| Variables | `HITOHI_AI_PROVIDER` / `HITOHI_AI_MODEL` | 省略すると `gemini` / `gemini-3.5-flash-lite` |
+| 名前 | 中身 |
+|---|---|
+| `EXPO_TOKEN` | expo.dev → Account settings → **Access tokens** →「Create token」で作ったもの |
+| `HITOHI_AI_KEY` | 焼き込む AI のキー（今の APK と同じもの） |
+
+**Variables は無くても動きます**（入れれば、そちらが勝ちます）：
+
+| 名前 | 無いとき |
+|---|---|
+| `EAS_PROJECT_ID` | このアプリの Expo 上の番号。無ければ **Expo のトークンの持ち主のアカウントで「hitohi」を探します**（`mobile/find-eas-project.js`）。**見つからない・2つ以上ある・探せないときは止まります。新しく作りません** |
+| `EXPO_OWNER` | 探すアカウントを1つに決めます（組織のアカウントに置いているとき） |
+| `HITOHI_AI_PROVIDER` / `HITOHI_AI_MODEL` | `gemini` / `gemini-3.5-flash-lite` |
 
 作るとき：
 
@@ -269,8 +274,12 @@ AIが動いていないと、この一言が出ません（予定そのものは
 2. 数分で「Expo に組み立てを頼む」まで進みます（緑になれば頼めています）
 3. 10〜20分たったら **expo.dev にログイン** → このアプリ → Builds → いちばん上 → **Install**
 
-- **番号が無い・形が違うときは、組み立てる前に止まります。** 違う番号で作ると署名が変わり、今のアプリに上書きで入りません（入れ直すと記録が消えます）。
-- **キーが無いときも止まります。** キー無しの APK に更新すると、AI が使えなくなるためです。
+- **番号が見つからない・形が違うときは、組み立てる前に止まります。** 違う番号で作ると署名が変わり、今のアプリに上書きで入りません（入れ直すと記録が消えます）。
+  見つけた番号はログに出ます（秘密ではありません）。固定したければ Variables の `EAS_PROJECT_ID` に写してください。
+- **キーが無い・使えないときも止まります**（`mobile/check-ai-key.js`）。組み立てる前に、お金のかからない問い合わせ（モデルの情報を読むだけ）で1回確かめます。
+  使えないキーの APK に更新すると、AI が使えなくなるためです。
+- **Run workflow は Claude からも押せます**（GitHub の連携で。押したあと、止まった理由のログも読めます）。Secrets と Variables は Claude からは読めも書けもしません。
+- 2つの道具は `node mobile/test-tools.mjs`（38件・偽の Expo と偽の AI の提供元）で確かめています。**本物の Expo とはまだ通していません**（Claude のクラウドから expo.dev に届かないため）。
 - このリポジトリは公開なので、**できた APK（キー入り）は GitHub には置きません**。ダウンロードは expo.dev からだけです。
 
 ### キーを変えたい・やめたいとき

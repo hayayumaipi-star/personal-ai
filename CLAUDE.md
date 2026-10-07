@@ -491,8 +491,12 @@
    - **APK はスマホだけでも作れる**：GitHub の Actions →「APKを作る（自分用）」→ Run workflow（`.github/workflows/apk.yml`）。中身は `APKを作る.cmd` と同じ順
      （番号を戻す → `npm ci` → `node sync.js`＝キーを焼き込む → `eas build --no-wait`）。**手で押したときだけ動く**（push・よその PR では動かない＝Secrets を渡さない）。
    - **キー入りの APK を Actions の成果物にも Releases にも置かない。ダウンロードの URL もログに出さない**（`--no-wait`・できた APK は expo.dev にログインして取る）。
-   - 要る設定：Secrets `EXPO_TOKEN`・`HITOHI_AI_KEY`／Variables `EAS_PROJECT_ID`（**アプリの Expo 上の番号。違う番号で作ると署名が変わり、上書きで入らず記録が消える**）・`EXPO_OWNER`・`HITOHI_AI_PROVIDER`・`HITOHI_AI_MODEL`。
-     **どれか欠けたら組み立てる前に止める**（キー無しで作ると、更新したとたん AI が使えなくなる）。
+   - 要る設定：Secrets `EXPO_TOKEN`・`HITOHI_AI_KEY` の**2つだけ**（本人に頼むのはこれだけ）。Variables は任意（`EAS_PROJECT_ID`・`EXPO_OWNER`・`HITOHI_AI_PROVIDER`・`HITOHI_AI_MODEL`）。
+     **アプリの番号**（**違う番号で作ると署名が変わり、上書きで入らず記録が消える**）は、Variables に無ければトークンの持ち主のアカウントで「@アカウント/slug」を探す
+     （`mobile/find-eas-project.js`・**見つからない・2つ以上・探せない→止める。新しく作る道（`eas init`・番号の無い `eas build`）は使わない**）。
+     **キーは組み立てる前にお金のかからない問い合わせで確かめる**（`mobile/check-ai-key.js`・使えない・モデルが無い→止める・キーはヘッダーで送りログに出さない）。
+     2つの道具は `node mobile/test-tools.mjs`（38件・偽の Expo と偽の提供元・壊して落ちることを確かめた）。**本物の Expo とはまだ通していない。**
+   - **Claude は Run workflow を押せて、ログも読める**（GitHub の連携）。**Secrets・Variables は読めも書けもしない**（プロキシが 403）——キーやトークンをチャットで受け取らないこと。
    - この Claude のクラウド環境からは `api.expo.dev` へ通信できない（ネットワークの決まりで 403）。ここで組み立てるのではなく、Actions に頼む。
 
 ### 見た目と手ざわり（15 番台）
@@ -771,6 +775,7 @@ localStorage "hitohi.gcal"  { on, email, lastSync, lastError, gone[] }   Google�
 - **`tests/scenario.js` は一日ぶんの会話を1発言ずつ流す通し検証**（51件）。会話の扱いを変えたら必ずこれも実行する。
 - **`tests/probe.js` は境界と寿命の確認**（2036件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,369件）。
 - **`server/test.mjs` は中継サーバーの確認**（59件・`node server/test.mjs`・Node 22 以上）。`server/` を触ったら必ず流す。
+- **`mobile/test-tools.mjs` は「APKを作る」（Actions）の道具の確認**（38件・`node mobile/test-tools.mjs`）。`mobile/find-eas-project.js`・`mobile/check-ai-key.js`・`.github/workflows/apk.yml` を触ったら流す。
 - **`tools/ai-eval/` は本物の Gemini で読み取りの質を比べる道具**（62件の正解つき＝1回の発言30・会話の続き12・ルールで直してきた言い方20＝`p01`〜・`GEMINI_API_KEY` が要る・鍵なしなら `--configs rules`）。
   **言い方の弱点は、ここに足して測るのが先**（上の「読み取りの分担」）。
   依頼文・考える深さ・モデルを変えたら流す。**鍵が無ければ「本物では測っていない」とそのまま言う。**

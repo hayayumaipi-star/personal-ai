@@ -5,13 +5,16 @@
 #   - 動くのは「Run workflow」を押したときだけ（push や よそからの PR では動かない＝Secrets を渡さない）
 #   - キー入りの APK を Actions の成果物にも Releases にも置かない。ダウンロードの URL もログに出さない（--no-wait）
 #     → できた APK は expo.dev にログインして取る（今までと同じ置き場所）
-#   - アプリの番号（EAS_PROJECT_ID）が無ければ止める。違う番号で作ると署名が変わり、上書きで入らず、入れ直すと記録が消える
+#   - アプリの番号（EAS_PROJECT_ID）は Expo から探す（find-eas-project.js）。**見つからなければ止める・新しく作らない**。
+#     違う番号で作ると署名が変わり、上書きで入らず、入れ直すと記録が消える
+#   - AI のキーが本当に使えるかを、組み立てる前に確かめる（check-ai-key.js・お金のかからない問い合わせ）
 #
 # 要る設定（GitHub のリポジトリ → Settings → Secrets and variables → Actions）：
 #   Secrets   EXPO_TOKEN      … expo.dev → Account settings → Access tokens で作る
-#             HITOHI_AI_KEY   … 焼き込む AI のキー（今の APK と同じもの。無いと AI が使えない版になるので止める）
-#   Variables EAS_PROJECT_ID  … このアプリの Expo 上の番号（本人のPCの mobile\eas.local.json の projectId・expo.dev のプロジェクトの画面）
-#             EXPO_OWNER      … （あれば）mobile\eas.local.json の owner
+#             HITOHI_AI_KEY   … 焼き込む AI のキー（今の APK と同じもの。無い・使えないと止める）
+#   Variables（どれも無くてよい）
+#             EAS_PROJECT_ID  … アプリの Expo 上の番号。無ければ「@トークンの持ち主/slug」を探す。入れればそれが勝つ
+#             EXPO_OWNER      … 探すアカウントを1つに決める（組織のアカウントに置いているとき）
 #             HITOHI_AI_PROVIDER / HITOHI_AI_MODEL … 省略すると gemini / gemini-3.5-flash-lite
 name: APKを作る（自分用）
 
@@ -34,28 +37,49 @@ jobs:
         working-directory: mobile
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-      EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
-      EXPO_OWNER: ${{ vars.EXPO_OWNER }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
       - name: 要る設定がそろっているか（そろっていなければ、組み立てる前に止める）
         env:
           HAS_KEY: ${{ secrets.HITOHI_AI_KEY != '' }}
+          EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+          EXPO_OWNER: ${{ vars.EXPO_OWNER }}
         run: |
           ok=1
           if [ -z "$EXPO_TOKEN" ]; then echo "::error::Secrets に EXPO_TOKEN がありません（expo.dev の Access tokens で作って入れてください）"; ok=0; fi
           if [ "$HAS_KEY" != "true" ]; then echo "::error::Secrets に HITOHI_AI_KEY がありません（キー無しで作ると、更新したとたん AI が使えなくなります）"; ok=0; fi
-          if ! printf '%s' "$EAS_PROJECT_ID" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
-            echo "::error::Variables に EAS_PROJECT_ID（アプリの Expo 上の番号）がありません／形が違います。違う番号で作ると署名が変わり、今のアプリに上書きで入りません（入れ直すと記録が消えます）"; ok=0; fi
+          if [ -n "$EAS_PROJECT_ID" ] && ! printf '%s' "$EAS_PROJECT_ID" | grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+            echo "::error::Variables の EAS_PROJECT_ID（アプリの Expo 上の番号）の形が違います。違う番号で作ると署名が変わり、今のアプリに上書きで入りません（入れ直すと記録が消えます）"; ok=0; fi
+          if [ -n "$EXPO_OWNER" ] && ! printf '%s' "$EXPO_OWNER" | grep -Eq '^[A-Za-z0-9._-]+$'; then
+            echo "::error::Variables の EXPO_OWNER の形が違います（Expo のアカウント名だけを入れてください）"; ok=0; fi
           [ "$ok" = 1 ] || exit 1
           echo "設定はそろっています。"
+
+      - name: AI のキーが使えるか確かめる（使えないキーを焼き込まない・キーはログに出さない）
+        env:
+          HITOHI_AI_KEY: ${{ secrets.HITOHI_AI_KEY }}
+          HITOHI_AI_PROVIDER: ${{ vars.HITOHI_AI_PROVIDER || 'gemini' }}
+          HITOHI_AI_MODEL: ${{ vars.HITOHI_AI_MODEL || 'gemini-3.5-flash-lite' }}
+        run: node check-ai-key.js
+
+      - name: アプリの番号を決める（Variables にあればそれ・無ければ Expo から探す・見つからなければ止める・新しく作らない）
+        env:
+          VAR_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+          EXPO_OWNER: ${{ vars.EXPO_OWNER }}
+        run: |
+          if [ -n "$VAR_PROJECT_ID" ]; then
+            echo "Variables の番号を使います：$VAR_PROJECT_ID"
+            printf 'EAS_PROJECT_ID=%s\nEXPO_OWNER=%s\n' "$VAR_PROJECT_ID" "$EXPO_OWNER" >> "$GITHUB_ENV"
+          else
+            node find-eas-project.js
+          fi
 
       - name: アプリの番号を app.json に戻す（同じアプリとして上書きで入るように）
         run: |
@@ -66,7 +90,7 @@ jobs:
             fs.writeFileSync("eas.local.json", JSON.stringify(keep, null, 2) + "\n");
           '
           node keep-eas.js restore
-          node -e 'const j = require("./app.json"); if (!(j.expo.extra && j.expo.extra.eas && j.expo.extra.eas.projectId === process.env.EAS_PROJECT_ID)) { console.error("番号を戻せませんでした。止めます。"); process.exit(1); }'
+          node -e 'const j = require("./app.json"); if (!(/^[0-9a-f-]{36}$/.test(process.env.EAS_PROJECT_ID || "") && j.expo.extra && j.expo.extra.eas && j.expo.extra.eas.projectId === process.env.EAS_PROJECT_ID)) { console.error("番号を戻せませんでした。止めます。"); process.exit(1); }'
 
       - name: 準備（npm）
         run: npm ci --no-audit --no-fund
