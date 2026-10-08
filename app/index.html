@@ -2612,7 +2612,7 @@ function classify(rawS, lineWhen) {
   if (/たくない[。！!]*$/.test(s) && !RE_SELFTASK.test(s)) return isCond ? "condition" : null;   // 「疲れたから何もしたくない」の体調は残す
   // 「よろしくお願いします」「ありがとう」——あいさつは記録しない（2026-09-28・「よろしくお願いする」という用事になっていた）
   //   「了解」「OK」「もう寝る」も同じ（2026-09-30・「もう寝る」という用事になっていた・返事は greetReply）
-  if (RE_GREET.test(s)) return null;
+  if (RE_GREET.test(s) || RE_SHUTDOWN.test(s)) return null;      // 「今日はおしまい」も記録しない（EW群）
   // 「明日雨なら洗濯は明後日」——天気しだいの話は、あとで見返すメモ（どちらになるか決まっていない・同上）
   if (/(雨|晴れ|天気|雪|台風|寒かったら|暑かったら)[^。、]{0,4}(なら|だったら|だと|の場合|次第|たら|だら)/.test(s) && !RE_SELFTASK.test(s)) return "memo";                                 // 「明日は午前中に集中したい」は用事ではなく、その日の希望（ruleOps が残す）
   /* **済んだ話は、予定にも用事にもしない**（2026-09-27・テスターで発見）。「7時に起きた」が明日の予定「起きた」、
@@ -6539,7 +6539,19 @@ function briefLine(key, plan, noNames) {
   if (tl.length) bits.push(noNames ? `時刻未定の予定が${tl.length}つ` : `時刻未定の${tl.slice(0, 2).map(t => `「${t.slice(0, 20)}」`).join("・")}${tl.length > 2 ? `ほか${tl.length - 2}つ` : ""}`);
   if (tasks) bits.push(`やることが${tasks}件`);
   if (!bits.length) return { text: "今日は入っている予定はありません。", empty: true };
-  return { text: `今日は${past && timed.length ? "このあと" : ""}${bits.join("、")}です。`, empty: false };
+  return { text: `今日は${past && timed.length ? "このあと" : ""}${bits.join("、")}です。${overloadLine(plan)}`, empty: false };
+}
+/* **詰め込みすぎの知らせ**（2026-10-08・Sunsama・Structured の「入りきらない」から・EW群）。時刻を決めていない今日のやることの見積もりの合計が、
+   今日の残りの空きより1時間以上多いときだけ、数字で1行（どれを回すかは本人が決める・勝手に動かさない）。見積もりは言った長さ、無ければ既定の長さ。 */
+function overloadLine(plan) {
+  if (!plan || plan.nowMin < 0) return "";
+  const est = state.settings.defaultEstimate || 30;
+  const placed = new Set(plan.blocks.filter(b => b.item).map(b => b.item.id));
+  const need = [...leftIds(plan)].map(id => findItem(id))
+    .filter(i => i && i.kind === "task" && !i.suggested && !i.built && !placed.has(i.id))
+    .reduce((m, i) => m + (i.remainingMin != null ? i.remainingMin : (i.estimateMin || est)), 0);
+  if (need - plan.freeLeft < 60) return "";
+  return `やることの見積もりは合わせて約${durJa(need)}で、今日の空きは約${durJa(plan.freeLeft)}です。`;
 }
 /* 体の気づかい。**昨日かおとといに「つらい」と言っていて、そのあと「よくなった」と言っておらず、今日まだ体調を言っていない**ときだけ、
    本人の言葉のまま聞く。**点数で聞かない・診断しない**（決まり3）。答えは2つのボタンか、そのまま話して。 */
@@ -6566,7 +6578,8 @@ function tomorrowLine(key) {
   let p2; try { p2 = planFor(nk, { nowMin: -1 }); } catch { return ""; }
   const mine = i => i && !i.suggested && !i.built;
   const evs = p2.events.filter(ev => mine(ev.item));
-  const timed = evs.filter(ev => !ev.item.allDay), allDay = evs.filter(ev => ev.item.allDay);
+  // 前の日（今日）から続いている予定は「明日の最初」ではない（23時半からの電話が「明日は00:00から」になっていた・EW群で見つけた）。何日も続く終日の予定は明日も名前で言う
+  const timed = evs.filter(ev => !ev.item.allDay && !ev.fromPrev), allDay = evs.filter(ev => ev.item.allDay);
   const more = n => n > 1 ? `（予定${n}つ）` : "";
   if (timed.length) return `明日は${hhmm(timed[0].s)}の「${timed[0].item.title.slice(0, 20)}」から${more(timed.length + allDay.length)}。`;
   if (allDay.length) return `明日は終日の「${allDay[0].item.title.slice(0, 20)}」${more(allDay.length)}。`;
@@ -10520,7 +10533,7 @@ async function sendTurn(text) {
   // その日だけの希望（「早く寝る」「今日は詰めないで」）なら「これからは」と言わない（決まり6e）
   const prefOps = (ops || []).filter(o => o && o.op === "prefer");
   const prefDayOnly = prefOps.length > 0 && prefOps.every(o => isDate(o.scopeDay));
-  const lighten = lightenOffer(note);       // 体調がよくない日に、今日を軽くする案（決まり15w）
+  const lighten = lightenOffer(note) || shutdownOffer(note);       // 体調がよくない日に、今日を軽くする案（決まり15w）／一日のしめくくりで残りを明日へ（EW群）
   const ctx = { changes, asks, kinds, plan, na, isToday: key === today, answer, feelingOnly, raw: clean, scheduleChanged, askedSchedule, learned, prefDayOnly,
     sameNext: sameNext(prevAI, { plan: sn }), lighten };
 
@@ -10661,9 +10674,39 @@ function reviewAnswer(t, key, dw) {
    （前は「うん、聞いたよ。予定はそのままにしてある。」と返していた）。「おはよう」にも同じ見通しを添える。
    中身はカードと同じ数え方（`briefLine`・`nextAction`・`doneOn`・`pastAsk`）。体調がよくないと言っていた日は、無理しないでと1言（点数にしない）。 */
 const RE_STATUS_Q = /^(?:今日の|きょうの|いまの|今の)?\s*(?:状況|ステータス|現状)\s*(?:は|を)?\s*(?:どう(?:なってる)?|どんな感じ|教えて|おしえて|知りたい|報告して)?\s*(?:？|\?|。)*$|^(?:いま|今)\s*(?:どう|どんな)\s*(?:なってる|感じ)\s*(?:？|\?)*$/;
+/* 一日のしめくくりの答え（EW群）：済んだもの・今日が締切で残っているもの・明日の最初。点数にしない。 */
+function shutdownAnswer(plan, key) {
+  const done = doneOn(key), bits = ["今日もお疲れさま。"];
+  if (done.length) bits.push(`済んだのは${done.slice(0, 3).map(i => `「${i.title}」`).join("")}${done.length > 3 ? `ほか${done.length - 3}件` : ""}。`);
+  const due = liveItems().filter(i => i.kind === "task" && i.status === "open" && !i.repeat && i.dayKey === key
+    && (i.dueIsDeadline || RE_TODAY_DUE.test((i.evidence && i.evidence.text) || i.title)));
+  if (due.length) bits.push(`${due.slice(0, 2).map(i => `「${i.title}」`).join("")}は今日が締切だよ。`);
+  // 今日まだこのあとに予定があれば、それを先に言う（しめくくっても予定は消えない）
+  const later = plan.blocks.filter(bk => bk.item && !bk.item.suggested && !bk.item.built && bk.sub !== "allday" && bk.sub !== "travel" && bk.sub !== "prep"
+    && (bk.item.kind === "event" || bk.item.kind === "task") && bk.s >= plan.nowMin)[0];      // 時刻を言った用事も（「22時から勉強する」）
+  if (later) bits.push(`このあと${hhmm(later.s)}の「${later.item.title.slice(0, 20)}」が残っているよ。`);
+  const t = later ? "" : tomorrowLine(key);
+  if (t) bits.push(t);
+  return bits.join("");
+}
+/* 寝る前のあいさつに、次の朝の最初を添える（EW群・ジャービスのように）。夜中（0〜3時）なら「今日」の最初、それ以外は明日の最初。 */
+function nightNextLine(plan, key) {
+  if (parts(new Date(), state.settings.timezone).h >= 4) return tomorrowLine(key);
+  const ev = plan.events.filter(e => e.item && !e.item.suggested && !e.item.built && !e.item.allDay && e.e > plan.nowMin)[0];
+  return ev ? `今日は${hhmm(ev.s)}の「${ev.item.title.slice(0, 20)}」から。` : "";
+}
+/* しめくくりのとき、今日の急がない用事を明日に回す案（決まり15w と同じ受け取り口＝「明日に回して」で動く・案だけでは動かさない） */
+function shutdownOffer(note) {
+  const tz = state.settings.timezone, day = dayKey(new Date(note.capturedAt), tz);
+  if (!RE_SHUTDOWN.test(halfWidth(note.text).trim()) || day !== dayKey(new Date(), tz)) return null;
+  const c = lightenCands(day);
+  if (!c.length) return null;
+  const names = c.slice(0, 3).map(i => `「${i.title.slice(0, 20)}」`).join("") + (c.length > 3 ? `ほか${c.length - 3}件` : "");
+  return { day, ids: c.map(i => i.id).slice(0, 20), text: `残っている${names}は明日に回せるよ。回すなら「明日に回して」と言ってね。` };
+}
 function statusAnswer(plan, key) {
   const bits = [], b = briefLine(key, plan);
-  bits.push(b.empty ? "今日は入っている予定はないよ。" : b.text.replace(/です。$/, "。"));
+  bits.push(b.empty ? "今日は入っている予定はないよ。" : b.text.replace(/です。/g, "。"));
   const na = nextAction(plan);
   if (na) {
     const bb = na.block, run = bb.s <= na.nowMin && na.nowMin < bb.e;
@@ -10681,6 +10724,9 @@ function answerQuestion(rawText, plan, key, dw = "今日") {
   const t = halfWidth(rawText), tz = state.settings.timezone;
   const isTodayKey = key === dayKey(new Date(), tz);
   if (isTodayKey && RE_STATUS_Q.test(t.trim())) return statusAnswer(plan, key);
+  if (isTodayKey && RE_SHUTDOWN.test(t.trim())) return shutdownAnswer(plan, key);
+  // 「おやすみ」には、次の朝の最初を添える（あいさつの言葉は templateReply か速いAIが言う・EW群）
+  if (isTodayKey && RE_GREET.test(t.trim()) && /(おやすみ|寝)/.test(t)) return nightNextLine(plan, key) || null;
   // 「おはよう」には、今日の見通しを添える（あいさつの言葉は templateReply か速いAIが言う）
   if (isTodayKey && /^おはよう/.test(t.trim()) && RE_GREET.test(t.trim())) { const b = briefLine(key, plan); if (!b.empty) return statusAnswer(plan, key); }
   if (RE_REVIEW_Q.test(t.trim())) return reviewAnswer(t, key, dw);
@@ -10965,6 +11011,9 @@ function answerQuestion(rawText, plan, key, dw = "今日") {
 
 /* あいさつ・相づち（2026-09-30・テスター30周目）。記録はしない（classify が外す）。
    返事が「予定はそのままにしてある」だったので、あいさつにはあいさつで返す。寝るあいさつには「次は〜から」を付けない。 */
+/* 一日のしめくくり（2026-10-08・Sunsama の Daily Shutdown から・EW群）。「今日はおしまい」「今日はここまで」「今日はもう終わりにする」。
+   **用事にしない**（前は「もう終わりにする」という用事ができていた）。答えは `shutdownAnswer`、残りを明日へ回す案は `shutdownOffer`。 */
+const RE_SHUTDOWN = /^(?:今日は|きょうは|今日の(?:仕事|作業)は)?\s*(?:もう)?\s*(?:これで)?\s*(?:おしまい|ここまで|終わり|おわり|終了|店じまい)\s*(?:にする|にしよう|にします|です|だ|かな)?[。！!〜ー\s]*$/;
 const RE_GREET = /^(よろしく(お願い(します|する|いたします|いたす|ね|ね〜)?)?|ありがとう(ございます|ございました)?|どうも(ありがとう)?|おはよう(ございます)?|こんにちは|こんばんは|おやすみ(なさい)?|お疲れ(さま|様)(です|でした)?|了解(です|しました)?|りょうかい|おけ|OK|ok|オッケー|わかった|分かった|わかりました|分かりました|はーい|はい|うん|(今日は|そろそろ)?もう寝(る|ます|よう)(ね|わ|かな)?|(そろそろ)?寝(るね|ます))[。！!〜ー\s]*$/i;
 function greetReply(raw) {
   const s = String(raw || "").trim();
@@ -10987,7 +11036,8 @@ function templateReply(ctx) {
   const only = k => kinds.length > 0 && kinds.every(x => k.includes(x));
 
   const g0 = answer && !asks.length && greetReply(raw);     // 「おはよう」＋見通し（EU群）：あいさつを先に
-  if (answer) bits.push(g0 && !g0.night ? g0.text + answer : answer);
+  if (g0 && g0.night) return g0.text + answer;               // 「おやすみ」＋明日の最初（EW群）：「次は〜から」は重ねない
+  if (answer) bits.push(g0 ? g0.text + answer : answer);
 
   if (feelingOnly && !changes.length) {
     // 気持ちを言っただけ。行動を押し付けない。
@@ -11023,7 +11073,7 @@ function templateReply(ctx) {
   const already = answer && na && answer.includes(blockTitle(na.block));
   // 「次は◯◯から」は、吹き出しの下の「次にすること」の欄と同じことを言う。
   // AIが無いときはこの文しか出ないので、ここでは今までどおり書く。
-  if (isToday && !already && na && !ctx.sameNext && !ctx.lighten)
+  if (isToday && !already && na && !ctx.sameNext && !ctx.lighten && !RE_SHUTDOWN.test(halfWidth(raw || "").trim()))
     bits.push(`次は「${blockTitle(na.block)}」から。${hhmm(na.block.s)}に${durJa(na.block.e - na.block.s)}とっておいたよ。`);
   if (asks.length) bits.push(asks.join(" "));
   return bits.join(" ");

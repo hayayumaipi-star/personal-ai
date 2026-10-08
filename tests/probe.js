@@ -9533,6 +9533,95 @@
       state.notes = keepSt.notes; state.items = keepSt.items; state.turns = keepSt.turns; state.docs = keepSt.docs; state.settings = keepSt.settings;
     }
 
+    /* ===== EW群：今ある良いサービスから取り入れたもの（2026-10-08・本人「すでにあるサービスで盗めるところを探して」）=====
+       ①一日のしめくくり（Sunsama の Daily Shutdown）②「おやすみ」に次の朝の最初（ジャービスの先回り）③詰め込みすぎの知らせ（Sunsama・Structured）。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const keepAI = SAMPLEFN, keepTab = view.tab, keepDay = view.day, keepChat = view.chatDay;
+      const RealDateEW = Date; let pinEW = 0;
+      const atEW = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).getTime();
+      window.Date = class extends RealDateEW { constructor(...a) { if (a.length) super(...a); else super(pinEW); } static now() { return pinEW; } };
+      const talk = async (s, d, h, mi) => { pinEW = atEW(d, h, mi); view.day = view.chatDay = "2026-09-" + String(d).padStart(2, "0"); await sendTurn(s); };
+      const lastBot = () => (Object.values(state.turns).flat().filter(t => t.role === "assistant").pop() || {});
+      const byT = re => state.items.find(i => re.test(i.title));
+      const base = async () => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null;
+        await talk("今日は部屋の掃除をする", 15, 9, 0); await talk("今日中に請求書を出す", 15, 9, 1); await talk("今日は資料を作る", 15, 9, 2);
+        await talk("資料作った", 15, 12, 0); await talk("明日9時から朝礼", 15, 12, 1); };
+
+      // ① 一日のしめくくり
+      await base(); const nItems = state.items.length;
+      await talk("今日はもう終わりにする", 15, 21, 0);
+      ok("EW. 「今日はもう終わりにする」を用事にしない（前は「もう終わりにする」という用事ができていた）", state.items.length === nItems && !byT(/終わりにする/), state.items.map(i => i.title).join("/"));
+      const rb = lastBot();
+      ok("EW. しめくくりに、済んだもの・今日が締切で残っているもの・明日の最初を記録から答える",
+         /^今日もお疲れさま。済んだのは「資料を作る」。「請求書を出す」は今日が締切だよ。明日は09:00の「朝礼」から。/.test(rb.text || ""), rb.text);
+      ok("EW. 急がない残りは「明日に回せるよ」と案を出すだけ（今日が締切のものは入れない・まだ動かさない）",
+         /残っている「部屋の掃除をする」は明日に回せるよ/.test(rb.text || "") && !/残っている[^。]*請求書/.test(rb.text || "") && !!rb.lighten && rb.lighten.ids.length === 1 && byT(/部屋の掃除/).dayKey === "2026-09-15", rb.text);
+      ok("EW. しめくくりの返事に「次は〜から」を重ねない", !/次は「/.test(rb.text || ""), rb.text);
+      await talk("明日に回して", 15, 21, 1);
+      ok("EW. 「明日に回して」で、案に出した用事だけ明日へ（今日が締切のものは動かさない）", byT(/部屋の掃除/).dayKey === "2026-09-16" && byT(/請求書/).dayKey === "2026-09-15", JSON.stringify(state.items.map(i => [i.title, i.dayKey])));
+      for (const w of ["今日はおしまい", "今日はここまで", "これで終わり", "今日の仕事は終わり"]) {
+        await base(); await talk(w, 15, 21, 0);
+        ok(`EW. 「${w}」もしめくくり（用事を作らない）`, /^今日もお疲れさま。/.test(lastBot().text || "") && state.items.length === 4, lastBot().text);
+      }
+      const callAt = (h, mi) => ({ id: "ew-call", noteId: null, kind: "event", title: "母に電話", status: "open", fixed: true, dayKey: "2026-09-15",
+        start: new RealDateEW(atEW(15, h, mi)).toISOString(), end: new RealDateEW(atEW(15, h, mi) + 3600000).toISOString(), history: [] });
+      await base(); state.items.push(callAt(22, 0)); await talk("今日はおしまい", 15, 21, 0);
+      ok("EW. しめくくっても今日このあとに予定があれば、それを言う（「次は〜から」は重ねない・明日の話はしない）",
+         /このあと22:00の「母に電話」が残っているよ。/.test(lastBot().text || "") && !/次は「/.test(lastBot().text || "") && !/明日は09:00/.test(lastBot().text || ""), lastBot().text);
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); state.items.push(callAt(22, 0)); await talk("今日はおしまい", 15, 21, 0);
+      ok("EW. 回す用事が無いしめくくりでも「次は〜から」を重ねない", lastBot().text === "今日もお疲れさま。このあと22:00の「母に電話」が残っているよ。" && !lastBot().lighten, lastBot().text);
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); state.items.push(Object.assign(callAt(22, 0), { travelMin: 30 })); await talk("今日はおしまい", 15, 21, 0);
+      ok("EW. 次が移動の帯でも「次は〜から」を重ねない（しめくくりの合図で止める）", !/次は「/.test(lastBot().text || "") && /22:00の「母に電話」が残っている/.test(lastBot().text || ""), lastBot().text);
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); await talk("22時から勉強する", 15, 9, 0); await talk("今日はおしまい", 15, 21, 0);
+      ok("EW. 時刻を言った用事が残っていれば、それも言う", /このあと22:00の「勉強する」が残っているよ。/.test(lastBot().text || ""), lastBot().text);
+      await base(); await talk("資料はここまで", 15, 21, 0);
+      ok("EW. 文の途中の「ここまで」はしめくくりにしない（「資料はここまで」）", !/^今日もお疲れさま。/.test(lastBot().text || ""), lastBot().text);
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      await talk("掃除する", 15, 9, 0); await talk("掃除終わった", 15, 10, 0);
+      ok("EW. 「掃除終わった」は今までどおり完了（しめくくりにしない）", byT(/掃除/).status === "done" && !/お疲れさま。済んだ/.test(lastBot().text || ""), lastBot().text);
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      await talk("今日はおしまい", 15, 21, 0);
+      ok("EW. 何も無い日のしめくくりは「今日もお疲れさま。」だけ（案も出さない）", lastBot().text === "今日もお疲れさま。" && !lastBot().lighten, lastBot().text);
+
+      // ② おやすみ＋次の朝の最初
+      await base(); await talk("おやすみ", 15, 22, 0);
+      ok("EW. 「おやすみ」に明日の最初を添える（「次は〜から」は重ねない）", lastBot().text === "おやすみ。ゆっくり休んでね。明日は09:00の「朝礼」から。", lastBot().text);
+      await base(); await talk("おやすみ", 16, 1, 0);
+      ok("EW. 夜中（0〜3時）の「おやすみ」は、その日の最初を「今日は」で", lastBot().text === "おやすみ。ゆっくり休んでね。今日は09:00の「朝礼」から。", lastBot().text);
+      await base(); state.items.push(callAt(23, 30)); await talk("おやすみ", 15, 22, 0);
+      ok("EW. 今日このあとに予定が残っていても、「おやすみ」には「次は〜から」を重ねない", lastBot().text === "おやすみ。ゆっくり休んでね。明日は09:00の「朝礼」から。", lastBot().text);
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      await talk("おやすみ", 15, 22, 0);
+      ok("EW. 明日に予定が無ければ「おやすみ」は今までどおり", lastBot().text === "おやすみ。ゆっくり休んでね。", lastBot().text);
+      { await base(); const stubEW = () => Promise.resolve({ text: "おやすみなさい。" }); stubEW.json = () => Promise.resolve({ ops: [], habit: "" });
+        SAMPLEFN = stubEW; await talk("おやすみ", 15, 22, 0); SAMPLEFN = null;
+        ok("EW. AIの道でも、速い返事のあとに明日の最初を足す", lastBot().text === "おやすみなさい。\n明日は09:00の「朝礼」から。", lastBot().text); }
+
+      // ③ 詰め込みすぎの知らせ
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+      state.notes = [{ id: "ew-n", text: "x", hash: "ew", capturedAt: new RealDateEW(atEW(15, 8)).toISOString(), source: "talk", createdAt: new RealDateEW(atEW(15, 8)).toISOString() }];
+      const tk = (id, title, est) => ({ id, noteId: "ew-n", kind: "task", title, status: "open", dayKey: "2026-09-15", due: new RealDateEW(atEW(15, 23, 59)).toISOString(), duePrecision: "day", estimateMin: est, history: [] });
+      state.items = [tk("o1", "資料作成", 120), tk("o2", "企画書", 120), tk("o3", "見積もり", 120)];
+      pinEW = atEW(15, 20, 0); view.day = view.chatDay = "2026-09-15";
+      const pl = planFor("2026-09-15");
+      ok("EW. やることの見積もりが今日の空きより1時間以上多ければ、数字で知らせる", overloadLine(pl) === `やることの見積もりは合わせて約6時間で、今日の空きは約${durJa(pl.freeLeft)}です。` && pl.freeLeft < 300, overloadLine(pl) + " / free " + pl.freeLeft);
+      ok("EW. カードの見通しにも出る", /やることの見積もりは合わせて約6時間/.test(nowCardHTML()), nowCardHTML().replace(/<[^>]+>/g, " ").slice(0, 200));
+      state.items = [tk("o1", "資料作成", 30)];
+      ok("EW. 入りきるなら何も言わない", overloadLine(planFor("2026-09-15")) === "");
+      { const fl = planFor("2026-09-15").freeLeft; state.items = [tk("o1", "資料作成", fl + 30)];
+        ok("EW. 空きを少し（1時間未満）超えるだけなら言わない（見積もりは目安）", overloadLine(planFor("2026-09-15")) === "", String(fl)); }
+      state.items = [tk("o1", "資料作成", 120), tk("o2", "企画書", 120), tk("o3", "見積もり", 120), Object.assign(tk("o4", "散歩", 600), { suggested: true }), Object.assign(tk("o5", "洗濯", 600), { status: "done" })];
+      ok("EW. 提案・済んだものは数えない", /約6時間/.test(overloadLine(planFor("2026-09-15"))), overloadLine(planFor("2026-09-15")));
+      state.items = [tk("o1", "資料作成", 120), tk("o2", "企画書", 120), tk("o3", "見積もり", 120)];
+      await sendTurn("状況は？");
+      ok("EW. 「状況は？」でも知らせる（話し言葉に）", /やることの見積もりは合わせて約6時間で、今日の空きは約[^。]+。/.test(lastBot().text || "") && !/です。/.test(lastBot().text || ""), lastBot().text);
+
+      window.Date = RealDateEW;
+      SAMPLEFN = keepAI; showTab(keepTab); view.day = keepDay; view.chatDay = keepChat;
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。
