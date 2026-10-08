@@ -5914,7 +5914,8 @@ function planFor(key, opts) {
     if (b.s < a.e) conflicts.push({ a: a.item, b: b.item, s: b.s, e: Math.min(a.e, b.e) });
   }
 
-  return { key, blocks, unplaced, loose, elsewhere, winS, winE, winCapped, freeLeft, events, timeless, pref, nowMin, startFloor, conflicts };
+  // 置いたあとの空き（`free`）：空き時間の提案（`gapSuggest`・EX群）が「いま空いているか・いつまでか」を見る
+  return { key, blocks, unplaced, loose, elsewhere, winS, winE, winCapped, freeLeft, free: cursor.filter(iv => iv[1] > iv[0]).map(iv => iv.slice()), events, timeless, pref, nowMin, startFloor, conflicts };
 }
 
 /* その日に何が起きたか。history と items から作る（推測はしない） */
@@ -6541,8 +6542,12 @@ function briefLine(key, plan, noNames) {
   if (allDay.length) bits.push(noNames ? `終日の予定が${allDay.length}つ` : `終日の${allDay.slice(0, 2).map(t => `「${t.slice(0, 20)}」`).join("・")}`);
   if (tl.length) bits.push(noNames ? `時刻未定の予定が${tl.length}つ` : `時刻未定の${tl.slice(0, 2).map(t => `「${t.slice(0, 20)}」`).join("・")}${tl.length > 2 ? `ほか${tl.length - 2}つ` : ""}`);
   if (tasks) bits.push(`やることが${tasks}件`);
-  if (!bits.length) return { text: "今日は入っている予定はありません。", empty: true };
-  return { text: `今日は${past && timed.length ? "このあと" : ""}${bits.join("、")}です。${overloadLine(plan)}`, empty: false };
+  /* 先回り（EX群）：今日これからの予定の準備（メモ・まだのもの）と、近づいている締切・大事な日（夕方からは明日の行が言う）。
+     声では読まない（名前を読まない＝周りに人がいるかもしれない） */
+  const extra = noNames ? "" : prepFor(key, evs.filter(ev => ev.item.allDay || ev.e > plan.nowMin).map(ev => ev.item).concat(plan.timeless.filter(mine)))
+    + (parts(new Date(), state.settings.timezone).h < 17 ? upcomingLine(key) : "");
+  if (!bits.length) return { text: `今日は入っている予定はありません。${extra}`, empty: !extra };
+  return { text: `今日は${past && timed.length ? "このあと" : ""}${bits.join("、")}です。${overloadLine(plan)}${extra}`, empty: false };
 }
 /* **詰め込みすぎの知らせ**（2026-10-08・Sunsama・Structured の「入りきらない」から・EW群）。時刻を決めていない今日のやることの見積もりの合計が、
    今日の残りの空きより1時間以上多いときだけ、数字で1行（どれを回すかは本人が決める・勝手に動かさない）。見積もりは言った長さ、無ければ既定の長さ。 */
@@ -6583,10 +6588,55 @@ function tomorrowLine(key) {
   const evs = p2.events.filter(ev => mine(ev.item));
   // 前の日（今日）から続いている予定は「明日の最初」ではない（23時半からの電話が「明日は00:00から」になっていた・EW群で見つけた）。何日も続く終日の予定は明日も名前で言う
   const timed = evs.filter(ev => !ev.item.allDay && !ev.fromPrev), allDay = evs.filter(ev => ev.item.allDay);
+  // 時刻未定の予定（「明日は遠足」）も明日の予定（前は何も言わなかった・EX群）
+  const tl = (p2.timeless || []).filter(mine);
   const more = n => n > 1 ? `（予定${n}つ）` : "";
-  if (timed.length) return `明日は${hhmm(timed[0].s)}の「${timed[0].item.title.slice(0, 20)}」から${more(timed.length + allDay.length)}。`;
-  if (allDay.length) return `明日は終日の「${allDay[0].item.title.slice(0, 20)}」${more(allDay.length)}。`;
-  return "";
+  const n = timed.length + allDay.length + tl.length;
+  const head = timed.length ? `明日は${hhmm(timed[0].s)}の「${timed[0].item.title.slice(0, 20)}」から${more(n)}。`
+    : allDay.length ? `明日は終日の「${allDay[0].item.title.slice(0, 20)}」${more(n)}。`
+    : tl.length ? `明日は「${tl[0].title.slice(0, 20)}」（時刻未定）${more(n)}。` : "";
+  // 明日が締切の用事と、明日の予定の準備（EX群・先回り）。予定が無くても、締切があれば言う
+  const dl = deadlinesOn(nk);
+  const dlT = dl.length ? `明日が締切：${dl.slice(0, 2).map(i => `「${i.title.slice(0, 20)}」`).join("")}${dl.length > 2 ? `ほか${dl.length - 2}件` : ""}。` : "";
+  return head + dlT + prepFor(nk, evs.map(ev => ev.item).concat(tl));
+}
+/* その日が締切の、まだ済んでいない用事（EX群）。くり返し・提案・組み立ては外す。「来週」のようなあいまいな期限は数えない */
+function deadlinesOn(key) {
+  return liveItems().filter(i => i.kind === "task" && i.status === "open" && !i.repeat && !i.suggested && !i.built
+    && i.dayKey === key && i.dueIsDeadline && i.duePrecision !== "week" && i.duePrecision !== "none");
+}
+/* **前もっての準備**（2026-10-08・本人「もっと先回りさせたい」・EX群）。その日の予定の**名前がそのまま出てくる**メモ（30日以内）と、
+   まだ済んでいない用事（日付が無いか、その日までのもの）を記録から拾って1行に。**聞き返さない・作らない・動かさない**（事実はコード・決まり7b）。
+   くり返しの予定は外す（毎週の「会議」に同じメモが毎回出る）。名前の一部だけでは当てない（「母の誕生日」に「母の好きな花」を出さない）。 */
+function prepFor(key, items) {
+  const tz = state.settings.timezone, kt = keyToDate(key, tz).getTime();
+  const evs = [], seen = new Set();
+  for (const e of items) if (e && e.kind === "event" && !e.repeat && !e.suggested && !e.built && !seen.has(e.id) && norm(e.title).length >= 2) { seen.add(e.id); evs.push(e); }
+  if (!evs.length) return "";
+  const about = i => evs.some(e => e.id !== i.id && norm(i.title).includes(norm(e.title)));
+  const memos = [], todo = [];
+  for (const i of liveItems()) {
+    if (i.status !== "open" || seen.has(i.id) || i.suggested || i.built || !about(i)) continue;
+    if (i.kind === "memo" && (!validISO(i.createdAt) || kt - new Date(i.createdAt).getTime() <= 30 * 86400000)) memos.push(i);
+    else if (i.kind === "task" && !i.repeat && (!i.dayKey || i.dayKey <= key)) todo.push(i);
+  }
+  const list = a => a.slice(0, 2).map(i => `「${i.title.slice(0, 30)}」`).join("") + (a.length > 2 ? `ほか${a.length - 2}件` : "");
+  return (memos.length ? `メモ：${list(memos)}。` : "") + (todo.length ? `まだのもの：${list(todo)}。` : "");
+}
+/* **近づいている締切と大事な日**（EX群・先回り）。明日・明後日が締切の用事と、1週間以内の毎年の予定（誕生日・記念日）。
+   朝の見通しと「状況は？」に（夕方からは明日の行＝`tomorrowLine` が言うので、ここでは言わない）。 */
+function upcomingLine(key) {
+  const tz = state.settings.timezone;
+  const add = n => dayKey(new Date(keyToDate(key, tz).getTime() + 12 * 3600000 + n * 86400000), tz);
+  const bits = [];
+  const dl = [1, 2].flatMap(n => deadlinesOn(add(n)).map(i => `「${i.title.slice(0, 20)}」（${n === 1 ? "明日" : "明後日"}まで）`));
+  if (dl.length) bits.push(`締切が近いもの：${dl.slice(0, 3).join("")}${dl.length > 3 ? `ほか${dl.length - 3}件` : ""}。`);
+  const yearly = liveItems().filter(i => i.kind === "event" && i.status === "open" && i.repeat && i.repeat.kind === "yearly" && !i.suggested);
+  for (let n = 1; n <= 7 && bits.length < 3; n++) {
+    const k = add(n);
+    for (const i of yearly) if (occursOn(i, k, tz)) bits.push(`${shortDay(k, tz)}は「${i.title.slice(0, 20)}」（${n === 1 ? "明日" : `あと${n}日`}）。`);
+  }
+  return bits.join("");
 }
 /* **時刻を言った用事の時間が過ぎたら「できましたか？」**（EU群・ベイマックスのように聞く・ジャービスのように状況を追う）。
    過ぎた用事は予定表では「過ぎています」の側（`plan.unplaced`）に移るだけで、終わったかどうかは誰も聞かなかった。
@@ -6607,6 +6657,39 @@ function pastAskHTML(plan) {
   // 聞く用事は今日が期限なので、カードは必ず「今日やること」の枝か「次は」の枝を通る（この2つにだけ入れる）
   return `<div class="nccare">「${esc(x.i.title.slice(0, 30))}」（${hhmm(x.m)}${x.i.dueIsDeadline ? "まで" : "から"}）はできましたか？</div>
     <div class="row"><button class="btn sm" data-act="done" data-id="${esc(x.i.id)}" data-day="${esc(plan.key)}">できた</button><button class="btn sm" data-act="defer" data-id="${esc(x.i.id)}">明日へ</button></div>`;
+}
+/* **空き時間の提案**（2026-10-08・本人「もっと先回りさせたい」・EX群・Motion／Reclaim の「空きに入れる」から）。
+   いま空いていて（30分以上）、時刻を決めていない今日の用事があれば、空きに収まるものを1つ名前で言う。**置かない・動かさない**
+   （決まり6a：置き場所は本人が言ったものだけ・6c：空きを全部埋めない）。選ぶ順は、締切を過ぎた → 今日が締切 → やると言った日を過ぎた → 今日やると言った → そのほか
+   （締切は動かせないので、「昨日やると言った掃除」より「今日が締切の企画書」を先に）。
+   夜（21時〜朝6時）は勧めない（休む時間に用事を勧めない）。 */
+/* 時刻を決めていない今日の用事を、勧める順に（`gapSuggest` と「次何すればいい？」の1か所・決まり7e）。`r` は順位 */
+function todayLoose(plan) {
+  const key = plan.key;
+  const dueToday = i => i.dayKey === key && (i.dueIsDeadline || RE_TODAY_DUE.test((i.evidence && i.evidence.text) || i.title));
+  const rank = i => i.dayKey && i.dayKey < key ? (i.dueIsDeadline ? 0 : 2) : dueToday(i) ? 1 : 3;
+  return (plan.loose || []).map(x => x && x.item ? x.item : x)
+    .filter(i => i && i.kind === "task" && i.status === "open" && !i.repeat && !i.suggested && !i.built
+      && ((i.dayKey && i.dayKey <= key && i.duePrecision !== "week" && i.duePrecision !== "none") || i.targetDay === key))
+    .map(i => ({ i, r: rank(i) })).sort((a, b) => a.r - b.r);
+}
+function gapSuggest(plan) {
+  if (!plan || plan.nowMin < 0 || !Array.isArray(plan.free)) return null;
+  const h = Math.floor(plan.nowMin / 60);
+  if (h < 6 || h >= 21) return null;
+  const iv = plan.free.find(f => f[0] <= plan.nowMin + 15 && f[1] - Math.max(f[0], plan.nowMin) >= 30);
+  if (!iv) return null;
+  const from = Math.max(iv[0], plan.nowMin), gap = iv[1] - from;
+  const est = state.settings.defaultEstimate || 30;
+  const c = todayLoose(plan).filter(x => (x.i.remainingMin != null ? x.i.remainingMin : (x.i.estimateMin || est)) <= gap)[0];
+  if (!c) return null;
+  return { item: c.i, from, to: iv[1], gap, last: iv[1] >= plan.winE, why: c.r === 0 ? "締切を過ぎています" : c.r === 1 ? "今日が締切" : c.r === 2 ? "やると言った日を過ぎています" : "" };
+}
+function gapLine(g, casual) {
+  if (!g) return "";
+  const what = `「${g.item.title.slice(0, 30)}」${g.why ? `（${g.why}）` : ""}`;
+  if (casual) return g.last ? `このあとは空いているから、${what}はどう？` : `${hhmm(g.to)}まで${durJa(g.gap)}空いているから、${what}はどう？`;
+  return g.last ? `このあとは空いています。${what}からどうですか？` : `${hhmm(g.to)}まで${durJa(g.gap)}空いています。${what}からどうですか？`;
 }
 /* **1日の最初に開いたとき、あいさつを声で**（EU群・ジャービスのように）。読み上げをオンにしていて、**殻が読める（APK）ときだけ**
    ——ブラウザは押した操作が無いと声を出せない。**名前も体調の言葉も読まない**（あいさつと件数だけ・周りに人がいるかもしれない）。
@@ -6666,7 +6749,11 @@ function nowCardHTML() {
         <div class="ncr"><span class="mono">${hhmm(b.s)}–${hhmm(b.e)}</span>${running ? `・${hhmm(b.e)}まで` : soon}</div>
         ${why ? `<div class="ncw">${esc(why)}</div>` : ""}`;
     const got = done.length ? `<div class="ncdone">✓ 今日できたこと ${done.length}件</div>` : "";
-    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}${pa}${head}${got}${btn}${rv}</div></div>`;
+    // 次の予定まで空いていれば、その間にできる用事を1つ（「できましたか？」と聞いているときは出さない＝1度に1つ・EX群）。
+    // 空きが次の予定の始まりまでに終わるときだけ——予定の最中（始まりが過ぎている）はこれで外れる
+    const g = !pa ? gapSuggest(plan) : null;
+    const gs = g && g.to <= b.s ? `<div class="ncw">${esc(gapLine(g))}</div>` : "";
+    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}${pa}${head}${gs}${got}${btn}${rv}</div></div>`;
   }
   if (done.length && !left) {
     const list = done.slice(0, 6).map(i => `<li>${esc(i.title)}</li>`).join("")
@@ -6686,9 +6773,10 @@ function nowCardHTML() {
       if (i && !i.repeat && i.duePrecision === "exact" && validISO(i.due) && new Date(i.due).getTime() < Date.now()) over++; else loose++;
     }
     const what = [loose ? `時刻を決めていないものが ${loose}件` : "", over ? `時間が過ぎたものが ${over}件` : ""].filter(Boolean).join("、");
+    const g = !px ? gapSuggest(plan) : null;
     return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${pa}${top.has ? top.html : what ? `
       <span class="eyebrow">今日やること</span>
-      <div class="ncr">${what}あります。</div>` : ""}
+      <div class="ncr">${what}あります。</div>` : ""}${g ? `<div class="ncw">${esc(gapLine(g))}</div>` : ""}
       ${done.length ? `<div class="ncdone">✓ 今日できたこと ${done.length}件</div>` : ""}${tmr}${btn}${rv}</div></div>`;
   }
   if (rv) return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}${tmr}
@@ -8759,7 +8847,9 @@ function ruleOpsRead(note) {
      言い直しの合図が無いので、前は同じ名前の予定・用事をもう1件作っていた（AIは直せていた）。
      開いている予定・用事に**1つだけ**当たり、日付を言っていない／言った日がその日と同じ／用事の締切の言い直し（「〜までに」）のときだけ、それに当てる。
      過ぎた日の予定・くり返しの予定には当てない（「勉強は10時から」を昨日の勉強に付けない）。当たらなければ今までどおり新しく足す。 */
-  let topicHead = restating ? null : (/^\s*([^、。,，\s]{1,20}?)(?:は|って)/.exec(text) || [])[1] || null;
+  /* 話題の「って」（「会議っていつ？」）と、動詞の「〜っていく・〜っている・〜ってくる」（「遠足にお弁当を持っていく」）を分ける
+     （2026-10-08・後者を「遠足」の言い直しと読み、何も記録していなかった） */
+  let topicHead = restating ? null : (/^\s*([^、。,，\s]{1,20}?)(?:は|って(?!い[くけきかるたてなこっ]|お[くきけい]|く[るれ]|き[たて]|た|て|る|あ[げる]|くだ|ほし|もら))/.exec(text) || [])[1] || null;
   /* 「レポート、木曜までにする」——読点で区切った言い足しも「〜は」と同じ（2026-09-29・テスター20周目。用事「レポート、する」が増えていた）。
      後ろが日付・時刻と「する・やる」だけのときだけ（「牛乳、卵、パンを買う」は並べた話なので当てない） */
   if (!topicHead && !restating) {
@@ -10709,8 +10799,8 @@ function shutdownAnswer(plan, key) {
 /* 寝る前のあいさつに、次の朝の最初を添える（EW群・ジャービスのように）。夜中（0〜3時）なら「今日」の最初、それ以外は明日の最初。 */
 function nightNextLine(plan, key) {
   if (parts(new Date(), state.settings.timezone).h >= 4) return tomorrowLine(key);
-  const ev = plan.events.filter(e => e.item && !e.item.suggested && !e.item.built && !e.item.allDay && e.e > plan.nowMin)[0];
-  return ev ? `今日は${hhmm(ev.s)}の「${ev.item.title.slice(0, 20)}」から。` : "";
+  const evs = plan.events.filter(e => e.item && !e.item.suggested && !e.item.built && !e.item.allDay && e.e > plan.nowMin), ev = evs[0];
+  return ev ? `今日は${hhmm(ev.s)}の「${ev.item.title.slice(0, 20)}」から。${prepFor(plan.key, evs.map(e => e.item))}` : "";
 }
 /* しめくくりのとき、今日の急がない用事を明日に回す案（決まり15w と同じ受け取り口＝「明日に回して」で動く・案だけでは動かさない） */
 function shutdownOffer(note) {
@@ -10724,15 +10814,18 @@ function shutdownOffer(note) {
 }
 function statusAnswer(plan, key) {
   const bits = [], b = briefLine(key, plan);
-  bits.push(b.empty ? "今日は入っている予定はないよ。" : b.text.replace(/です。/g, "。"));
+  bits.push(b.empty ? "今日は入っている予定はないよ。" : b.text.replace("今日は入っている予定はありません。", "今日は入っている予定はないよ。").replace(/です。/g, "。"));
   const na = nextAction(plan);
   if (na) {
     const bb = na.block, run = bb.s <= na.nowMin && na.nowMin < bb.e;
     bits.push(run ? `いまは「${blockTitle(bb)}」の最中（${hhmm(bb.e)}まで）。` : `次は${hhmm(bb.s)}の「${blockTitle(bb)}」。`);
   }
+  const pa = pastAsk(plan);
+  // 空いていれば、その間にできる用事を1つ（「できた？」と聞くときは出さない＝1度に1つ・EX群）
+  const g = !pa ? gapSuggest(plan) : null;
+  if (g && (!na || g.to <= na.block.s)) bits.push(gapLine(g, true));     // 予定の最中は外れる（空きは始まりより後）
   const done = doneOn(key);
   if (done.length) bits.push(`済んだのは${done.slice(0, 2).map(i => `「${i.title}」`).join("と")}${done.length > 2 ? `ほか${done.length - 2}件` : ""}。`);
-  const pa = pastAsk(plan);
   if (pa) bits.push(`「${pa.i.title}」はできた？`);
   const c = recentConditions(key)[0], ct = c ? (c.selfReport || c.title || "") : "";
   if (c && RE_LOW_BODY.test(ct) && !RE_LOW_OK.test(ct)) bits.push(`「${ct.slice(0, 30)}」と言っていたから、無理しないでね。`);
@@ -10875,10 +10968,15 @@ function answerQuestion(rawText, plan, key, dw = "今日") {
   if (/(次(は)?(何|なに)|次に何|何から(やる|する|始め|手を付け|手をつけ|手を着け)|次どうする|次は[?？]?$)/.test(t)) {
     const na = nextAction(plan);
     // 置いてあるものが無くても、日付を決めていない用事があれば名前で言う（「もう無いよ」だけ返していた・2026-09-29）
-    const und = !na ? liveItems().filter(i => i.kind === "task" && i.status === "open" && !i.dayKey && !i.repeat) : [];
-    if (!na && und.length) return `${dw}時刻を決めて置いてあるものは無いよ。日付を決めていない${und.slice(0, 3).map(i => `「${i.title}」`).join("、")}${und.length > 3 ? `ほか${und.length - 3}件` : ""}から選べるよ。`;
-    if (!na) return `${dw}このあとに置いてあるものは、もう無いよ。`;
-    return `次は${hhmm(na.block.s)}からの「${blockTitle(na.block)}」。`;
+    // 時刻を決めていない今日の用事は、空いていればその場で1つ勧める（EX群）。夜は勧めずに名前だけ言う
+    const g = gapSuggest(plan);
+    if (na) return `次は${hhmm(na.block.s)}からの「${blockTitle(na.block)}」。` + (g && g.to <= na.block.s ? gapLine(g, true) : "");     // 予定の最中は外れる（空きは始まりより後）
+    if (g) return `${dw}このあと時刻を決めたものは無いよ。${gapLine(g, true)}`;
+    const todays = plan.nowMin >= 0 ? todayLoose(plan).map(x => x.i) : [];
+    if (todays.length) return `${dw}このあと時刻を決めたものは無いよ。今日やることは${todays.slice(0, 3).map(i => `「${i.title}」`).join("")}${todays.length > 3 ? `ほか${todays.length - 3}件` : ""}が残っているよ。`;
+    const und = liveItems().filter(i => i.kind === "task" && i.status === "open" && !i.dayKey && !i.repeat);
+    if (und.length) return `${dw}時刻を決めて置いてあるものは無いよ。日付を決めていない${und.slice(0, 3).map(i => `「${i.title}」`).join("、")}${und.length > 3 ? `ほか${und.length - 3}件` : ""}から選べるよ。`;
+    return `${dw}このあとに置いてあるものは、もう無いよ。`;
   }
   /* 「明後日空いてる？」「金曜何時まで空いてる？」——日にち・時刻と一緒に「空いてる」と聞いたら、空きで答える（2026-09-28・テスター13周目。
      答えないか、「何時まで」を予定の終わりと読んでいた）。「カフェ空いてる？」は店の話なので、日にち・時刻の言葉があるときだけ */

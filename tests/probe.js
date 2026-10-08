@@ -9256,7 +9256,7 @@
         fresh(base()); setNow(15, 9, 0); SAMPLEFN = null;
         await sendTurn("状況は？");
         ok("EU. 「状況は？」に、今日の見通しと次を記録から答える（前は「うん、聞いたよ」だった）",
-           /^今日は予定が2つ（10:00〜16:00）、時刻未定の「病院」、やることが1件。次は10:00の「会議」。$/.test(lastBot()), lastBot());
+           /^今日は予定が2つ（10:00〜16:00）、時刻未定の「病院」、やることが1件。次は10:00の「会議」。10:00まで1時間空いているから、「請求書を送る」はどう？$/.test(lastBot()), lastBot());
         setNow(15, 10, 30); await sendTurn("いまどうなってる？");
         ok("EU. 予定の最中なら「いまは〜の最中」", /いまは「会議」の最中（11:00まで）。/.test(lastBot()), lastBot());
         state.items.push({ id: "eu-c9", noteId: "eu-n", kind: "condition", title: "だるい", selfReport: "だるい", status: "open", reportedAt: isoEU(15, 10) });
@@ -9639,6 +9639,124 @@
       ok("EW. 「状況は？」でも知らせる（話し言葉に）", /やることの見積もりは合わせて約6時間で、今日の空きは約[^。]+。/.test(lastBot().text || "") && !/です。/.test(lastBot().text || ""), lastBot().text);
 
       window.Date = RealDateEW;
+      SAMPLEFN = keepAI; showTab(keepTab); view.day = keepDay; view.chatDay = keepChat;
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+    }
+
+    /* ===== EX群：もっと先回り（2026-10-08・本人「もっと先回りさせたい」）=====
+       ①明日の準備（予定の名前が出てくるメモ・まだの用事・明日が締切）②空き時間に用事を1つ勧める ③近づいている締切と誕生日・記念日。
+       どれも記録から数えるだけ（作らない・動かさない）。 */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const keepAI = SAMPLEFN, keepTab = view.tab, keepDay = view.day, keepChat = view.chatDay;
+      const RealDateEX = Date; let pinEX = 0;
+      const atEX = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).getTime();
+      window.Date = class extends RealDateEX { constructor(...a) { if (a.length) super(...a); else super(pinEX); } static now() { return pinEX; } };
+      const setEX = (d, h, mi) => { pinEX = atEX(d, h, mi); view.day = view.chatDay = "2026-09-" + String(d).padStart(2, "0"); };
+      const talk = async (s, d, h, mi) => { setEX(d, h, mi); await sendTurn(s); };
+      const lastBot = () => (Object.values(state.turns).flat().filter(t => t.role === "assistant").pop() || {}).text || "";
+      const byT = re => state.items.find(i => re.test(i.title));
+      const card = () => { const d = document.createElement("div"); d.innerHTML = nowCardHTML() || ""; return d.textContent.replace(/\s+/g, " ").trim(); };
+      const fresh = () => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null; };
+
+      // ① 明日の準備
+      fresh();
+      await talk("明日10時から面接", 15, 9, 0); await talk("面接の持ち物：履歴書、筆記用具", 15, 9, 1); await talk("面接の準備をする", 15, 9, 2);
+      await talk("明日は遠足", 15, 9, 3); await talk("遠足にお弁当と水筒を持っていく", 15, 9, 4);
+      ok("EX. 「遠足にお弁当と水筒を持っていく」を記録する（「持って」の「って」を話題の印と読み、遠足の言い直しにして何も残していなかった）",
+         !!byT(/お弁当と水筒/) && byT(/お弁当と水筒/).kind === "task" && state.items.filter(i => i.title === "遠足").length === 1, state.items.map(i => i.kind + ":" + i.title).join("/"));
+      setEX(15, 19, 0);
+      ok("EX. 夕方のカードに、明日の予定の準備（名前が出てくるメモ・まだの用事）を添える",
+         card() === "明日は10:00の「面接」から（予定2つ）。メモ：「面接の持ち物:履歴書、筆記用具」。まだのもの：「面接の準備をする」「遠足にお弁当と水筒を持っていく」。", card());
+      await talk("おやすみ", 15, 22, 0);
+      ok("EX. 「おやすみ」にも明日の準備を添える", /明日は10:00の「面接」から（予定2つ）。メモ：「面接の持ち物:履歴書、筆記用具」。まだのもの：/.test(lastBot()), lastBot());
+      byT(/面接の準備/).status = "done"; setEX(15, 22, 30);
+      ok("EX. 済んだ準備は「まだのもの」に出さない", !/面接の準備/.test(tomorrowLine("2026-09-15")) && /「遠足にお弁当と水筒を持っていく」/.test(tomorrowLine("2026-09-15")), tomorrowLine("2026-09-15"));
+      state.items.push({ id: "ex-old", noteId: null, kind: "memo", title: "面接の服装はスーツ", status: "open", history: [], createdAt: new RealDateEX(atEX(1, 9) - 30 * 86400000).toISOString() });
+      ok("EX. 30日より前のメモは出さない", !/服装/.test(tomorrowLine("2026-09-15")), tomorrowLine("2026-09-15"));
+      setEX(16, 1, 0);
+      ok("EX. 夜中（0〜3時）の「おやすみ」は、今日の予定の準備を添える", /^今日は10:00の「面接」から。メモ：「面接の持ち物:履歴書、筆記用具」。/.test(nightNextLine(planFor("2026-09-16"), "2026-09-16")), nightNextLine(planFor("2026-09-16"), "2026-09-16"));
+      setEX(16, 7, 0); state.turns = {};
+      ok("EX. 朝の見通しにも、今日の予定の準備を添える（声では読まない＝名前を読まない）",
+         /メモ：「面接の持ち物:履歴書、筆記用具」/.test(card()) && !/メモ/.test(briefLine("2026-09-16", planFor("2026-09-16"), true).text), card());
+
+      fresh();
+      await talk("毎週月曜10時から会議", 15, 9, 0); await talk("会議の持ち物：A社の見積もり", 15, 9, 1);
+      setEX(20, 19, 0);
+      ok("EX. くり返しの予定には準備を添えない（毎週同じメモが出る）", card() === "明日は10:00の「会議」から。", card());
+      fresh();
+      await talk("明日は母の誕生日", 15, 9, 0); await talk("母の誕生日プレゼントを買う", 15, 9, 1);
+      state.items.push({ id: "ex-m", noteId: null, kind: "memo", title: "母の好きな花はバラ", status: "open", history: [], createdAt: new RealDateEX(atEX(15, 9, 2)).toISOString() },
+                       { id: "ex-m2", noteId: null, kind: "memo", title: "父の誕生日は11月", status: "open", history: [], createdAt: new RealDateEX(atEX(15, 9, 3)).toISOString() });
+      setEX(15, 19, 0);
+      ok("EX. 時刻未定の予定だけの明日も言う・名前の一部だけのメモは当てない（「母の誕生日」に「母の好きな花」を出さない）",
+         card() === "明日は「母の誕生日」（時刻未定）。まだのもの：「母の誕生日プレゼントを買う」。", card());
+      ok("EX. 名前の語が重なるだけのメモも当てない（「母の誕生日」に「父の誕生日は11月」を出さない）", !/父の誕生日/.test(card()), card());
+      fresh();
+      await talk("明日までに企画書", 15, 9, 0);
+      setEX(15, 18, 0);
+      ok("EX. 明日に予定が無くても、明日が締切の用事は言う", card() === "明日が締切：「企画書」。", card());
+
+      // ③ 近づいている締切と大事な日
+      fresh();
+      await talk("明日までに企画書", 15, 9, 0); await talk("明後日までに見積もり", 15, 9, 1); await talk("9/20は母の誕生日", 15, 9, 2);
+      await talk("9/24は結婚記念日", 15, 9, 3); await talk("来週までにレポート", 15, 9, 4);
+      state.items.push({ id: "ex-wk", noteId: null, kind: "task", title: "報告書", status: "open", origin: "rule", dayKey: "2026-09-17", duePrecision: "week", dueIsDeadline: true, history: [] });
+      setEX(16, 7, 0);
+      ok("EX. 朝の見通しに、明日・明後日の締切と1週間以内の誕生日を（8日より先・あいまいな期限は言わない）",
+         /締切が近いもの：「見積もり」（明日まで）。9\/20\(日\)は「母の誕生日」（あと4日）。/.test(card()) && !/結婚記念日/.test(card()) && !/レポート|報告書/.test(card()), card());
+      await talk("状況は？", 16, 7, 1);
+      ok("EX. 「状況は？」でも近づいている締切と大事な日を言う", /締切が近いもの：「見積もり」（明日まで）。9\/20\(日\)は「母の誕生日」（あと4日）。/.test(lastBot()), lastBot());
+      ok("EX. 声のあいさつ（名前を読まない）には入れない", !/締切が近い|誕生日/.test(briefLine("2026-09-16", planFor("2026-09-16"), true).text));
+      state.turns = {}; setEX(16, 18, 0);
+      ok("EX. 夕方からは、近づいている締切を明日の行（「明日が締切」）だけで言う（2回出さない）",
+         (card().match(/見積もり/g) || []).length === 1 && /明日が締切：「見積もり」。/.test(card()), card());
+      fresh();
+      await talk("9/20は母の誕生日", 15, 9, 0); state.turns = {};
+      setEX(16, 8, 0);
+      ok("EX. 今日に何も無くても、近づいている大事な日があればカードを出す", /今日は入っている予定はありません。9\/20\(日\)は「母の誕生日」（あと4日）。/.test(card()), card());
+
+      // ② 空き時間の提案
+      fresh();
+      await talk("今日16時から会議", 15, 9, 0); await talk("今日は部屋の掃除をする", 15, 9, 1); await talk("今日中に請求書を出す", 15, 9, 2);
+      const before = JSON.stringify(state.items.map(i => [i.id, i.dayKey, i.due, i.status]));
+      setEX(15, 13, 0);
+      ok("EX. 次の予定まで空いていれば、時刻を決めていない今日の用事を1つ勧める（今日が締切のものを先に）",
+         /次は 会議 16:00–17:00 16:00まで3時間空いています。「請求書を出す」（今日が締切）からどうですか？/.test(card()), card());
+      await talk("次何すればいい？", 15, 13, 0);
+      ok("EX. 「次何すればいい？」にも、その間にできる用事を1つ", lastBot() === "次は16:00からの「会議」。16:00まで3時間空いているから、「請求書を出す」（今日が締切）はどう？", lastBot());
+      ok("EX. 勧めるだけで、置かない・動かさない", JSON.stringify(state.items.map(i => [i.id, i.dayKey, i.due, i.status])) === before);
+      setEX(15, 16, 50);
+      ok("EX. 予定の最中は勧めない（終わる間際でも）", !/空いています/.test(card()), card());
+      await talk("次何すればいい？", 15, 16, 50);
+      ok("EX. 予定の最中の「次何すればいい？」「状況は？」にも勧めない", !/どう？/.test(lastBot()), lastBot());
+      await talk("状況は？", 15, 16, 51);
+      ok("EX. （状況は？）", !/どう？/.test(lastBot()) && /いまは「会議」の最中/.test(lastBot()), lastBot());
+      setEX(15, 22, 0);
+      await talk("次何すればいい？", 15, 22, 0);
+      ok("EX. 夜（21時〜）は勧めない・残っている今日の用事は名前で言う（前は「もう無いよ」と答えていた）",
+         !/空いています/.test(card()) && /今日やることは「請求書を出す」「部屋の掃除をする」が残っているよ。/.test(lastBot()), card() + " ｜ " + lastBot());
+      fresh();
+      await talk("今日16時から会議", 15, 9, 0); await talk("今日は資料作成4時間", 15, 9, 1);
+      setEX(15, 13, 0);
+      ok("EX. 空きに収まらない用事は勧めない", !/空いています/.test(card()), card());
+      fresh();
+      await talk("今日中に請求書を出す", 15, 9, 1);
+      state.items.push({ id: "ex-late", noteId: null, kind: "task", title: "申込書", status: "open", origin: "rule", dayKey: "2026-09-14", duePrecision: "day", dueIsDeadline: true, history: [] });
+      setEX(15, 13, 0);
+      ok("EX. 締切を過ぎたものを、今日が締切のものより先に勧める（このあと予定が無ければ「このあとは空いています」）",
+         /このあとは空いています。「申込書」（締切を過ぎています）からどうですか？/.test(card()), card());
+      fresh();
+      await talk("今日は部屋の掃除をする", 15, 8, 0); await talk("14時から資料を作る", 15, 9, 0);
+      setEX(15, 15, 0);
+      ok("EX. 「できましたか？」と聞いているときは勧めない（1度に1つ）", /できましたか/.test(card()) && !/空いています/.test(card()), card());
+      await talk("17時から打ち合わせ", 15, 15, 0); state.turns = {};
+      setEX(15, 15, 30);
+      ok("EX. 次の予定があっても、「できましたか？」と聞いているときは勧めない", /できましたか/.test(card()) && /次は 打ち合わせ/.test(card()) && !/空いています/.test(card()), card());
+      await talk("状況は？", 15, 15, 31);
+      ok("EX. 「状況は？」も、「できた？」と聞くときは勧めない", /「資料を作る」はできた？/.test(lastBot()) && !/どう？/.test(lastBot()), lastBot());
+
+      window.Date = RealDateEX;
       SAMPLEFN = keepAI; showTab(keepTab); view.day = keepDay; view.chatDay = keepChat;
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
