@@ -9312,10 +9312,10 @@
       fresh(base()); setNow(15, 7, 0);
       ok("EU. 設定がオフなら読まない", speakOut("こんにちは") === false && spoke.length === 0);
       state.settings.speak = true;
-      const r1 = speakOut("次は「会議」から。10:00〜11:00\n二行目は読まない");
+      const r1 = speakOut("わかった。\n次は「会議」から。10:00〜11:00");
       const u1 = spoke.filter(x => typeof x === "object").pop() || {};
-      ok("EU. オンなら、返事の最初の段を日本語で読む（かっこ・記号は読まない・前の読み上げは止めてから）",
-         r1 === true && u1.lang === "ja-JP" && u1.text === "次は 会議 から。10:00から11:00" && spoke[0] === "cancel", JSON.stringify(u1));
+      ok("EU. オンなら、返事を段（改行）ごと全部、日本語で読む（AIの受け止めのあとの答えも・かっこ・記号は読まない・前の読み上げは止めてから）",
+         r1 === true && u1.lang === "ja-JP" && u1.text === "わかった。次は 会議 から。10:00から11:00" && spoke[0] === "cancel", JSON.stringify(u1));
       renderSettings();
       ok("EU. ブラウザで読めるなら、設定に「返事を声で読み上げる」が出る", !$("#speakRow").hidden && $("#speakOn").checked === true);
       spoke.length = 0; SAMPLEFN = null; showTab("p-chat");
@@ -9484,6 +9484,11 @@
         if (keepSS) Object.defineProperty(window, "speechSynthesis", keepSS); else delete window.speechSynthesis;
         if (keepSU) Object.defineProperty(window, "SpeechSynthesisUtterance", keepSU); else delete window.SpeechSynthesisUtterance;
       }
+      reset();
+      { await micToggle(); sending = true; inst[inst.length - 1].onresult(ev("今日は洗車する", true)); const noteT = $("#sayNote").textContent; sending = false;
+        ok("EV. 前の発言を読んでいる最中に話し終えたら、送らずに入力欄に残して言う（黙って止まらない）",
+           $("#say").value === "今日は洗車する" && /前の発言を読んでいます/.test(noteT) && !micOn && Object.values(state.turns).flat().length === 0, noteT);
+        $("#say").value = ""; saveDraft(); }
       reset(); await micToggle(); inst[inst.length - 1].onresult(ev("", true));
       ok("EV. 何も聞き取れなかったら送らない", Object.values(state.turns).flat().length === 0);
       await micToggle();
@@ -9583,6 +9588,13 @@
       reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
       await talk("今日はおしまい", 15, 21, 0);
       ok("EW. 何も無い日のしめくくりは「今日もお疲れさま。」だけ（案も出さない）", lastBot().text === "今日もお疲れさま。" && !lastBot().lighten, lastBot().text);
+      await base(); await talk("今日はおしまい", 16, 1, 0);
+      ok("EW. 夜中（0〜3時）のしめくくりは、日付が変わる前の済んだものと「今日は〜から」（「明日は」と1日ずらさない・回す案は出さない）",
+         /済んだのは「資料を作る」/.test(lastBot().text || "") && /今日は09:00の「朝礼」から。/.test(lastBot().text || "") && !/明日は/.test(lastBot().text || "") && !lastBot().lighten, lastBot().text);
+      await base(); state.items.push({ id: "ew-n", noteId: null, kind: "task", title: "洗濯をする", status: "open", origin: "rule", dayKey: "2026-09-16", duePrecision: "day", history: [] });
+      await talk("今日はおしまい", 16, 1, 0);
+      ok("EW. 夜中のしめくくりは、日付が変わったあとの日に用事があっても回す案を出さない（どの日の用事か決められない）",
+         !lastBot().lighten && !/明日に回せる/.test(lastBot().text || "") && byT(/洗濯/).dayKey === "2026-09-16", lastBot().text);
 
       // ② おやすみ＋次の朝の最初
       await base(); await talk("おやすみ", 15, 22, 0);

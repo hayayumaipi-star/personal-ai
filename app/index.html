@@ -3507,9 +3507,10 @@ function speakAvail() {
   if (nativeOn()) return speakNative === true;
   return typeof window.speechSynthesis === "object" && window.speechSynthesis !== null && typeof window.SpeechSynthesisUtterance === "function";
 }
-/* 読む形に整える：記号を読ませない・長すぎるものは最初の段だけ（予定表まで読むと長い） */
+/* 読む形に整える：記号を読ませない・長すぎるものは切る（予定表は返事の文に入っていないので読まない）。
+   **段（改行）も全部読む**——AIがあると「受け止めの一言」と「答え」が別の段になり、1段目だけでは答えを読まなかった（デバッグで見つけた） */
 function speakable(text) {
-  return String(text || "").split("\n")[0].replace(/[「」『』（）()［］\[\]・／]/g, " ").replace(/〜/g, "から").replace(/\s+/g, " ").trim().slice(0, 300);
+  return String(text || "").split("\n").join("。").replace(/。{2,}/g, "。").replace(/[「」『』（）()［］\[\]・／]/g, " ").replace(/〜/g, "から").replace(/\s+/g, " ").trim().slice(0, 300);
 }
 /* `force`＝声で話しかけた発言への返事（2026-10-08・本人「読み上げを最初からオンに」＝声で話せば声で返る・設定がオフでも読む） */
 function speakOut(text, force) {
@@ -3593,6 +3594,8 @@ function micText(t, fin) {
   saveDraft(); micNote();
   if (fin && s && state.settings && state.settings.micSend !== false) {
     micStop(); micEnd();               // 先に聞くのをやめる（あとから届いた分で書き換えない）
+    // 前の発言をまだ読んでいる最中なら、送らずに残して言う（黙って止まらない・デバッグで見つけた）
+    if (sending) { $("#sayNote").textContent = "前の発言を読んでいます。終わったら↑で送ってください。"; return; }
     doSend();
   }
 }
@@ -10676,16 +10679,20 @@ function reviewAnswer(t, key, dw) {
 const RE_STATUS_Q = /^(?:今日の|きょうの|いまの|今の)?\s*(?:状況|ステータス|現状)\s*(?:は|を)?\s*(?:どう(?:なってる)?|どんな感じ|教えて|おしえて|知りたい|報告して)?\s*(?:？|\?|。)*$|^(?:いま|今)\s*(?:どう|どんな)\s*(?:なってる|感じ)\s*(?:？|\?)*$/;
 /* 一日のしめくくりの答え（EW群）：済んだもの・今日が締切で残っているもの・明日の最初。点数にしない。 */
 function shutdownAnswer(plan, key) {
-  const done = doneOn(key), bits = ["今日もお疲れさま。"];
+  // 夜中（0〜3時）のしめくくりは、日付が変わる前の一日のこと（済んだものはその日・次は「今日は〜から」）
+  const tz = state.settings.timezone, night = parts(new Date(), tz).h < 4;
+  const prevKey = dayKey(new Date(keyToDate(key, tz).getTime() - 12 * 3600000), tz);
+  const done = night ? doneOn(prevKey).concat(doneOn(key)) : doneOn(key), bits = ["今日もお疲れさま。"];
   if (done.length) bits.push(`済んだのは${done.slice(0, 3).map(i => `「${i.title}」`).join("")}${done.length > 3 ? `ほか${done.length - 3}件` : ""}。`);
   const due = liveItems().filter(i => i.kind === "task" && i.status === "open" && !i.repeat && i.dayKey === key
     && (i.dueIsDeadline || RE_TODAY_DUE.test((i.evidence && i.evidence.text) || i.title)));
   if (due.length) bits.push(`${due.slice(0, 2).map(i => `「${i.title}」`).join("")}は今日が締切だよ。`);
   // 今日まだこのあとに予定があれば、それを先に言う（しめくくっても予定は消えない）
-  const later = plan.blocks.filter(bk => bk.item && !bk.item.suggested && !bk.item.built && bk.sub !== "allday" && bk.sub !== "travel" && bk.sub !== "prep"
+  // 夜中は「このあと」が朝の予定になるので言わない（下の「今日は〜から」が言う）
+  const later = !night && plan.blocks.filter(bk => bk.item && !bk.item.suggested && !bk.item.built && bk.sub !== "allday" && bk.sub !== "travel" && bk.sub !== "prep"
     && (bk.item.kind === "event" || bk.item.kind === "task") && bk.s >= plan.nowMin)[0];      // 時刻を言った用事も（「22時から勉強する」）
   if (later) bits.push(`このあと${hhmm(later.s)}の「${later.item.title.slice(0, 20)}」が残っているよ。`);
-  const t = later ? "" : tomorrowLine(key);
+  const t = later ? "" : night ? nightNextLine(plan, key) : tomorrowLine(key);
   if (t) bits.push(t);
   return bits.join("");
 }
@@ -10699,6 +10706,7 @@ function nightNextLine(plan, key) {
 function shutdownOffer(note) {
   const tz = state.settings.timezone, day = dayKey(new Date(note.capturedAt), tz);
   if (!RE_SHUTDOWN.test(halfWidth(note.text).trim()) || day !== dayKey(new Date(), tz)) return null;
+  if (parts(new Date(note.capturedAt), tz).h < 4) return null;     // 夜中は日付が変わったあとなので、どの日の用事を回すか決められない（案を出さない）
   const c = lightenCands(day);
   if (!c.length) return null;
   const names = c.slice(0, 3).map(i => `「${i.title.slice(0, 20)}」`).join("") + (c.length > 3 ? `ほか${c.length - 3}件` : "");
