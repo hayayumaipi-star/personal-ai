@@ -9216,8 +9216,15 @@
         setNow(15, 15, 0); h = nowCardHTML();
         ok("EU. 時刻を言った用事の時間が過ぎたら「できましたか？」と聞き、その場で「できた」「明日へ」を押せる",
            /「資料を作る」（14:00から）はできましたか？/.test(txt(h)) && /data-act="done" data-id="eu-p1" data-day="2026-09-15">できた/.test(h) && /data-act="defer" data-id="eu-p1">明日へ/.test(h), txt(h));
-        setNow(15, 18, 31);
-        ok("EU. 終わる時刻から4時間を過ぎたら、もう聞かない（しつこくしない）", !/できましたか/.test(txt(nowCardHTML())));
+        ok("EU. 聞いている用事を、下の「今日やること」で「時刻を決めていないもの」として数え直さない（前は同じものを2回・時刻を言ったのに「決めていない」と言っていた）",
+           !/時刻を決めていないもの/.test(txt(h)) && !/今日やること/.test(txt(h)), txt(h));
+        state.items.push(tk("eu-p8", "掃除をする", 0, { due: isoEU(15, 23, 59), duePrecision: "day" }));
+        h = txt(nowCardHTML());
+        ok("EU. ほかに時刻を決めていない用事があれば、それだけを数える", /時刻を決めていないものが 1件あります/.test(h) && /できましたか/.test(h), h);
+        setNow(15, 18, 31); h = txt(nowCardHTML());
+        ok("EU. 終わる時刻から4時間を過ぎたら、もう聞かない（しつこくしない）", !/できましたか/.test(h));
+        ok("EU. 聞かなくなった過ぎた用事は「時間が過ぎたもの」と本当のとおりに数える", /時刻を決めていないものが 1件、時間が過ぎたものが 1件あります/.test(h), h);
+        state.items.pop();
         state.items.push({ id: "eu-p9", noteId: "eu-n", kind: "event", title: "面談", status: "open", fixed: true, dayKey: "2026-09-15", start: isoEU(15, 17), end: isoEU(15, 18) });
         setNow(15, 15, 0); h = txt(nowCardHTML());
         ok("EU. このあとの予定があっても（「次は」の枝でも）聞く", /「資料を作る」（14:00から）はできましたか？/.test(h) && /次は 面談/.test(h), h);
@@ -9285,6 +9292,8 @@
            /数字は一切出さない/.test(qp7) && /「記録した」「完了にした」/.test(qp7) && /質問で終わらせない/.test(qp7) && /診断しない/.test(qp7));
         const tr7 = raw => templateReply({ changes: [], asks: [], plan: { blocks: [], unplaced: [] }, na: null, isToday: true, raw, kinds: ["condition"] });
         ok("EU. AIが無いときも、体の話には気づかう言葉で返す", /気にかけておくね/.test(tr7("頭が痛い")) && /休めるといいな/.test(tr7("眠い")) && /無理しないでいこう/.test(tr7("疲れた")), [tr7("頭が痛い"), tr7("眠い")].join(" ｜ "));
+        ok("EU. 「体調はまだつらい」「だるい」には、言われた言葉で受ける（朝に「お疲れさま」と言わない）",
+           /^まだつらいんだね。無理しないでいこう。/.test(tr7("体調はまだつらい")) && /^だるいんだね。/.test(tr7("体がだるい")) && /^お疲れさま。/.test(tr7("疲れた")), [tr7("体調はまだつらい"), tr7("体がだるい")].join(" ｜ "));
       }
 
       // ③ 出発の時間

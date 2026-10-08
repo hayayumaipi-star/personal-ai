@@ -6676,9 +6676,19 @@ function nowCardHTML() {
       <div class="ncr">今日の予定は、これで全部です。お疲れさまでした。</div>${tmr}${rv}</div></div>`;
   }
   if (left) {
-    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${pa}${top.has ? top.html : `
+    /* 残りの中身を本当のとおりに言う（デバッグで見つけた：14時と言った用事が過ぎると「時刻を決めていないもの」と数え、
+       すぐ上の「できましたか？」と同じものを2回出していた）。聞いている1件は数えない・時刻を言って過ぎたものは分けて言う */
+    const px = pastAsk(plan);
+    let loose = 0, over = 0;
+    for (const id of leftIds(plan)) {
+      if (px && px.i.id === id) continue;
+      const i = findItem(id);
+      if (i && !i.repeat && i.duePrecision === "exact" && validISO(i.due) && new Date(i.due).getTime() < Date.now()) over++; else loose++;
+    }
+    const what = [loose ? `時刻を決めていないものが ${loose}件` : "", over ? `時間が過ぎたものが ${over}件` : ""].filter(Boolean).join("、");
+    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${pa}${top.has ? top.html : what ? `
       <span class="eyebrow">今日やること</span>
-      <div class="ncr">時刻を決めていないものが ${left}件あります。</div>`}
+      <div class="ncr">${what}あります。</div>` : ""}
       ${done.length ? `<div class="ncdone">✓ 今日できたこと ${done.length}件</div>` : ""}${tmr}${btn}${rv}</div></div>`;
   }
   if (rv) return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}${tmr}
@@ -11059,7 +11069,9 @@ function templateReply(ctx) {
       /(よく眠れ|ぐっすり|よく寝れ|よく寝た)/.test(raw) ? "よく眠れたんだね、よかった。"      // 「昨日はよく眠れた」に「眠いんだね」と返していた（2026-09-29）
       : /(治った|楽になった|良くなった|よくなった|回復|熱が下がった|熱が引いた)/.test(raw) ? "よくなってよかった。"      // ベイマックスのように：よくなったら喜ぶ（EU群）
       : /(眠|寝てない|寝不足)/.test(raw) ? "眠いんだね。少しでも休めるといいな。"
-      : /(疲れ|しんど|だる|つら)/.test(raw) ? "お疲れさま。無理しないでいこう。"
+      : /(疲れ|しんど)/.test(raw) ? "お疲れさま。無理しないでいこう。"
+      // 朝に「体調はまだつらい」と答えて「お疲れさま」は合わない（デバッグで見つけた）——言われた言葉で受ける
+      : /(だる|つら)/.test(raw) ? `${/まだ/.test(raw) ? "まだ" : ""}${/だる/.test(raw) ? "だるい" : "つらい"}んだね。無理しないでいこう。`
       : "教えてくれてありがとう。体のこと、気にかけておくね。");      // ベイマックスのように気づかう（2026-10-08・本人「AIの話し方を寄せたい」）
     if (kinds.includes("prefer")) soft.push(ctx.prefDayOnly ? "その日はそのつもりで組むね。" : "これからはそのつもりで組むね。");
     if (kinds.includes("memo")) soft.push("あとで見返せるように取っておいたよ。");
