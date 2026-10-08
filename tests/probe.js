@@ -9275,6 +9275,18 @@
         state.turns = {};
       }
 
+      // ⑦ 話し方：落ち着いて、先回りして気づかう（本人「AIの話し方を寄せたい」）——速いAIの依頼文と、AIが無いときの返事
+      {
+        const n7 = { id: "eu-q", text: "頭が痛い", capturedAt: isoEU(15, 9) };
+        const qp7 = quickPrompt(n7, contextForAI(n7));
+        ok("EU. 速いAIに、落ち着いて先回りして気づかう秘書として返すよう頼む（体を気づかう一言・一緒に喜ぶ）",
+           /落ち着いていて、先回りして気がつき、本人の体と気持ちをいちばんに気づかいます/.test(qp7) && /体を気づかう一言を必ず添える/.test(qp7) && /短く一緒に喜ぶ/.test(qp7), qp7.slice(0, 200));
+        ok("EU. 口調を寄せても、守ることは残す（数字を出さない・保存したと言わない・質問で終わらせない・診断しない）",
+           /数字は一切出さない/.test(qp7) && /「記録した」「完了にした」/.test(qp7) && /質問で終わらせない/.test(qp7) && /診断しない/.test(qp7));
+        const tr7 = raw => templateReply({ changes: [], asks: [], plan: { blocks: [], unplaced: [] }, na: null, isToday: true, raw, kinds: ["condition"] });
+        ok("EU. AIが無いときも、体の話には気づかう言葉で返す", /気にかけておくね/.test(tr7("頭が痛い")) && /休めるといいな/.test(tr7("眠い")) && /無理しないでいこう/.test(tr7("疲れた")), [tr7("頭が痛い"), tr7("眠い")].join(" ｜ "));
+      }
+
       // ③ 出発の時間
       fresh(base()); setNow(15, 7, 0);
       const nl = notifyList("2026-09-15", 7 * 60);
