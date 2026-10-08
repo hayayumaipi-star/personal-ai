@@ -9441,6 +9441,37 @@
          sentTurns.some(t => t.role === "user" && t.text === "今日は部屋の掃除をする") && sentTurns.some(t => t.role === "assistant") && $("#say").value === "" && !micOn && r4.stopped === true,
          JSON.stringify(sentTurns.map(t => t.text)));
       ok("EV. 送ったものから、ふつうに読み取る", state.items.some(i => /部屋の掃除/.test(i.title)), state.items.map(i => i.title).join("/"));
+      // 声で話したら、返事も声で（本人「読み上げを最初からオンに」＝設定がオフでも・打って送ったときは今までどおり読まない）
+      {
+        const keepSS = Object.getOwnPropertyDescriptor(window, "speechSynthesis"), keepSU = Object.getOwnPropertyDescriptor(window, "SpeechSynthesisUtterance");
+        const spoken = [];
+        Object.defineProperty(window, "speechSynthesis", { configurable: true, value: { cancel() {}, speak(u) { spoken.push(u.text); } } });
+        Object.defineProperty(window, "SpeechSynthesisUtterance", { configurable: true, value: function (t) { this.text = t; } });
+        const waitSend = async () => { await new Promise(res => setTimeout(res, 30)); for (let i = 0; i < 100 && sending; i++) await new Promise(res => setTimeout(res, 20)); };
+        reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ, speak: false }); $("#say").value = "";
+        try { localStorage.removeItem(MIC_OK); } catch {}
+        asked = null; await micToggle();
+        ok("EV. 初めての知らせに「声で話したときは、返事も声で読みます」", !!asked && /返事も声で読みます/.test(asked.body), asked && asked.body);
+        inst[inst.length - 1].onresult(ev("今日は洗濯をする", true)); await waitSend();
+        ok("EV. 声で話したら、読み上げの設定がオフでも返事を声で読む", spoken.length === 1 && /洗濯をする/.test(spoken[0]), JSON.stringify(spoken));
+        spoken.length = 0; $("#say").value = "今日は買い物に行く"; await doSend(); await waitSend();
+        ok("EV. 打って送ったときは、設定がオフなら読まない", spoken.length === 0 && Object.values(state.turns).flat().some(t => t.text === "今日は買い物に行く"), JSON.stringify(spoken));
+        spoken.length = 0; state.settings = Object.assign({}, state.settings, { micSend: false });
+        await micToggle(); inst[inst.length - 1].onresult(ev("今日は掃除", true));
+        $("#say").value = "今日は掃除をする"; $("#say").dispatchEvent(new Event("input"));
+        await micToggle(); await doSend(); await waitSend();
+        ok("EV. 声で入れたあと打って直して送ったら、声の発言ではない（読まない）", spoken.length === 0 && Object.values(state.turns).flat().some(t => t.text === "今日は掃除をする"), JSON.stringify(spoken));
+        spoken.length = 0;
+        await micToggle(); inst[inst.length - 1].onresult(ev("今日は皿洗いをする", true)); await micToggle(); await doSend(); await waitSend();
+        ok("EV. 自動で送らない設定でも、声で入れたまま送れば声で読む", spoken.length === 1 && /皿洗い/.test(spoken[0]), JSON.stringify(spoken));
+        spoken.length = 0; $("#say").value = "今日は料理をする"; await doSend(); await waitSend();
+        ok("EV. 声の印は1回だけ（次に打って送った返事は読まない）", spoken.length === 0, JSON.stringify(spoken));
+        spoken.length = 0; nextAloud = true; await sendTurn("今日は読書をする"); await sendTurn("今日は散歩をする");
+        ok("EV. 声の印は、次の1回の発言だけに効く（そのあとの発言の返事は読まない）", spoken.length === 1 && /読書/.test(spoken[0]), JSON.stringify(spoken));
+        state.settings = Object.assign({}, state.settings, { micSend: true });
+        if (keepSS) Object.defineProperty(window, "speechSynthesis", keepSS); else delete window.speechSynthesis;
+        if (keepSU) Object.defineProperty(window, "SpeechSynthesisUtterance", keepSU); else delete window.SpeechSynthesisUtterance;
+      }
       reset(); await micToggle(); inst[inst.length - 1].onresult(ev("", true));
       ok("EV. 何も聞き取れなかったら送らない", Object.values(state.turns).flat().length === 0);
       await micToggle();
@@ -9468,10 +9499,13 @@
       ok("EV. もう一度押すと、殻に止めるよう頼む", sent.some(m => m.kind === "speechrec" && m.action === "stop"));
       nativeReply(JSON.stringify({ kind: "speechrec", type: "end" }));
       ok("EV. 殻が「終わった」と言えば、ボタンを戻す", !micOn && $("#btnMic").getAttribute("aria-pressed") === "false");
-      state.settings = Object.assign({}, state.settings, { micSend: true }); reset(); $("#say").value = ""; sent.length = 0;
+      state.settings = Object.assign({}, state.settings, { micSend: true, speak: false }); reset(); $("#say").value = ""; sent.length = 0;
+      const keepSN2 = speakNative; speakNative = true;
       await micToggle();
       nativeReply(JSON.stringify({ kind: "speechrec", type: "final", text: "明日は牛乳を買う" }));
       for (let i = 0; i < 100 && sending; i++) await new Promise(res => setTimeout(res, 20));
+      ok("EV. APK でも、声で話したら殻に返事を読んでもらう（設定がオフでも）", sent.some(m => m.kind === "speak" && m.action === "say" && /牛乳/.test(m.text || "")), JSON.stringify(sent.filter(m => m.kind === "speak")));
+      speakNative = keepSN2;
       ok("EV. APK でも、話し終えたらそのまま送る（殻に止めるよう頼んでから）",
          Object.values(state.turns).flat().some(t => t.role === "user" && t.text === "明日は牛乳を買う") && sent.some(m => m.kind === "speechrec" && m.action === "stop") && !micOn,
          JSON.stringify(Object.values(state.turns).flat().map(t => t.text)));

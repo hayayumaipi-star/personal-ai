@@ -726,7 +726,7 @@ try { if (window.ReactNativeWebView) document.documentElement.classList.add("in-
         <select id="notifyBefore"><option value="0">始まる時刻</option><option value="5">5分前</option><option value="10">10分前</option><option value="15">15分前</option><option value="30">30分前</option><option value="60">1時間前</option></select></div>
       <!-- 返事を声で読み上げる（2026-10-08・本人の目標「ジャービスのような」・EU群）。**読み上げられる端末でだけ出す**——
            出せない端末で欄を見せると、押しても静かに効かない設定になる（決まり12b）。 -->
-      <div id="speakRow" hidden><label class="chk"><input type="checkbox" role="switch" id="speakOn"> 返事を声で読み上げる</label></div>
+      <div id="speakRow" hidden><label class="chk"><input type="checkbox" role="switch" id="speakOn"> 文字で送ったときも、返事を声で読む</label></div>
       <!-- 声で話したら自動で送る（2026-10-08・本人の指示・EV群）。**声で話せる端末でだけ出す**（決まり12b） -->
       <div id="micRow" hidden><label class="chk"><input type="checkbox" role="switch" id="micSendOn"> 声で話し終えたら、自動で送る</label></div>
       <!-- 作業に使える時間帯が狭いまま保存されている人の逃げ道（v6.3・実機で報告）。
@@ -3511,8 +3511,9 @@ function speakAvail() {
 function speakable(text) {
   return String(text || "").split("\n")[0].replace(/[「」『』（）()［］\[\]・／]/g, " ").replace(/〜/g, "から").replace(/\s+/g, " ").trim().slice(0, 300);
 }
-function speakOut(text) {
-  if (!state.settings || !state.settings.speak || !speakAvail()) return false;
+/* `force`＝声で話しかけた発言への返事（2026-10-08・本人「読み上げを最初からオンに」＝声で話せば声で返る・設定がオフでも読む） */
+function speakOut(text, force) {
+  if (!state.settings || (!state.settings.speak && !force) || !speakAvail()) return false;
   const t = speakable(text);
   if (!t) return false;
   if (nativeOn()) return nativeSend({ kind: "speak", action: "say", text: t });
@@ -3532,6 +3533,8 @@ function speakStop() {
    APK は殻（`expo-speech-recognition`）、ブラウザは SpeechRecognition。**初めて使うときに送り先を知らせる**（新しい外部送信の決まり）。
    殻が答えなければ（古い APK）ボタンを出さない（決まり12b）。殻から来るものはデータとして読む（決まり14）。 */
 let micNative = null, micOn = false, micBase = "", micRec = null;
+let micSaid = "";                    // 声で入れた文（送る文がこれと違えば、打って直した＝声の発言ではない）
+let nextAloud = false;               // 次の発言は声で話したもの → 返事を声で読む（sendTurn が1回だけ使う）
 const MIC_OK = "hitohi.micok";       // 送り先を知らせて「声で話す」を選んだ（端末の中だけの覚え・消えたらもう一度聞く）
 async function micProbe() {
   if (!nativeOn()) return false;
@@ -3561,7 +3564,7 @@ async function micToggle() {
       body: `話した声は、${nativeOn() ? "スマホの音声認識（多くの場合 Google の音声認識）" : "このブラウザの音声認識（Chrome なら Google）"}に送られて文字になります。<br>
         ${state.settings && state.settings.micSend !== false
           ? `話し終えたら、<strong>そのまま送ります</strong>（設定の「声で話し終えたら、自動で送る」で切れます）。聞き間違えたら「今のは記録しないで」と言えば消せます。`
-          : `文字は入力欄に入るだけで、<strong>送る前に直せます</strong>。`}このアプリは声を保存しません。費用はかかりません。`, yes: "声で話す" });
+          : `文字は入力欄に入るだけで、<strong>送る前に直せます</strong>。`}${speakAvail() ? "声で話したときは、返事も声で読みます。" : ""}このアプリは声を保存しません。費用はかかりません。`, yes: "声で話す" });
     if (!yes) return;
     try { localStorage.setItem(MIC_OK, "1"); } catch {}
   }
@@ -3586,6 +3589,7 @@ function micText(t, fin) {
   if (!micOn) return;
   const s = String(t || "").replace(/\s+/g, " ").trim().slice(0, 2000);
   $("#say").value = micBase + s;
+  micSaid = $("#say").value;
   saveDraft(); micNote();
   if (fin && s && state.settings && state.settings.micSend !== false) {
     micStop(); micEnd();               // 先に聞くのをやめる（あとから届いた分で書き換えない）
@@ -10352,6 +10356,7 @@ function learnedLine(note, touched) {
 
 /* 発話ひとつを処理する。どこで失敗しても、原文と既存の記録は必ず残る。 */
 async function sendTurn(text) {
+  const aloud = nextAloud; nextAloud = false;       // 声で話した発言か（doSend が決める・1回だけ）
   const tz = state.settings.timezone, at = new Date().toISOString();
   const askKey = view.ask;             // 「まだ聞いていないこと」の帯が出ていたら、この発言はその答えかもしれない
   const clean = normNote(text);
@@ -10567,7 +10572,7 @@ async function sendTurn(text) {
     showTable: shouldShowTable(ctx)     // 毎回は出さない
   });
   renderChat(true); renderDay(); renderMe(); renderSettings();
-  speakOut(reply);                      // 設定で選んだときだけ、返事を声で（EU群）
+  speakOut(reply, aloud);               // 設定で選んだとき・声で話しかけたときは、返事を声で（EU群・EV群）
 }
 
 /* =======================================================================
@@ -11056,6 +11061,8 @@ async function doSend() {
   if (sending) return;
   speakStop();                           // 話しかけたら、読み上げは止める（重ねない）
   if (micOn) { micStop(); micEnd(); }    // 聞いている途中で送ったら、聞くのもやめる（あとから届いた分で入力欄を書き換えない）
+  const byVoice = !!micSaid && $("#say").value === micSaid;    // 声で入れたまま送った（打って直していない）
+  micSaid = "";
   let v = $("#say").value.trim();
   if (!v) { $("#sayNote").innerHTML = '<span style="color:var(--alert-ink)">何か話しかけてください。</span>'; return; }
   /* 長すぎる入力を、そのまま流さない（v4.3）。
@@ -11080,6 +11087,7 @@ async function doSend() {
   $("#say").value = ""; try { localStorage.removeItem(DRAFT); } catch {}
   saveDraft();
   try {
+    nextAloud = byVoice;
     await sendTurn(v);
     $("#sayNote").textContent = "";
     // 答えたら帯を下ろす。答えになっていなくても、同じ質問を出し続けない。

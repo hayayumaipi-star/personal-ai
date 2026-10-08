@@ -583,6 +583,9 @@
    **初めて使うときに送り先を知らせる**（`askConfirm`：スマホ／ブラウザの音声認識＝多くは Google・そのまま送ること（切った設定なら送る前に直せること）・消し方・声を保存しない・費用なし＝新しい外部送信の決まり・`hitohi.micok`）。
    APK は殻、ブラウザは SpeechRecognition（APK では WebView のものは使わない）。殻が答えなければボタンを出さない。聞き始めたら読み上げを止める・聞いている途中で送ったら聞くのもやめる
    （あとから届いた文字で入力欄を書き換えない）。殻から来た文字は文字列だけ・知らない種類は捨てる・失敗の言葉は知っている形だけ見せる。
+   **声で話したら、返事も声で**（2026-10-08・本人「読み上げを最初からオンに」・`speakOut(text, force)`・`nextAloud`）：声で入れたまま送った発言（送る文＝声で入れた文 `micSaid`・
+   打って直したら声の発言ではない）への返事は、読み上げの設定がオフでも読む。印は次の1回の発言だけ。設定の欄は「文字で送ったときも、返事を声で読む」（オンなら打って送っても読む）。
+   1日の最初のあいさつを声で言うのは、この設定がオンのときだけ（今までどおり）。
 
 ### Googleカレンダー（17）
 
@@ -647,7 +650,7 @@
 meta/settings  { timezone, workStart, workEnd（設定欄は無し・既定は一日じゅう）, defaultEstimate, breakEveryMin, breakMin, theme,
                  reviewDow（0〜6・-1＝知らせない）, reviewHour,   // 週に1回の見直し（決まり15o）
                  notifyBefore（0/5/10/15/30/60 分前・0＝始まる時刻）,   // 予定の通知（決まり14）
-                 speak（true のときだけ返事を声で読む・決まり15x）,
+                 speak（true なら文字で送ったときも返事を声で読む・声で話したときは false でも読む・決まり15x）,
                  micSend（false のときだけ、声で話し終えても自動では送らない・決まり15x） }
                ※ `useAI` は廃止（決まり12b）。読むたびに落とすので、古い控えからも持ち越さない。
 notes/{id}     { text, hash, capturedAt, source, sourceName, createdAt }
@@ -803,7 +806,7 @@ localStorage "hitohi.greeted" / "hitohi.micok"   1日の最初のあいさつを
 
 - 抽出・計画・重複判定・ops を触ったら **必ず `tests/harness.js` を追記して実行**する。現在194件が通る。
 - **`tests/scenario.js` は一日ぶんの会話を1発言ずつ流す通し検証**（51件）。会話の扱いを変えたら必ずこれも実行する。
-- **`tests/probe.js` は境界と寿命の確認**（2136件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,469件）。
+- **`tests/probe.js` は境界と寿命の確認**（2144件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,477件）。
 - **`server/test.mjs` は中継サーバーの確認**（59件・`node server/test.mjs`・Node 22 以上）。`server/` を触ったら必ず流す。
 - **`mobile/test-tools.mjs` は「APKを作る」（Actions）の道具の確認**（38件・`node mobile/test-tools.mjs`）。`mobile/find-eas-project.js`・`mobile/check-ai-key.js`・`.github/workflows/apk.yml` を触ったら流す。
 - **`tools/ai-eval/` は本物の Gemini で読み取りの質を比べる道具**（62件の正解つき＝1回の発言30・会話の続き12・ルールで直してきた言い方20＝`p01`〜・`GEMINI_API_KEY` が要る・鍵なしなら `--configs rules`）。
