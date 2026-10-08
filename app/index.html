@@ -6453,6 +6453,20 @@ function careAsk(key) {
   const c = conds[0];
   return { when: c.d === y1 ? "昨日" : "おととい", said: c.t.replace(/\s+/g, " ").slice(0, 30) };
 }
+/* 明日の最初（EU群・ジャービスのように先回り）。夕方以降、今日これから来るものが無いときにカードへ1行。
+   本人が言った予定だけ（提案・組み立ては数えない）。くり返しの予定も明日の回として数える（planFor がその日の写しを作る）。 */
+function tomorrowLine(key) {
+  const tz = state.settings.timezone;
+  const nk = dayKey(new Date(keyToDate(key, tz).getTime() + 36 * 3600000), tz);
+  let p2; try { p2 = planFor(nk, { nowMin: -1 }); } catch { return ""; }
+  const mine = i => i && !i.suggested && !i.built;
+  const evs = p2.events.filter(ev => mine(ev.item));
+  const timed = evs.filter(ev => !ev.item.allDay), allDay = evs.filter(ev => ev.item.allDay);
+  const more = n => n > 1 ? `（予定${n}つ）` : "";
+  if (timed.length) return `明日は${hhmm(timed[0].s)}の「${timed[0].item.title.slice(0, 20)}」から${more(timed.length + allDay.length)}。`;
+  if (allDay.length) return `明日は終日の「${allDay[0].item.title.slice(0, 20)}」${more(allDay.length)}。`;
+  return "";
+}
 function briefHTML(key, plan) {
   if (turnsFor(key).some(t => t.role === "user")) return { html: "", has: false };
   const h = parts(new Date(), state.settings.timezone).h;
@@ -6472,6 +6486,8 @@ function nowCardHTML() {
   let plan; try { plan = planFor(key); } catch { return ""; }
   const na = nextAction(plan), done = doneOn(key), left = leftToday(plan);
   const top = briefHTML(key, plan);
+  const tmrT = !na && parts(new Date(), tz).h >= 17 ? tomorrowLine(key) : "";      // `na` があるときの枝は明日の行を使わないので、計算もしない（明日の予定表を作る分の省略）
+  const tmr = tmrT ? `<div class="ncr">${esc(tmrT)}</div>` : "";
   const btn = `<div class="row"><button class="btn sm" data-act="openday">今日の予定を見る</button></div>`;
   /* 見直しの日（設定した曜日の、その時刻より後）は、ここにも1行出す。通知の無い Artifact でも気づける。 */
   const rvLine = reviewNow(new Date()) ? reviewLine(reviewCounts(new Date())) : "";
@@ -6500,17 +6516,17 @@ function nowCardHTML() {
       + (done.length > 6 ? `<li>ほか${done.length - 6}件</li>` : "");
     return `<div class="nowcard fin" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.care ? top.html : ""}
       <span class="eyebrow">今日できたこと</span><ul>${list}</ul>
-      <div class="ncr">今日の予定は、これで全部です。お疲れさまでした。</div>${rv}</div></div>`;
+      <div class="ncr">今日の予定は、これで全部です。お疲れさまでした。</div>${tmr}${rv}</div></div>`;
   }
   if (left) {
     return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.has ? top.html : `
       <span class="eyebrow">今日やること</span>
       <div class="ncr">時刻を決めていないものが ${left}件あります。</div>`}
-      ${done.length ? `<div class="ncdone">✓ 今日できたこと ${done.length}件</div>` : ""}${btn}${rv}</div></div>`;
+      ${done.length ? `<div class="ncdone">✓ 今日できたこと ${done.length}件</div>` : ""}${tmr}${btn}${rv}</div></div>`;
   }
-  if (rv) return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}
+  if (rv) return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}${tmr}
       <span class="eyebrow">週に1回の見直し</span>${rv}</div></div>`;
-  if (top.has) return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}</div></div>`;
+  if (top.has || tmr) return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}${tmr}</div></div>`;
   return "";
 }
 function refreshNowCard() {

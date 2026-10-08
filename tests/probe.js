@@ -9175,6 +9175,37 @@
       const trEU = raw => templateReply({ changes: [], asks: [], plan: { blocks: [], unplaced: [] }, na: null, isToday: true, raw, kinds: ["condition"] });
       ok("EU. 「よくなった」には「よくなってよかった」（覚えておく、だけで返さない）", /よくなってよかった/.test(trEU("体調はよくなった")) && /よくなってよかった/.test(trEU("熱が下がった")) && !/よかった/.test(trEU("頭が痛い")), trEU("体調はよくなった"));
 
+      // ①' 夕方以降、今日これから来るものが無ければ、明日の最初を1行（先回り）
+      fresh(base().concat([
+        { id: "eu-m1", noteId: "eu-n", kind: "event", title: "朝礼", status: "open", fixed: true, dayKey: "2026-09-16", start: isoEU(16, 9), end: isoEU(16, 9, 30) },
+        { id: "eu-m2", noteId: "eu-n", kind: "event", title: "打ち合わせ", status: "open", fixed: true, dayKey: "2026-09-16", start: isoEU(16, 14), end: isoEU(16, 15) },
+        { id: "eu-m3", noteId: "eu-n", kind: "event", title: "提案の散歩", status: "open", suggested: true, dayKey: "2026-09-16", start: isoEU(16, 7), end: isoEU(16, 8) }]));
+      state.turns = { "2026-09-15": [{ id: "eu-u", role: "user", text: "x", at: isoEU(15, 8) }] };
+      setNow(15, 21, 0); h = txt(nowCardHTML());
+      ok("EU. 夜、今日これから来るものが無ければ、明日の最初の予定を言う（提案は数えない）", /明日は09:00の「朝礼」から（予定2つ）。/.test(h), h);
+      setNow(15, 12, 0); h = txt(nowCardHTML());
+      ok("EU. まだ今日の予定が残っているあいだ・昼は、明日の話をしない", !/明日は/.test(h), h);
+      setNow(15, 10, 0); fresh(base().filter(i => i.kind === "condition").concat([
+        { id: "eu-m5", noteId: "eu-n", kind: "event", title: "朝礼", status: "open", fixed: true, dayKey: "2026-09-16", start: isoEU(16, 9), end: isoEU(16, 9, 30) }]));
+      state.turns = { "2026-09-15": [{ id: "eu-u", role: "user", text: "x", at: isoEU(15, 8) }] };
+      ok("EU. 夕方より前は、今日が空でも明日の話をしない", !/明日は/.test(txt(nowCardHTML())), txt(nowCardHTML()));
+      const tmrEv = { id: "eu-m6", noteId: "eu-n", kind: "event", title: "朝礼", status: "open", fixed: true, dayKey: "2026-09-16", start: isoEU(16, 9), end: isoEU(16, 9, 30) };
+      fresh([tmrEv, { id: "eu-m7", noteId: "eu-n", kind: "event", title: "夕食会", status: "open", fixed: true, dayKey: "2026-09-15", start: isoEU(15, 20), end: isoEU(15, 21) }]);
+      state.turns = { "2026-09-15": [{ id: "eu-u", role: "user", text: "x", at: isoEU(15, 8) }] };
+      setNow(15, 18, 0);
+      ok("EU. 夜でも、今日これから来る予定があるあいだは明日の話をしない", !/明日は/.test(txt(nowCardHTML())) && /夕食会/.test(txt(nowCardHTML())), txt(nowCardHTML()));
+      fresh([tmrEv, { id: "eu-m8", noteId: "eu-n", kind: "task", title: "請求書を送る", status: "done", dayKey: "2026-09-15", duePrecision: "day", completedAt: isoEU(15, 10), history: [] }]);
+      state.turns = { "2026-09-15": [{ id: "eu-u", role: "user", text: "x", at: isoEU(15, 8) }] };
+      setNow(15, 21, 0); h = txt(nowCardHTML());
+      ok("EU. 今日を全部終えた夜は「これで全部です」のあとに明日の最初", /これで全部です/.test(h) && /明日は09:00の「朝礼」から。/.test(h), h);
+      fresh([{ id: "eu-m4", noteId: "eu-n", kind: "event", title: "出張", status: "open", fixed: true, allDay: true, dayKey: "2026-09-16", start: isoEU(16, 0), end: isoEU(17, 0) }]);
+      state.turns = { "2026-09-15": [{ id: "eu-u", role: "user", text: "x", at: isoEU(15, 8) }] };
+      setNow(15, 21, 0); h = txt(nowCardHTML());
+      ok("EU. 明日が終日の予定だけなら、その名前で言う（今日が空でもカードを出す）", /明日は終日の「出張」。/.test(h), h);
+      fresh([]); setNow(15, 21, 0);
+      ok("EU. 今日も明日も何も無ければ、カードを出さない", nowCardHTML() === "");
+      state.turns = {};
+
       // ③ 出発の時間
       fresh(base()); setNow(15, 7, 0);
       const nl = notifyList("2026-09-15", 7 * 60);
