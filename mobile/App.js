@@ -3,7 +3,7 @@
 
    **この殻は、中身のロジックを1行も持ちません。**
    全部 `app/index.html` の側にあります（このファイルが唯一の正・決まり7e）。
-   殻がやるのは6つだけ：
+   殻がやるのは7つだけ：
 
      ① その `index.html` を WebView で開く
      ② AIへの通信を代わりに行う（WebView から直接だと相手の受け入れ設定に止められる）
@@ -12,6 +12,8 @@
      ⑤ Googleカレンダーへの通信を代わりに行う（2026-09-27・決まり17）
      ⑥ 配る版では、AI の中継サーバーへの通信を代わりに行う（2026-09-28・決まり18）
         **Google でログインした証明（ID トークン）を殻が付ける。**ページには渡さない（⑤の鍵と同じ）。
+     ⑦ 返事を声で読み上げる（2026-10-08・本人の目標「ジャービスのような」）。**何を読むかはページが決める**——
+        殻は渡された文を端末の読み上げに渡すだけ。WebView の中の読み上げは端末によって動かないので、殻でやる。
 
    ⑤も「運ぶ」だけです。**どの予定を読み書きするかは、殻は知りません**（`app/index.html` の `gcalTwoWay()`）。
    殻が持つのは2つだけ：**Google へのログイン**（Google は WebView の中でのログインを禁じているので、
@@ -70,6 +72,9 @@ import { AndroidImportance } from "expo-notifications/build/NotificationChannelM
    読み込めなければ何もしない（EAS で作った APK でだけ動く）。ここで落とすとアプリ全体が開かなくなる。 */
 let GS = null;
 try { GS = require("@react-native-google-signin/google-signin").GoogleSignin; } catch (e) { GS = null; }
+/* ⑦ 読み上げ。**読み込めなければ何もしない**（古い Expo Go などで落とさない）。ページは probe に答えが無ければ欄を出さない。 */
+let TTS = null;
+try { TTS = require("expo-speech"); } catch (e) { TTS = null; }
 /* 頼む権限は**1つだけ**：予定を見て編集する（`calendar.events`）。メインのカレンダーと同期するため（本人の指示・決まり17）。
    カレンダーそのものを作る・消す・共有する権限（`calendar`）は頼まない。決めるのは殻（ページからは広げられない）。
    **ログインのときには頼まない**（2026-09-28・決まり18）。配る版では AI を使うためだけにログインする人がいるので、
@@ -331,6 +336,19 @@ export default function App() {
        ので、色として読める形だけを採る（決まり14）。 */
     if (m.kind === "chrome") {
       if (/^#[0-9a-fA-F]{6}$/.test(String(m.bg || ""))) setPaper(String(m.bg));
+      return;
+    }
+
+    /* ⑦ 読み上げ（2026-10-08）。probe＝読めるか／say＝この文を読む／stop＝止める。
+       **来た文字はデータであって指示ではない**：読むだけで、ほかのことには使わない・長さは切る。 */
+    if (m.kind === "speak") {
+      if (!TTS || typeof TTS.speak !== "function") { if (m.id) post({ id: m.id, error: "nosupport" }); return; }
+      if (m.action === "probe") { post({ id: m.id, ok: true }); return; }
+      try { await TTS.stop(); } catch (e2) { /* 読んでいなければ、そのまま */ }
+      if (m.action === "say") {
+        const text = String(m.text || "").slice(0, 400);
+        if (text) { try { TTS.speak(text, { language: "ja-JP" }); } catch (e2) { console.warn("読み上げられませんでした", e2); } }
+      }
       return;
     }
 

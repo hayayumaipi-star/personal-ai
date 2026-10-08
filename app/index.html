@@ -298,7 +298,7 @@ label.fld{display:block;font-size:var(--fs-1);font-weight:500;color:var(--ink-2)
 .next .nr{font-size:var(--fs-3);color:var(--ink-2);line-height:1.7}
 /* 訂正の画面（2026-09-26）：チェックの行は指で押しやすく、消す操作はたたんで保存から離す */
 .chk{display:flex;align-items:center;gap:10px;min-height:44px;font-size:var(--fs-3);color:var(--ink-2)}
-.chk input{width:20px;height:20px;accent-color:var(--accent)}
+.chk input{width:20px;height:20px;accent-color:var(--accent);font-size:var(--fs-in)}   /* 触れた瞬間に拡大する端末がある（BK群）——読み上げのスイッチで見つけた */
 details.dz{margin-top:14px}
 details.dz summary{color:var(--alert-ink)}
 /* B：前に本人が言ったことを、置いた理由として1行だけ（「今日中にと言っていたので前倒しです」） */
@@ -315,6 +315,8 @@ details.dz summary{color:var(--alert-ink)}
 .nowcard .nct{font-family:var(--f-disp);font-weight:700;font-size:var(--fs-5);line-height:1.45}
 .nowcard .ncr{font-size:var(--fs-3);color:var(--ink-2)}
 .nowcard .ncdone{font-size:var(--fs-3);color:var(--done-ink)}
+.nowcard .ncg{font-size:var(--fs-3);color:var(--ink);line-height:1.6;margin-bottom:4px}
+.nowcard .nccare{font-size:var(--fs-3);color:var(--ink);line-height:1.6;margin-top:2px}
 .nowcard ul{margin:2px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}
 .nowcard li{font-size:var(--fs-3);padding-left:18px;position:relative}
 .nowcard li::before{content:"✓";position:absolute;left:0;color:var(--done-ink);font-weight:700}
@@ -718,6 +720,9 @@ try { if (window.ReactNativeWebView) document.documentElement.classList.add("in-
            端末の通知は殻が予約する。Artifact では通知そのものが無いので、欄を出すと効かない設定になる（決まり12b）。 -->
       <div id="notifyRow" hidden><label class="fld" for="notifyBefore">予定の通知</label>
         <select id="notifyBefore"><option value="0">始まる時刻</option><option value="5">5分前</option><option value="10">10分前</option><option value="15">15分前</option><option value="30">30分前</option><option value="60">1時間前</option></select></div>
+      <!-- 返事を声で読み上げる（2026-10-08・本人の目標「ジャービスのような」・EU群）。**読み上げられる端末でだけ出す**——
+           出せない端末で欄を見せると、押しても静かに効かない設定になる（決まり12b）。 -->
+      <div id="speakRow" hidden><label class="chk"><input type="checkbox" role="switch" id="speakOn"> 返事を声で読み上げる</label></div>
       <!-- 作業に使える時間帯が狭いまま保存されている人の逃げ道（v6.3・実機で報告）。
            設定欄は v3.9 で外したので、古い値のままだと**画面から直す道が無かった**。
            入力欄は戻さない。戻すのは「一日じゅうに戻す」の1手だけ。
@@ -3478,6 +3483,42 @@ function nativeSend(msg) {
   try { window.ReactNativeWebView.postMessage(JSON.stringify(msg)); return true; }
   catch { return false; }
 }
+/* ── 声で読み上げる（2026-10-08・本人の目標「ジャービスのような」・EU群）──
+   **何を読むかはページが決め、殻は読むだけ**（決まり14）。Android アプリでは殻（`expo-speech`）に頼む——
+   WebView の中の読み上げ（speechSynthesis）は端末によって動かないので使わない。殻が古くて答えなければ、欄を出さない。
+   Artifact（ブラウザ）では speechSynthesis。**読むのは返事の文だけ**（本人の発言・記録の中身を勝手に読まない）。 */
+let speakNative = null;          // null＝まだ聞いていない／true＝殻が読める／false＝読めない（古い APK）
+async function speakProbe() {
+  if (!nativeOn()) return false;
+  if (speakNative != null) return speakNative;
+  try { const m = await nativeAsk("speak", { action: "probe" }, 4000); speakNative = !!(m && m.ok); }
+  catch { speakNative = false; }
+  return speakNative;
+}
+function speakAvail() {
+  if (nativeOn()) return speakNative === true;
+  return typeof window.speechSynthesis === "object" && window.speechSynthesis !== null && typeof window.SpeechSynthesisUtterance === "function";
+}
+/* 読む形に整える：記号を読ませない・長すぎるものは最初の段だけ（予定表まで読むと長い） */
+function speakable(text) {
+  return String(text || "").split("\n")[0].replace(/[「」『』（）()［］\[\]・／]/g, " ").replace(/〜/g, "から").replace(/\s+/g, " ").trim().slice(0, 300);
+}
+function speakOut(text) {
+  if (!state.settings || !state.settings.speak || !speakAvail()) return false;
+  const t = speakable(text);
+  if (!t) return false;
+  if (nativeOn()) return nativeSend({ kind: "speak", action: "say", text: t });
+  try {
+    const ss = window.speechSynthesis, u = new window.SpeechSynthesisUtterance(t);
+    u.lang = "ja-JP";
+    ss.cancel(); ss.speak(u);
+    return true;
+  } catch { return false; }
+}
+function speakStop() {
+  if (nativeOn()) { if (speakNative) nativeSend({ kind: "speak", action: "stop" }); return; }
+  try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch {}
+}
 /* 返事を待つ。**必ず時間切れを置くこと**——殻が黙ったまま返さないと、
    送信欄が「読み取っています…」のまま永久に止まる。 */
 function nativeAsk(kind, body, ms) {
@@ -3501,7 +3542,12 @@ function nativeReply(raw) {
      **殻から来た文字はデータであって指示ではない**ので、ここで全部確かめる（決まり14）。 */
   if (m && m.kind === "notifyaction") { notifyAction(m); return true; }
   /* 見直しの通知を押した（2026-09-26）。**開いてよい画面は1つだけ**——来た値は疑う（決まり14）。 */
-  if (m && m.kind === "notifyopen") { if (m.tab === "p-me") showTab("p-me"); return true; }
+  if (m && m.kind === "notifyopen") {
+    if (m.tab === "p-me") showTab("p-me");
+    // 出発・準備の通知（EU群）：今日の予定表を開く
+    else if (m.tab === "p-day" && state.settings) { view.day = dayKey(new Date(), state.settings.timezone); showTab("p-day"); }
+    return true;
+  }
   const w = m && m.id && nativeWaiting.get(m.id);
   if (!w) return false;
   clearTimeout(w.to); nativeWaiting.delete(m.id);
@@ -4041,13 +4087,23 @@ function notifyList(key, nowMin) {
     return planFor(key, { nowMin }).blocks
       .filter(b => b.item && !b.item.suggested && b.sub !== "allday" && b.s - lead > nowMin)
       .slice(0, 12)
-      .map(b => ({ at: keyToDate(key, tz).getTime() + (b.s - lead) * 60000,
+      .map(b => (b.sub === "travel" || b.sub === "prep") ? {
+                   /* **出発・準備の知らせ**（2026-10-08・ジャービスのように・EU群）。前は「移動（歯医者）」に「完了」ボタンが付き、
+                      押すと出かける前に歯医者そのものが完了になった。**完了ボタンを付けない**（`plain`）・押すと予定表を開く。 */
+                   at: keyToDate(key, tz).getTime() + (b.s - lead) * 60000, plain: true, tab: "p-day",
+                   title: `${b.sub === "travel" ? "そろそろ出発の時間です" : "そろそろ準備の時間です"}（${b.item.title}）`,
+                   body: `${hhmm(planEventStart(b))}から・${b.sub === "travel" ? `移動に${durJa(b.e - b.s)}` : `準備に${durJa(b.e - b.s)}`}`,
+                   day: key } : ({ at: keyToDate(key, tz).getTime() + (b.s - lead) * 60000,
                    title: blockTitle(b), body: `${hhmm(b.s)}から${durJa(b.e - b.s)}`,
                    /* **どの用事のことか**を持たせる（2026-09-24・案⑦）。
                       通知で「完了」を押したとき、殻はこれをそのまま返すだけ。
                       日付も要る——くり返しの予定は「その日のぶん」だけ終わりにするため。 */
                    id: b.item.id, day: key }));
   } catch { return []; }
+}
+/* 移動・準備の帯から、その予定の始まり（分）。準備の帯は移動の分も足す */
+function planEventStart(b) {
+  return b.sub === "travel" ? b.e : b.e + (b.item.travelMin || 0);
 }
 /* 殻に予約してもらう。**予約だけなので、アプリが閉じていても鳴る**
    （定時に自分で起きる仕組みは要らない。だから殻はその分だけ小さい）。 */
@@ -4334,7 +4390,9 @@ const DEFAULTS = {
   /* 週に1回の見直し（2026-09-26・本人の指示）。曜日は 0=日〜6=土、-1 は「知らせない」。 */
   reviewDow: 0, reviewHour: 20,
   /* 予定の通知を何分前に鳴らすか（2026-09-28・本人の指示）。0＝始まる時刻（今までどおり）。 */
-  notifyBefore: 0
+  notifyBefore: 0,
+  /* 返事を声で読み上げる（2026-10-08・本人の目標「ジャービスのような」・EU群）。既定は読まない（急に声が出ると困る場面がある）。 */
+  speak: false
 };
 const NOTIFY_LEADS = [0, 5, 10, 15, 30, 60];
 const OLD_WINDOW = { workStart: "09:00", workEnd: "18:00" };   // 設定欄があった頃の既定
@@ -4722,6 +4780,7 @@ function safeSettings(s) {
   o.reviewDow = num(o.reviewDow, -1, 6, DEFAULTS.reviewDow);
   o.reviewHour = num(o.reviewHour, 0, 23, DEFAULTS.reviewHour);
   o.notifyBefore = NOTIFY_LEADS.includes(Number(o.notifyBefore)) ? Number(o.notifyBefore) : DEFAULTS.notifyBefore;
+  o.speak = o.speak === true;
   /* `isTime` は形しか見ない（"25:99" も通る）ので、ここでは中身まで確かめる。 */
   const okClock = t => {
     if (!isTime(t)) return false;              // 形は `isTime` が見る（同じ正規表現を2か所に書かない）
@@ -6329,7 +6388,8 @@ function doneOn(key) {
    完了したときの一言も、会話の下のカードも、ここを見る。
    予定表のこれからの枠に加えて、時刻の無い「この日にやること」（期限が今日以前・今日やると言った）も数える。
    **それを数えないと、まだ用事が残っているのに「全部です」と言ってしまう。** */
-function leftToday(plan) {
+function leftToday(plan) { return leftIds(plan).size; }
+function leftIds(plan) {
   const ids = new Set();
   for (const b of plan.blocks) {
     if (!b.item || b.type === "brk" || b.type === "buf" || b.sub === "allday" || b.sub === "travel" || b.sub === "prep") continue;
@@ -6341,7 +6401,7 @@ function leftToday(plan) {
     if (i.repeat) { if (owedDay(i, plan.key, state.settings.timezone)) ids.add(i.id); continue; }
     if ((i.dayKey && i.dayKey <= plan.key && i.duePrecision !== "week" && i.duePrecision !== "none") || i.targetDay === plan.key) ids.add(i.id);
   }
-  return ids.size;
+  return ids;
 }
 /* ── C：開いた瞬間の「次はこれだけ」（2026-09-26・本人の指示）──
    会話のいちばん下に1枚だけ。**保存しない**——開くたびに、いまの予定表から作る（決まり1）。
@@ -6350,12 +6410,68 @@ function leftToday(plan) {
    同じ枠なら、そこは省く。
    A（一日の終わり）もここが受け持つ：これからの枠が無く、今日終えたものがあれば
    「今日できたこと」を1枚にまとめる。**新しいタブも欄も作らない**（タブは4つ）。 */
+/* ── 開いた最初のあいさつと、今日の見通し・体の気づかい（2026-10-08・本人の目標「ジャービスのような、ベイマックスのような」・EU群）──
+   **今日まだ何も話していないあいだだけ**、会話の下のカードの頭に出す（話し始めたら消える＝毎回あいさつしない）。
+   **中身はコードが記録から数える**（決まり7b：事実はコード・AIに言わせない）。**保存しない**（決まり1・15m のカードと同じ）。
+   何も無い日は今までどおりカードを出さない（あいさつだけのカードは作らない）。 */
+const CARE_SAYS = ["体調はよくなった", "体調はまだつらい"];      // 押せる答え＝送る文そのもの（本人が選んだ言葉としてそのまま記録する）
+function greetWord(h) {
+  return h < 4 ? "遅くまでお疲れさまです。" : h < 11 ? "おはようございます。" : h < 18 ? "こんにちは。" : "こんばんは。";
+}
+/* 今日の見通し。予定は時刻の幅だけ（名前は下の「次は」が言う＝同じものを2回出さない・決まり6f）、
+   終日と時刻未定の予定は名前で、やることは件数で。アプリの提案・組み立ての枠は数えない（本人が言ったものだけ）。 */
+function briefLine(key, plan) {
+  const mine = i => i && !i.suggested && !i.built;
+  const evs = plan.events.filter(ev => mine(ev.item));
+  const timed = evs.filter(ev => !ev.item.allDay && ev.e > plan.nowMin);
+  const past = evs.some(ev => !ev.item.allDay && ev.e <= plan.nowMin);
+  const allDay = evs.filter(ev => ev.item.allDay).map(ev => ev.item.title);
+  const tl = plan.timeless.filter(mine).map(i => i.title);
+  const tasks = [...leftIds(plan)].map(id => findItem(id)).filter(i => mine(i) && i.kind === "task").length;
+  const bits = [];
+  if (timed.length) bits.push(`予定が${timed.length}つ（${hhmm(timed[0].s)}〜${timed.reduce((m, ev) => Math.max(m, ev.e), 0) >= 24 * 60 ? "24:00" : hhmm(timed.reduce((m, ev) => Math.max(m, ev.e), 0))}）`);
+  if (allDay.length) bits.push(`終日の${allDay.slice(0, 2).map(t => `「${t.slice(0, 20)}」`).join("・")}`);
+  if (tl.length) bits.push(`時刻未定の${tl.slice(0, 2).map(t => `「${t.slice(0, 20)}」`).join("・")}${tl.length > 2 ? `ほか${tl.length - 2}つ` : ""}`);
+  if (tasks) bits.push(`やることが${tasks}件`);
+  if (!bits.length) return { text: "今日は入っている予定はありません。", empty: true };
+  return { text: `今日は${past && timed.length ? "このあと" : ""}${bits.join("、")}です。`, empty: false };
+}
+/* 体の気づかい。**昨日かおとといに「つらい」と言っていて、そのあと「よくなった」と言っておらず、今日まだ体調を言っていない**ときだけ、
+   本人の言葉のまま聞く。**点数で聞かない・診断しない**（決まり3）。答えは2つのボタンか、そのまま話して。 */
+function careAsk(key) {
+  const tz = state.settings.timezone;
+  if (recentConditions(key).length) return null;                       // 今日もう言った
+  if (parts(new Date(), tz).h < 4) return null;                        // 夜中は聞かない（さっきの話を「昨日」と聞くことになる）
+  const back = k => dayKey(new Date(keyToDate(key, tz).getTime() - k * 86400000 + 12 * 3600000), tz);
+  const y1 = back(1), y2 = back(2);
+  const conds = liveItems().filter(i => i.kind === "condition" && validISO(i.reportedAt))     // 取り消した体調は liveItems が外す
+    .map(i => ({ i, d: dayKey(new Date(i.reportedAt), tz), t: i.selfReport || i.title || "" }))
+    .filter(x => x.d === y1 || x.d === y2)
+    .sort((a, b) => String(b.i.reportedAt).localeCompare(String(a.i.reportedAt)));
+  if (!conds.length || RE_LOW_OK.test(conds[0].t) || !RE_LOW_BODY.test(conds[0].t)) return null;   // いちばん新しい話が「よくなった」なら聞かない
+  if (Date.now() - new Date(conds[0].i.reportedAt).getTime() < 6 * 3600000) return null;           // 言ってから6時間たっていなければ、まだ聞かない
+  const c = conds[0];
+  return { when: c.d === y1 ? "昨日" : "おととい", said: c.t.replace(/\s+/g, " ").slice(0, 30) };
+}
+function briefHTML(key, plan) {
+  if (turnsFor(key).some(t => t.role === "user")) return { html: "", has: false };
+  const h = parts(new Date(), state.settings.timezone).h;
+  const b = briefLine(key, plan), care = careAsk(key);
+  if (b.empty && !care) return { html: "", has: false };
+  const careH = care ? `<div class="nccare">${care.when}、「${esc(care.said)}」と言っていました。今日の具合はどうですか？</div>
+    <div class="row">${CARE_SAYS.map(t => `<button class="btn sm" data-act="say" data-say="${esc(t)}">${esc(t)}</button>`).join("")}</div>` : "";
+  // 読み上げをオンにしているときだけ「声で聞く」（押したときに読む＝ブラウザは押した操作が無いと声を出せない）
+  const say = state.settings.speak && speakAvail() ? `<div class="row"><button class="btn sm" data-act="speakcard">声で聞く</button></div>` : "";
+  return { has: true, care: !!care,
+    html: `<div class="ncg">${greetWord(h)}${esc(b.text)}${h < 4 ? "休めるうちに休んでくださいね。" : ""}</div>${careH}${say}` };
+}
 function nowCardHTML() {
   if (!state.settings || state.notes.length === 0) return "";      // 見本の画面では出さない
   const tz = state.settings.timezone, key = dayKey(new Date(), tz);
   if ((view.chatDay || view.day || key) !== key) return "";
   let plan; try { plan = planFor(key); } catch { return ""; }
   const na = nextAction(plan), done = doneOn(key), left = leftToday(plan);
+  const top = briefHTML(key, plan);
   const btn = `<div class="row"><button class="btn sm" data-act="openday">今日の予定を見る</button></div>`;
   /* 見直しの日（設定した曜日の、その時刻より後）は、ここにも1行出す。通知の無い Artifact でも気づける。 */
   const rvLine = reviewNow(new Date()) ? reviewLine(reviewCounts(new Date())) : "";
@@ -6377,23 +6493,24 @@ function nowCardHTML() {
         <div class="ncr"><span class="mono">${hhmm(b.s)}–${hhmm(b.e)}</span>${running ? `・${hhmm(b.e)}まで` : soon}</div>
         ${why ? `<div class="ncw">${esc(why)}</div>` : ""}`;
     const got = done.length ? `<div class="ncdone">✓ 今日できたこと ${done.length}件</div>` : "";
-    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${head}${got}${btn}${rv}</div></div>`;
+    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}${head}${got}${btn}${rv}</div></div>`;
   }
   if (done.length && !left) {
     const list = done.slice(0, 6).map(i => `<li>${esc(i.title)}</li>`).join("")
       + (done.length > 6 ? `<li>ほか${done.length - 6}件</li>` : "");
-    return `<div class="nowcard fin" id="nowCard"><span class="ncdot"></span><div class="ncbody">
+    return `<div class="nowcard fin" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.care ? top.html : ""}
       <span class="eyebrow">今日できたこと</span><ul>${list}</ul>
       <div class="ncr">今日の予定は、これで全部です。お疲れさまでした。</div>${rv}</div></div>`;
   }
   if (left) {
-    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">
+    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.has ? top.html : `
       <span class="eyebrow">今日やること</span>
-      <div class="ncr">時刻を決めていないものが ${left}件あります。</div>
+      <div class="ncr">時刻を決めていないものが ${left}件あります。</div>`}
       ${done.length ? `<div class="ncdone">✓ 今日できたこと ${done.length}件</div>` : ""}${btn}${rv}</div></div>`;
   }
-  if (rv) return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">
+  if (rv) return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}
       <span class="eyebrow">週に1回の見直し</span>${rv}</div></div>`;
+  if (top.has) return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}</div></div>`;
   return "";
 }
 function refreshNowCard() {
@@ -6934,6 +7051,8 @@ function renderSettings() {
   if ($("#revHour")) $("#revHour").disabled = s.reviewDow < 0;
   if ($("#notifyRow")) $("#notifyRow").hidden = !nativeOn();
   $("#notifyBefore") && ($("#notifyBefore").value = String(s.notifyBefore || 0));
+  if ($("#speakRow")) $("#speakRow").hidden = !speakAvail();
+  $("#speakOn") && ($("#speakOn").checked = !!s.speak);
   if ($("#appVer")) $("#appVer").textContent = appVersionText();
   renderWhere();
   renderGcal();
@@ -7435,6 +7554,25 @@ async function act(a, id, el) {
      `findItem` の門より上に置くこと——下だと「項目が見つかりません」で黙って終わる。 */
   /* C：会話の下のカードから、今日の予定表へ。**`findItem` の門より上**に置く（id を持たない）。 */
   if (a === "openme") { showTab("p-me"); return; }
+  /* 体の気づかいの答え（EU群）。**押せるのは決めた文だけ**（来た値は疑う）。送る文＝ボタンの文字そのもの。
+     書きかけの文があれば、送ったあとに戻す（消さない）。 */
+  /* カードを声で（EU群）。読むのは画面に出ている文だけ（あいさつ・見通し・体の気づかい・次は）。 */
+  if (a === "speakcard") {
+    const c = $("#nowCard");
+    const t = c ? [...c.querySelectorAll(".ncg,.nccare,.eyebrow,.nct,.ncr")].map(x => x.textContent.trim()).filter(Boolean).join("。") : "";
+    if (!t || !speakOut(t)) toast("いまは読み上げられません");
+    return;
+  }
+  if (a === "say") {
+    const t = el && el.dataset ? String(el.dataset.say || "") : "";
+    if (!CARE_SAYS.includes(t)) { toast("送れませんでした"); return; }
+    if (sending) { toast("いまは前の発言を読んでいます"); return; }
+    const keep = $("#say").value;
+    $("#say").value = t;
+    await doSend();
+    if (keep && !$("#say").value) { $("#say").value = keep; saveDraft(); }
+    return;
+  }
   if (a === "insight") { await makeInsights(); return; }
   /* AI の文の報告（決まり18）。会話の返事は項目の id を持たないので、`findItem` の門より上で扱う */
   if (a === "aireport") {
@@ -10274,6 +10412,7 @@ async function sendTurn(text) {
     showTable: shouldShowTable(ctx)     // 毎回は出さない
   });
   renderChat(true); renderDay(); renderMe(); renderSettings();
+  speakOut(reply);                      // 設定で選んだときだけ、返事を声で（EU群）
 }
 
 /* =======================================================================
@@ -10672,6 +10811,7 @@ function templateReply(ctx) {
     const soft = [];
     if (kinds.includes("condition")) soft.push(
       /(よく眠れ|ぐっすり|よく寝れ|よく寝た)/.test(raw) ? "よく眠れたんだね、よかった。"      // 「昨日はよく眠れた」に「眠いんだね」と返していた（2026-09-29）
+      : /(治った|楽になった|良くなった|よくなった|回復|熱が下がった|熱が引いた)/.test(raw) ? "よくなってよかった。"      // ベイマックスのように：よくなったら喜ぶ（EU群）
       : /(眠|寝てない|寝不足)/.test(raw) ? "眠いんだね、覚えておくね。"
       : /(疲れ|しんど|だる|つら)/.test(raw) ? "お疲れさま。無理しないでいこう。"
       : "体調のこと、覚えておくね。");
@@ -10734,6 +10874,7 @@ function saveDraft() {
 }
 async function doSend() {
   if (sending) return;
+  speakStop();                           // 話しかけたら、読み上げは止める（重ねない）
   let v = $("#say").value.trim();
   if (!v) { $("#sayNote").innerHTML = '<span style="color:var(--alert-ink)">何か話しかけてください。</span>'; return; }
   /* 長すぎる入力を、そのまま流さない（v4.3）。
@@ -11011,8 +11152,10 @@ async function saveSettingsNow() {
     theme: ["auto", "light", "dark"].includes($("#theme").value) ? $("#theme").value : "auto",
     reviewDow: clamp(Math.round(+$("#revDow").value), -1, 6),
     reviewHour: clamp(Math.round(+$("#revHour").value || 0), 0, 23),
-    notifyBefore: NOTIFY_LEADS.includes(+$("#notifyBefore").value) ? +$("#notifyBefore").value : 0
+    notifyBefore: NOTIFY_LEADS.includes(+$("#notifyBefore").value) ? +$("#notifyBefore").value : 0,
+    speak: !!($("#speakOn") && $("#speakOn").checked)
   });
+  if (!s.speak) speakStop();
   // 見た目は上の change 側で当て済み。ここで当て直すと、
   // 保存の待ち時間の間に選び直された指定を、古い値で上書きしてしまう
   await putSettings(s);
@@ -11027,7 +11170,7 @@ async function saveSettingsNow() {
   setTimeout(() => { const el = $("#setMsg"); if (el) el.textContent = ""; }, 2000);
 }
 $("#theme").addEventListener("change", () => applyTheme($("#theme").value));   // 先に見た目だけ当てる
-for (const id of ["#tz", "#defEst", "#breakEvery", "#breakLen", "#theme", "#revDow", "#revHour", "#notifyBefore"]) {
+for (const id of ["#tz", "#defEst", "#breakEvery", "#breakLen", "#theme", "#revDow", "#revHour", "#notifyBefore", "#speakOn"]) {
   $(id).addEventListener("change", saveSettingsNow);
 }
 /* 書き出す中身は**ここだけ**が決める（決まり7e）。テストが同じものを読めるようにする。
@@ -11255,6 +11398,7 @@ boot().then(() => {
   startClock();
   // Android アプリなら、Google を扱えるかを聞いて、つないでいれば合わせる（決まり17・殻が無ければ何もしない）
   if (nativeOn()) gcalProbe().then(ok => { try { renderGcal(); } catch {} if (ok && gcalGet().on) gcalSync(); });
+  if (nativeOn()) speakProbe().then(() => { try { renderSettings(); } catch {} });     // 読み上げられる殻か（古い APK は答えない＝欄を出さない）
   try { const d = localStorage.getItem(DRAFT); if (d) { $("#say").value = d; } } catch {}
   saveDraft();
 });

@@ -9089,6 +9089,157 @@
       state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
     }
 
+    /* ===== EU群：ジャービスのような、ベイマックスのような（2026-10-08・本人の目標）=====
+       ①開いた最初のあいさつと今日の見通し ②前の日の「つらい」を気づかう ③出発の時間を知らせる ④返事を声で読み上げる。
+       **事実はコードが数える・体調を点数にしない・保存しない・読むのは返事の文だけ。** */
+    {
+      const keep = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const keepAI = SAMPLEFN, keepTab = view.tab, keepDay = view.day, keepChat = view.chatDay;
+      const RealDateEU = Date; let pinEU = 0;
+      const atEU = (d, h, mi) => zoned(2026, 9, d, h, mi || 0, TZ).getTime();
+      const isoEU = (d, h, mi) => new RealDateEU(atEU(d, h, mi)).toISOString();
+      window.Date = class extends RealDateEU { constructor(...a) { if (a.length) super(...a); else super(pinEU); } static now() { return pinEU; } };
+      const setNow = (d, h, mi) => { pinEU = atEU(d, h, mi); view.day = view.chatDay = "2026-09-" + String(d).padStart(2, "0"); };
+      const txt = h => String(h || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      const base = () => [
+        { id: "eu-e1", noteId: "eu-n", kind: "event", title: "会議", status: "open", fixed: true, dayKey: "2026-09-15", start: isoEU(15, 10), end: isoEU(15, 11) },
+        { id: "eu-e2", noteId: "eu-n", kind: "event", title: "歯医者", status: "open", fixed: true, dayKey: "2026-09-15", start: isoEU(15, 15), end: isoEU(15, 16), travelMin: 30, prepMin: 15 },
+        { id: "eu-e3", noteId: "eu-n", kind: "event", title: "病院", status: "open", fixed: true, dayKey: "2026-09-15", start: isoEU(15, 0), timeUnknown: true },
+        { id: "eu-t1", noteId: "eu-n", kind: "task", title: "請求書を送る", status: "open", dayKey: "2026-09-15", due: isoEU(15, 23, 59), duePrecision: "day", history: [] },
+        { id: "eu-c1", noteId: "eu-n", kind: "condition", title: "頭が痛い", selfReport: "頭が痛い", status: "open", reportedAt: isoEU(14, 21) }
+      ];
+      const fresh = items => { reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ });
+        state.notes = [{ id: "eu-n", text: "x", hash: "eu", capturedAt: isoEU(14, 9), source: "talk", createdAt: isoEU(14, 9) }];
+        state.items = items; };
+
+      // ① あいさつと見通し
+      fresh(base()); setNow(15, 7, 0);
+      let h = txt(nowCardHTML());
+      ok("EU. 朝に開くと、あいさつと今日の見通し（予定の幅・時刻未定・やること）をコードが数えて言う",
+         /^おはようございます。今日は予定が2つ（10:00〜16:00）、時刻未定の「病院」、やることが1件です。/.test(h), h);
+      setNow(15, 12, 30); h = txt(nowCardHTML());
+      ok("EU. 昼は「こんにちは」・過ぎた予定は数えず「このあと」", /^こんにちは。今日はこのあと予定が1つ（15:00〜16:00）/.test(h), h);
+      setNow(15, 20, 0); h = nowCardHTML();
+      ok("EU. 夜は「こんばんは」・見通しがあるときは「今日やること」の見出しだけを残さない", /こんばんは。/.test(txt(h)) && !/今日やること/.test(h), txt(h));
+      setNow(15, 2, 0); h = txt(nowCardHTML());
+      ok("EU. 夜中は「遅くまでお疲れさまです」と休むことを1言・体の気づかいは聞かない（さっきの話を「昨日」と聞かない）",
+         /^遅くまでお疲れさまです。/.test(h) && /休めるうちに休んでくださいね/.test(h) && !/具合/.test(h), h);
+      setNow(15, 7, 0);
+      state.items.push({ id: "eu-s1", noteId: "eu-n", kind: "event", title: "散歩", status: "open", suggested: true, dayKey: "2026-09-15", start: isoEU(15, 17), end: isoEU(15, 18) });
+      ok("EU. アプリの提案は数えない（本人が言ったものだけ）", /予定が2つ（10:00〜16:00）/.test(txt(nowCardHTML())), txt(nowCardHTML()));
+      state.items.pop();
+      state.turns = { "2026-09-15": [{ id: "eu-u", role: "user", text: "x", at: isoEU(15, 6, 50) }] };
+      h = txt(nowCardHTML());
+      ok("EU. 今日もう話したら、あいさつも見通しも出さない（毎回あいさつしない）", !/おはよう/.test(h) && !/具合/.test(h) && /次は/.test(h), h);
+      state.turns = {};
+
+      // ② 体の気づかい
+      h = nowCardHTML();
+      ok("EU. 昨日「頭が痛い」と言っていれば、本人の言葉のまま今日の具合を聞く（点数で聞かない）",
+         /昨日、「頭が痛い」と言っていました。今日の具合はどうですか？/.test(txt(h)) && !/[0-9０-９]+\s*(?:点|段階)|1から10/.test(txt(h)), txt(h));
+      ok("EU. 答えは決めた2つのボタン（押した文がそのまま送られる）",
+         CARE_SAYS.every(t => h.includes(`data-act="say" data-say="${t}">${t}</button>`)), h.slice(0, 400));
+      const careAt = (rep, nowD, nowH, more) => { fresh(base().filter(i => i.kind !== "condition").concat(rep, more || [])); setNow(15, nowH, 0); if (nowD !== 15) setNow(nowD, nowH, 0); return careAsk(view.chatDay); };
+      const cond = (d, hh, t, extra) => Object.assign({ id: "eu-c" + d + hh, noteId: "eu-n", kind: "condition", title: t, selfReport: t, status: "open", reportedAt: isoEU(d, hh) }, extra || {});
+      ok("EU. おとといの話なら「おととい」", (careAt([cond(13, 21, "だるい")], 15, 9) || {}).when === "おととい");
+      ok("EU. 3日前の話は聞かない", careAt([cond(12, 21, "だるい")], 15, 9) === null);
+      ok("EU. そのあと「よくなった」と言っていれば聞かない", careAt([cond(14, 9, "頭が痛い"), cond(14, 20, "体調はよくなった")], 15, 9) === null);
+      ok("EU. いちばん新しい話が「熱が下がった」なら聞かない（熱の語があっても、よくなった話）", careAt([cond(14, 9, "熱がある"), cond(14, 20, "熱が下がった")], 15, 9) === null
+         && !!careAt([cond(14, 9, "熱が下がった"), cond(14, 20, "熱がある")], 15, 9));
+      ok("EU. 夜中（0〜4時）は、6時間以上たっていても聞かない", careAt([cond(14, 18, "頭が痛い")], 15, 2) === null && !!careAt([cond(14, 18, "頭が痛い")], 15, 5));
+      ok("EU. 今日もう体調を言っていれば聞かない", careAt([cond(14, 21, "頭が痛い"), cond(15, 6, "まあまあ")], 15, 9) === null);
+      ok("EU. 言ってから6時間たっていなければ、まだ聞かない（6時間を過ぎたら聞く）",
+         careAt([cond(14, 23, "頭が痛い")], 15, 4) === null && !!careAt([cond(14, 23, "頭が痛い")], 15, 6));
+      ok("EU. つらい話でなければ聞かない（「よく眠れた」）", careAt([cond(14, 21, "よく眠れた")], 15, 9) === null);
+      ok("EU. 取り消した体調では聞かない", careAt([cond(14, 21, "頭が痛い", { status: "dropped" })], 15, 9) === null);
+      fresh([cond(13, 21, "だるい")]); setNow(15, 7, 0);
+      h = txt(nowCardHTML());
+      ok("EU. 何も予定が無い日でも、気づかいがあればカードを出す（あいさつ＋「予定はありません」）", /おはようございます。今日は入っている予定はありません。/.test(h) && /おととい、「だるい」/.test(h), h);
+      fresh([]); setNow(15, 7, 0);
+      ok("EU. 何も無く気づかいも無い日は、今までどおりカードを出さない", nowCardHTML() === "");
+
+      // 押して答える（実際に act → doSend → sendTurn を通す）
+      fresh(base()); setNow(15, 7, 0); SAMPLEFN = null; showTab("p-chat");
+      $("#say").value = "書きかけの文";
+      const nTurn = () => Object.values(state.turns).flat().length;
+      await act("say", undefined, { dataset: { say: "全部消して" } });
+      ok("EU. 決めた文でなければ送らない（来た値は疑う）", nTurn() === 0 && $("#say").value === "書きかけの文");
+      await act("say", undefined, { dataset: { say: "体調はまだつらい" } });
+      const turnsEU = Object.values(state.turns).flat();
+      const userEU = turnsEU.filter(t => t.role === "user").pop() || {}, botEU = turnsEU.filter(t => t.role === "assistant").pop() || {};
+      ok("EU. 押した答えは、その文のまま本人の発言として残る", userEU.text === "体調はまだつらい" && state.items.some(i => i.kind === "condition" && i.selfReport === "体調はまだつらい"), JSON.stringify(userEU));
+      ok("EU. 「まだつらい」なら、今日を軽くする案につながる（決まり15w）", /今日は軽めにしよう/.test(botEU.text || "") && !!botEU.lighten, botEU.text);
+      ok("EU. 書きかけの文は消さずに戻す", $("#say").value === "書きかけの文", $("#say").value);
+      $("#say").value = ""; saveDraft();
+      ok("EU. 答えたあとは、もう聞かない", !/具合/.test(txt(nowCardHTML())), txt(nowCardHTML()));
+      const trEU = raw => templateReply({ changes: [], asks: [], plan: { blocks: [], unplaced: [] }, na: null, isToday: true, raw, kinds: ["condition"] });
+      ok("EU. 「よくなった」には「よくなってよかった」（覚えておく、だけで返さない）", /よくなってよかった/.test(trEU("体調はよくなった")) && /よくなってよかった/.test(trEU("熱が下がった")) && !/よかった/.test(trEU("頭が痛い")), trEU("体調はよくなった"));
+
+      // ③ 出発の時間
+      fresh(base()); setNow(15, 7, 0);
+      const nl = notifyList("2026-09-15", 7 * 60);
+      const go = nl.find(n => /出発/.test(n.title)), prep = nl.find(n => /準備の時間/.test(n.title)), ev = nl.find(n => n.id === "eu-e2");
+      ok("EU. 移動のある予定は、出発の時刻に「そろそろ出発の時間です」（始まりの時刻と移動の長さを添える）",
+         !!go && go.title === "そろそろ出発の時間です（歯医者）" && go.body === "15:00から・移動に30分" && go.at === atEU(15, 14, 30), JSON.stringify(go));
+      ok("EU. 準備の帯は「そろそろ準備の時間です」", !!prep && prep.title === "そろそろ準備の時間です（歯医者）" && prep.body === "15:00から・準備に15分" && prep.at === atEU(15, 14, 15), JSON.stringify(prep));
+      ok("EU. 出発・準備の知らせには「完了」ボタンを付けない（押すと出かける前に予定が完了になっていた）・押すと予定表を開く",
+         go.plain === true && !go.id && go.tab === "p-day" && prep.plain === true && !prep.id, JSON.stringify(go));
+      ok("EU. 予定そのものの知らせは今までどおり（完了ボタンあり）", !!ev && !ev.plain && ev.title === "歯医者" && /15:00から/.test(ev.body), JSON.stringify(ev));
+      showTab("p-chat");
+      nativeReply(JSON.stringify({ kind: "notifyopen", tab: "p-day" }));
+      ok("EU. 出発の知らせを押すと、今日の予定表が開く", view.tab === "p-day" && view.day === "2026-09-15", view.tab + " " + view.day);
+      nativeReply(JSON.stringify({ kind: "notifyopen", tab: "p-settings" }));
+      ok("EU. 知らない画面は開かない（来た値は疑う）", view.tab === "p-day");
+
+      // ④ 声で読み上げる
+      ok("EU. 読み上げの設定は、本当の真偽だけ（既定は読まない）", safeSettings({ speak: "yes" }).speak === false && safeSettings({ speak: true }).speak === true && safeSettings({}).speak === false);
+      const desc = { ss: Object.getOwnPropertyDescriptor(window, "speechSynthesis"), su: Object.getOwnPropertyDescriptor(window, "SpeechSynthesisUtterance") };
+      const spoke = [];
+      Object.defineProperty(window, "speechSynthesis", { configurable: true, value: { cancel() { spoke.push("cancel"); }, speak(u) { spoke.push(u); } } });
+      Object.defineProperty(window, "SpeechSynthesisUtterance", { configurable: true, value: function (t) { this.text = t; } });
+      fresh(base()); setNow(15, 7, 0);
+      ok("EU. 設定がオフなら読まない", speakOut("こんにちは") === false && spoke.length === 0);
+      state.settings.speak = true;
+      const r1 = speakOut("次は「会議」から。10:00〜11:00\n二行目は読まない");
+      const u1 = spoke.filter(x => typeof x === "object").pop() || {};
+      ok("EU. オンなら、返事の最初の段を日本語で読む（かっこ・記号は読まない・前の読み上げは止めてから）",
+         r1 === true && u1.lang === "ja-JP" && u1.text === "次は 会議 から。10:00から11:00" && spoke[0] === "cancel", JSON.stringify(u1));
+      renderSettings();
+      ok("EU. ブラウザで読めるなら、設定に「返事を声で読み上げる」が出る", !$("#speakRow").hidden && $("#speakOn").checked === true);
+      spoke.length = 0; SAMPLEFN = null; showTab("p-chat");
+      await sendTurn("今日は部屋の掃除をする");
+      const u2 = spoke.filter(x => typeof x === "object").pop() || {};
+      ok("EU. 話しかけると、返事を声で読む", /部屋の掃除をする/.test(u2.text || ""), JSON.stringify(u2));
+      fresh(base()); setNow(15, 7, 0); state.settings.speak = true;
+      h = nowCardHTML();
+      ok("EU. 読み上げがオンなら、カードに「声で聞く」", /data-act="speakcard"/.test(h));
+      spoke.length = 0; renderChat();
+      await act("speakcard");
+      const u3 = spoke.filter(x => typeof x === "object").pop() || {};
+      ok("EU. 「声で聞く」で、カードのあいさつ・見通し・気づかいを読む", /^おはようございます/.test(u3.text || "") && /具合はどうですか/.test(u3.text || "") && /会議/.test(u3.text || ""), u3.text);
+      state.settings.speak = false;
+      ok("EU. 読み上げがオフなら「声で聞く」は出さない", !/data-act="speakcard"/.test(nowCardHTML()));
+      // Android アプリ（殻）では、殻が読めると答えたときだけ
+      const sent = [], keepRN = window.ReactNativeWebView, keepSN = speakNative;
+      window.ReactNativeWebView = { postMessage: m => sent.push(JSON.parse(m)) };
+      state.settings.speak = true; speakNative = false;
+      renderSettings();
+      ok("EU. 古い APK（殻が読めると答えない）では欄を出さず、読まない", $("#speakRow").hidden === true && speakOut("こんにちは") === false && !sent.some(m => m.kind === "speak"));
+      speakNative = true; spoke.length = 0;
+      ok("EU. 殻が読めるなら、殻に文を渡す（WebView の読み上げは使わない）",
+         speakOut("こんにちは") === true && sent.some(m => m.kind === "speak" && m.action === "say" && m.text === "こんにちは") && spoke.length === 0, JSON.stringify(sent));
+      speakStop();
+      ok("EU. 止めるときも殻に頼む", sent.some(m => m.kind === "speak" && m.action === "stop"));
+      window.ReactNativeWebView = keepRN; speakNative = keepSN;
+      for (const k of ["ss", "su"]) { const name = k === "ss" ? "speechSynthesis" : "SpeechSynthesisUtterance";
+        if (desc[k]) Object.defineProperty(window, name, desc[k]); else delete window[name]; }
+
+      window.Date = RealDateEU;
+      SAMPLEFN = keepAI; showTab(keepTab); view.day = keepDay; view.chatDay = keepChat;
+      state.notes = keep.notes; state.items = keep.items; state.turns = keep.turns; state.docs = keep.docs; state.settings = keep.settings;
+      renderSettings();
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

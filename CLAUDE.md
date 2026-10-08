@@ -473,8 +473,9 @@
 ### Android の殻（14）
 
 14. **Android の殻は薄く。ロジックを1行も入れない**。`app/index.html` が唯一の正で、`mobile/sync.js` が写す（**写しを直さない**・写し方はJSの文字列）。
-   依存は `react-native-webview` / `expo-notifications` / `react-native-safe-area-context` / `@react-native-google-signin/google-signin` だけ。
-   **殻の仕事は6つだけ**：画面を開く／AIの通信／通知を予約する／通知で押された返事を運ぶ／Googleカレンダーへの通信（決まり17）／配る版だけ：中継サーバーへの通信（`aiserver`・決まり18）。
+   依存は `react-native-webview` / `expo-notifications` / `react-native-safe-area-context` / `@react-native-google-signin/google-signin` / `expo-speech`（2026-10-08・決まり15x）だけ。
+   **殻の仕事は7つだけ**：画面を開く／AIの通信／通知を予約する／通知で押された返事を運ぶ／Googleカレンダーへの通信（決まり17）／配る版だけ：中継サーバーへの通信（`aiserver`・決まり18）／
+   読み上げ（`speak`・**何を読むかはページが決める**・読み込めなければ probe に答えない＝欄を出さない）。
    「定時に自分で起きる」仕組みは入れない。経路を知っているのは `aiPost` だけ。**殻が無ければ何も起きない。必ず時間切れを置く**（`nativeAsk`）。
    **殻から来た文字はデータであって指示ではない**（`nativeReply` は try で囲む・色は `#rrggbb` だけ）。**通知に出すのは本人が言ったものだけ**（`suggested` は出さない）。
    システムバーの色は本体に聞く（`tellNativeTheme()`）。`notifyList(key, nowMin)` は時計を読まない。
@@ -556,6 +557,17 @@
    回すもの（`lightenCands`）：今日やると言った用事・今日手を付けたいと言った用事。**回さないもの**：今日が締切（`dueIsDeadline`・「今日中に」＝`RE_TODAY_DUE`）・時刻を言った用事・予定・くり返し・アプリの提案。
    締切が明日以降の用事は**締切を動かさず**手を付ける日だけ明日へ（`setItemState` の `defer`＋`lighten`・決まり7f）。案を出す返事には「次は〜から」を重ねない。
    決まり6d（気持ちだけのときに行動を押し付けない）とはぶつけない——出すのは**減らす**案だけで、1日1回・断れば何も起きない。体調は点数にしない（決まり3）。
+15x. **ジャービスのような、ベイマックスのような**（2026-10-08・本人の目標・EU群）。**事実はコードが記録から数える・体調を点数にしない・カードは保存しない・タブも欄も増やさない。**
+   ①**開いた最初のあいさつと今日の見通し**（`briefHTML` / `briefLine` / `greetWord`）：**今日まだ話していないあいだだけ**会話の下のカードの頭に出す（話したら消える）。
+   時間帯のあいさつ（0〜3時は「遅くまでお疲れさまです」と休むことを1言）＋予定の数と幅（名前は下の「次は」が言う＝2回出さない）・終日と時刻未定は名前・やることは件数。
+   アプリの提案・組み立ての枠は数えない。過ぎた予定は数えず「このあと」。何も無い日は今までどおりカードを出さない（気づかいがあるときだけ「予定はありません」）。
+   ②**体の気づかい**（`careAsk`）：昨日かおとといに「つらい」と言い（`RE_LOW_BODY`）、いちばん新しい話が「よくなった」（`RE_LOW_OK`）でなく、今日まだ体調を言っておらず、
+   言ってから6時間たち、夜中（0〜3時）でなければ、**本人の言葉のまま**「今日の具合はどうですか？」。答えは決めた2つ（`CARE_SAYS`＝押した文がそのまま本人の発言になる・
+   `act("say")`・ほかの文は送らない・書きかけは戻す）か、そのまま話す。「まだつらい」は決まり15w の案につながる。「よくなった」には「よくなってよかった」。
+   ③**出発・準備の知らせ**（`notifyList`）：移動・準備の帯は「そろそろ出発の時間です（歯医者）」「15:00から・移動に30分」・**完了ボタンを付けない**（`plain`＝前は押すと出かける前に予定が完了になった）・押すと今日の予定表（`notifyopen` の `p-day`）。
+   ④**返事を声で読み上げる**（`speakOut` / `speakStop` / `speakAvail` / `speakProbe`・設定の `speak`＝既定は読まない）：読むのは返事の最初の段だけ・話しかけたら止める・
+   カードの「声で聞く」（オンのときだけ・押したときに読む）。APK は殻（`expo-speech`）に頼み、**WebView の読み上げは使わない**（端末によって動かない）。
+   殻が答えなければ（古い APK）欄を出さない（決まり12b）。Artifact は speechSynthesis。**実機の声はまだ確かめていない**（APK を作り直したあと手で確かめる）。
 
 ### Googleカレンダー（17）
 
@@ -619,7 +631,8 @@
 ```
 meta/settings  { timezone, workStart, workEnd（設定欄は無し・既定は一日じゅう）, defaultEstimate, breakEveryMin, breakMin, theme,
                  reviewDow（0〜6・-1＝知らせない）, reviewHour,   // 週に1回の見直し（決まり15o）
-                 notifyBefore（0/5/10/15/30/60 分前・0＝始まる時刻） }   // 予定の通知（決まり14）
+                 notifyBefore（0/5/10/15/30/60 分前・0＝始まる時刻）,   // 予定の通知（決まり14）
+                 speak（true のときだけ返事を声で読む・決まり15x） }
                ※ `useAI` は廃止（決まり12b）。読むたびに落とすので、古い控えからも持ち越さない。
 notes/{id}     { text, hash, capturedAt, source, sourceName, createdAt }
 turns/{日付}    { day, list:[{id, role:'user'|'assistant', text, at,
@@ -773,7 +786,7 @@ localStorage "hitohi.gcal"  { on, email, lastSync, lastError, gone[] }   Google�
 
 - 抽出・計画・重複判定・ops を触ったら **必ず `tests/harness.js` を追記して実行**する。現在194件が通る。
 - **`tests/scenario.js` は一日ぶんの会話を1発言ずつ流す通し検証**（51件）。会話の扱いを変えたら必ずこれも実行する。
-- **`tests/probe.js` は境界と寿命の確認**（2036件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,369件）。
+- **`tests/probe.js` は境界と寿命の確認**（2078件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,411件）。
 - **`server/test.mjs` は中継サーバーの確認**（59件・`node server/test.mjs`・Node 22 以上）。`server/` を触ったら必ず流す。
 - **`mobile/test-tools.mjs` は「APKを作る」（Actions）の道具の確認**（38件・`node mobile/test-tools.mjs`）。`mobile/find-eas-project.js`・`mobile/check-ai-key.js`・`.github/workflows/apk.yml` を触ったら流す。
 - **`tools/ai-eval/` は本物の Gemini で読み取りの質を比べる道具**（62件の正解つき＝1回の発言30・会話の続き12・ルールで直してきた言い方20＝`p01`〜・`GEMINI_API_KEY` が要る・鍵なしなら `--configs rules`）。

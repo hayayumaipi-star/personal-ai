@@ -28,8 +28,10 @@
 **「定時に自分で起きる」仕組みは入れていません。** 通知は先に予約しておけば
 アプリが閉じていても鳴るので、要らないからです。入れない分だけ殻は小さく、壊れる場所も少ない。
 
-**依存しているのは4つだけ**（`react-native-webview` / `expo-notifications` /
-`react-native-safe-area-context` / `@react-native-google-signin/google-signin`）。
+**依存しているのは5つだけ**（`react-native-webview` / `expo-notifications` /
+`react-native-safe-area-context` / `@react-native-google-signin/google-signin` / `expo-speech`）。
+5つ目は返事の読み上げのためだけ（2026-10-08・設定で「返事を声で読み上げる」をオンにしたときだけ。何を読むかはページが決める）。
+**作り直す前の APK では読み上げの欄は出ません**（殻が答えないので、ページが欄を隠す）。
 4つ目は Google へのログインのためだけ。**Expo Go には入っていない**ので、Expo Go で試すときは
 Googleカレンダーの欄だけが「使えません」になります（アプリそのものは開く・`App.js` で読み込みを try で囲んである）。
 **鍵（アクセストークン）はページに渡しません。** ページは「この道にこう頼んで」と言うだけで、
