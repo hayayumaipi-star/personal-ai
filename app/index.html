@@ -727,6 +727,8 @@ try { if (window.ReactNativeWebView) document.documentElement.classList.add("in-
       <!-- 返事を声で読み上げる（2026-10-08・本人の目標「ジャービスのような」・EU群）。**読み上げられる端末でだけ出す**——
            出せない端末で欄を見せると、押しても静かに効かない設定になる（決まり12b）。 -->
       <div id="speakRow" hidden><label class="chk"><input type="checkbox" role="switch" id="speakOn"> 返事を声で読み上げる</label></div>
+      <!-- 声で話したら自動で送る（2026-10-08・本人の指示・EV群）。**声で話せる端末でだけ出す**（決まり12b） -->
+      <div id="micRow" hidden><label class="chk"><input type="checkbox" role="switch" id="micSendOn"> 声で話し終えたら、自動で送る</label></div>
       <!-- 作業に使える時間帯が狭いまま保存されている人の逃げ道（v6.3・実機で報告）。
            設定欄は v3.9 で外したので、古い値のままだと**画面から直す道が無かった**。
            入力欄は戻さない。戻すのは「一日じゅうに戻す」の1手だけ。
@@ -3557,7 +3559,9 @@ async function micToggle() {
   if (!ok) {
     const yes = await askConfirm({ title: "声で話しかけますか？",
       body: `話した声は、${nativeOn() ? "スマホの音声認識（多くの場合 Google の音声認識）" : "このブラウザの音声認識（Chrome なら Google）"}に送られて文字になります。<br>
-        文字は入力欄に入るだけで、<strong>送る前に直せます</strong>。このアプリは声を保存しません。費用はかかりません。`, yes: "声で話す" });
+        ${state.settings && state.settings.micSend !== false
+          ? `話し終えたら、<strong>そのまま送ります</strong>（設定の「声で話し終えたら、自動で送る」で切れます）。聞き間違えたら「今のは記録しないで」と言えば消せます。`
+          : `文字は入力欄に入るだけで、<strong>送る前に直せます</strong>。`}このアプリは声を保存しません。費用はかかりません。`, yes: "声で話す" });
     if (!yes) return;
     try { localStorage.setItem(MIC_OK, "1"); } catch {}
   }
@@ -3568,19 +3572,25 @@ async function micToggle() {
   try {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition, r = new SR();
     r.lang = "ja-JP"; r.interimResults = true; r.continuous = false;
-    r.onresult = ev => { let t = ""; for (let i = 0; i < ev.results.length; i++) t += (ev.results[i][0] && ev.results[i][0].transcript) || ""; micText(t); };
+    r.onresult = ev => { let t = ""; for (let i = 0; i < ev.results.length; i++) t += (ev.results[i][0] && ev.results[i][0].transcript) || "";
+      const last = ev.results[ev.results.length - 1]; micText(t, !!(last && last.isFinal)); };
     r.onerror = ev => micError(ev && ev.error);
     r.onend = () => micEnd();
     micRec = r; r.start();
   } catch { micEnd("声で話せませんでした。"); }
 }
 function micNote() { if (micOn) $("#sayNote").textContent = "聞いています…（もう一度押すと止まります）"; }
-/* 聞き取った文字を、話し始めたときに入っていた文のあとへ（途中経過は書き換え・止めたあとに届いた分は入れない） */
-function micText(t) {
+/* 聞き取った文字を、話し始めたときに入っていた文のあとへ（途中経過は書き換え・止めたあとに届いた分は入れない）。
+   **最後まで聞き取ったら、設定どおり自動で送る**（本人の指示・途中経過では送らない・空なら送らない）。 */
+function micText(t, fin) {
   if (!micOn) return;
   const s = String(t || "").replace(/\s+/g, " ").trim().slice(0, 2000);
   $("#say").value = micBase + s;
   saveDraft(); micNote();
+  if (fin && s && state.settings && state.settings.micSend !== false) {
+    micStop(); micEnd();               // 先に聞くのをやめる（あとから届いた分で書き換えない）
+    doSend();
+  }
 }
 function micError(code) {
   const c = String(code || "");
@@ -3602,7 +3612,7 @@ function micStop() {
 /* 殻から届いた聞き取り（来た値は疑う：知らない種類は捨てる・文字は文字列だけ） */
 function micEvent(m) {
   const type = String((m && m.type) || "");
-  if (type === "partial" || type === "final") { if (typeof m.text === "string") micText(m.text); }
+  if (type === "partial" || type === "final") { if (typeof m.text === "string") micText(m.text, type === "final"); }
   else if (type === "error") micError(m.error);
   else if (type === "end") micEnd();
 }
@@ -4480,7 +4490,9 @@ const DEFAULTS = {
   /* 予定の通知を何分前に鳴らすか（2026-09-28・本人の指示）。0＝始まる時刻（今までどおり）。 */
   notifyBefore: 0,
   /* 返事を声で読み上げる（2026-10-08・本人の目標「ジャービスのような」・EU群）。既定は読まない（急に声が出ると困る場面がある）。 */
-  speak: false
+  speak: false,
+  /* 声で話したら、話し終えたところで自動で送る（2026-10-08・本人「話したら自動で送ってほしい」・EV群）。切れば入力欄に入るだけ。 */
+  micSend: true
 };
 const NOTIFY_LEADS = [0, 5, 10, 15, 30, 60];
 const OLD_WINDOW = { workStart: "09:00", workEnd: "18:00" };   // 設定欄があった頃の既定
@@ -4869,6 +4881,7 @@ function safeSettings(s) {
   o.reviewHour = num(o.reviewHour, 0, 23, DEFAULTS.reviewHour);
   o.notifyBefore = NOTIFY_LEADS.includes(Number(o.notifyBefore)) ? Number(o.notifyBefore) : DEFAULTS.notifyBefore;
   o.speak = o.speak === true;
+  o.micSend = o.micSend !== false;
   /* `isTime` は形しか見ない（"25:99" も通る）ので、ここでは中身まで確かめる。 */
   const okClock = t => {
     if (!isTime(t)) return false;              // 形は `isTime` が見る（同じ正規表現を2か所に書かない）
@@ -7193,6 +7206,8 @@ function renderSettings() {
   $("#notifyBefore") && ($("#notifyBefore").value = String(s.notifyBefore || 0));
   if ($("#speakRow")) $("#speakRow").hidden = !speakAvail();
   $("#speakOn") && ($("#speakOn").checked = !!s.speak);
+  if ($("#micRow")) $("#micRow").hidden = !micAvail();
+  $("#micSendOn") && ($("#micSendOn").checked = s.micSend !== false);
   if ($("#appVer")) $("#appVer").textContent = appVersionText();
   renderWhere();
   renderGcal();
@@ -11320,7 +11335,8 @@ async function saveSettingsNow() {
     reviewDow: clamp(Math.round(+$("#revDow").value), -1, 6),
     reviewHour: clamp(Math.round(+$("#revHour").value || 0), 0, 23),
     notifyBefore: NOTIFY_LEADS.includes(+$("#notifyBefore").value) ? +$("#notifyBefore").value : 0,
-    speak: !!($("#speakOn") && $("#speakOn").checked)
+    speak: !!($("#speakOn") && $("#speakOn").checked),
+    micSend: !$("#micSendOn") || $("#micSendOn").checked
   });
   if (!s.speak) speakStop();
   // 見た目は上の change 側で当て済み。ここで当て直すと、
@@ -11337,7 +11353,7 @@ async function saveSettingsNow() {
   setTimeout(() => { const el = $("#setMsg"); if (el) el.textContent = ""; }, 2000);
 }
 $("#theme").addEventListener("change", () => applyTheme($("#theme").value));   // 先に見た目だけ当てる
-for (const id of ["#tz", "#defEst", "#breakEvery", "#breakLen", "#theme", "#revDow", "#revHour", "#notifyBefore", "#speakOn"]) {
+for (const id of ["#tz", "#defEst", "#breakEvery", "#breakLen", "#theme", "#revDow", "#revHour", "#notifyBefore", "#speakOn", "#micSendOn"]) {
   $(id).addEventListener("change", saveSettingsNow);
 }
 /* 書き出す中身は**ここだけ**が決める（決まり7e）。テストが同じものを読めるようにする。

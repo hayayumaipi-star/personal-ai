@@ -578,8 +578,9 @@
    済んだもの・「できた？」・今日つらいと言っていれば「無理しないでね」を記録から答える（前は「うん、聞いたよ」だった）。「おはよう」にも見通しを添える（何も無い日は今までどおり）。
    **今日のことだけ**・名前の付いた「〜の状況は？」は当てない。
    ⑦**声で話しかける**（2026-10-08・本人「声で話しかけたい」・EV群・`micToggle` / `micText` / `micEvent` / `renderMic`）：送るボタンの横のマイク。
-   **声は入力欄に文字で入れるだけで、自動では送らない**（聞き間違いを送る前に直せる・原文は本人が送ったものだけ＝決まり1）。話し始めたときの文のあとへ入れる。
-   **初めて使うときに送り先を知らせる**（`askConfirm`：スマホ／ブラウザの音声認識＝多くは Google・送る前に直せる・声を保存しない・費用なし＝新しい外部送信の決まり・`hitohi.micok`）。
+   聞き取った文字は話し始めたときの文のあとへ入れ、**話し終えたら（最後の結果で）そのまま送る**（2026-10-08・本人「話したら自動で送ってほしい」・設定 `micSend`＝既定オン・
+   「声で話し終えたら、自動で送る」で切れば入力欄に入れるだけ・途中経過と空では送らない・送る前に聞くのをやめる）。聞き間違えたら「今のは記録しないで」で消せる（EO群）。
+   **初めて使うときに送り先を知らせる**（`askConfirm`：スマホ／ブラウザの音声認識＝多くは Google・そのまま送ること（切った設定なら送る前に直せること）・消し方・声を保存しない・費用なし＝新しい外部送信の決まり・`hitohi.micok`）。
    APK は殻、ブラウザは SpeechRecognition（APK では WebView のものは使わない）。殻が答えなければボタンを出さない。聞き始めたら読み上げを止める・聞いている途中で送ったら聞くのもやめる
    （あとから届いた文字で入力欄を書き換えない）。殻から来た文字は文字列だけ・知らない種類は捨てる・失敗の言葉は知っている形だけ見せる。
 
@@ -646,7 +647,8 @@
 meta/settings  { timezone, workStart, workEnd（設定欄は無し・既定は一日じゅう）, defaultEstimate, breakEveryMin, breakMin, theme,
                  reviewDow（0〜6・-1＝知らせない）, reviewHour,   // 週に1回の見直し（決まり15o）
                  notifyBefore（0/5/10/15/30/60 分前・0＝始まる時刻）,   // 予定の通知（決まり14）
-                 speak（true のときだけ返事を声で読む・決まり15x） }
+                 speak（true のときだけ返事を声で読む・決まり15x）,
+                 micSend（false のときだけ、声で話し終えても自動では送らない・決まり15x） }
                ※ `useAI` は廃止（決まり12b）。読むたびに落とすので、古い控えからも持ち越さない。
 notes/{id}     { text, hash, capturedAt, source, sourceName, createdAt }
 turns/{日付}    { day, list:[{id, role:'user'|'assistant', text, at,
@@ -801,7 +803,7 @@ localStorage "hitohi.greeted" / "hitohi.micok"   1日の最初のあいさつを
 
 - 抽出・計画・重複判定・ops を触ったら **必ず `tests/harness.js` を追記して実行**する。現在194件が通る。
 - **`tests/scenario.js` は一日ぶんの会話を1発言ずつ流す通し検証**（51件）。会話の扱いを変えたら必ずこれも実行する。
-- **`tests/probe.js` は境界と寿命の確認**（2127件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,460件）。
+- **`tests/probe.js` は境界と寿命の確認**（2136件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,469件）。
 - **`server/test.mjs` は中継サーバーの確認**（59件・`node server/test.mjs`・Node 22 以上）。`server/` を触ったら必ず流す。
 - **`mobile/test-tools.mjs` は「APKを作る」（Actions）の道具の確認**（38件・`node mobile/test-tools.mjs`）。`mobile/find-eas-project.js`・`mobile/check-ai-key.js`・`.github/workflows/apk.yml` を触ったら流す。
 - **`tools/ai-eval/` は本物の Gemini で読み取りの質を比べる道具**（62件の正解つき＝1回の発言30・会話の続き12・ルールで直してきた言い方20＝`p01`〜・`GEMINI_API_KEY` が要る・鍵なしなら `--configs rules`）。

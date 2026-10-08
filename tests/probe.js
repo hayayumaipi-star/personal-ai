@@ -9384,8 +9384,11 @@
       window.askConfirm = async o => { asked = o; return false; };
       $("#say").value = "";
       await micToggle();
-      ok("EV. 初めて使うときは、声の送り先・送る前に直せること・保存しないこと・費用を知らせて聞く（断れば何もしない）",
-         !!asked && /音声認識/.test(asked.body) && /送る前に直せます/.test(asked.body) && /保存しません/.test(asked.body) && /費用はかかりません/.test(asked.body) && !inst.length && !micOn, asked && asked.body);
+      ok("EV. 初めて使うときは、声の送り先・そのまま送ること（消し方も）・保存しないこと・費用を知らせて聞く（断れば何もしない）",
+         !!asked && /音声認識/.test(asked.body) && /そのまま送ります/.test(asked.body) && /今のは記録しないで/.test(asked.body) && /保存しません/.test(asked.body) && /費用はかかりません/.test(asked.body) && !inst.length && !micOn, asked && asked.body);
+      state.settings = Object.assign({}, state.settings, { micSend: false });
+      await micToggle();
+      ok("EV. 自動で送らない設定なら、「送る前に直せます」と知らせる", /送る前に直せます/.test(asked.body) && !/そのまま送ります/.test(asked.body), asked.body);
       window.askConfirm = async o => { asked = o; return true; };
       $("#say").value = "明日は";
       await micToggle();
@@ -9397,7 +9400,7 @@
       ok("EV. 聞き取った文字を、入っていた文のあとへ入れる（途中経過は書き換え）", $("#say").value === "明日は10時に" && /聞いています/.test($("#sayNote").textContent), $("#say").value);
       const nT = Object.values(state.turns).flat().length;
       r.onresult(ev("10時に歯医者", true));
-      ok("EV. 最後まで聞き取っても、自動では送らない（送る前に直せる）", $("#say").value === "明日は10時に歯医者" && Object.values(state.turns).flat().length === nT, $("#say").value);
+      ok("EV. 自動で送らない設定なら、最後まで聞き取っても入力欄に入れるだけ（送る前に直せる）", $("#say").value === "明日は10時に歯医者" && Object.values(state.turns).flat().length === nT, $("#say").value);
       await micToggle();
       ok("EV. もう一度押すと聞くのをやめる", r.stopped === true && !micOn && $("#btnMic").getAttribute("aria-pressed") === "false");
       asked = null; await micToggle();
@@ -9421,6 +9424,31 @@
         await micToggle(); ok("EV. 聞き始めるとき、読み上げは止める", canceled > 0); await micToggle();
         if (keepSS) Object.defineProperty(window, "speechSynthesis", keepSS); else delete window.speechSynthesis; }
 
+      // 話し終えたら自動で送る（本人の指示・既定）
+      ok("EV. 自動で送るのが既定（本当の false のときだけ切る）", safeSettings({}).micSend === true && safeSettings({ micSend: false }).micSend === false && safeSettings({ micSend: "no" }).micSend === true);
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null; $("#say").value = "";
+      renderSettings();
+      ok("EV. 声で話せる端末なら、設定に「声で話し終えたら、自動で送る」（オン）", !$("#micRow").hidden && $("#micSendOn").checked === true);
+      await micToggle();
+      const r4 = inst[inst.length - 1];
+      r4.onresult(ev("今日は部屋の掃除"));
+      ok("EV. 途中経過では送らない", Object.values(state.turns).flat().length === 0 && micOn);
+      r4.onresult(ev("今日は部屋の掃除をする", true));
+      await new Promise(res => setTimeout(res, 50));
+      for (let i = 0; i < 100 && sending; i++) await new Promise(res => setTimeout(res, 20));
+      const sentTurns = Object.values(state.turns).flat();
+      ok("EV. 話し終えたら、そのまま送る（入力欄は空に・聞くのもやめる）",
+         sentTurns.some(t => t.role === "user" && t.text === "今日は部屋の掃除をする") && sentTurns.some(t => t.role === "assistant") && $("#say").value === "" && !micOn && r4.stopped === true,
+         JSON.stringify(sentTurns.map(t => t.text)));
+      ok("EV. 送ったものから、ふつうに読み取る", state.items.some(i => /部屋の掃除/.test(i.title)), state.items.map(i => i.title).join("/"));
+      reset(); await micToggle(); inst[inst.length - 1].onresult(ev("", true));
+      ok("EV. 何も聞き取れなかったら送らない", Object.values(state.turns).flat().length === 0);
+      await micToggle();
+      $("#micSendOn").checked = false; $("#micSendOn").dispatchEvent(new Event("change"));
+      await new Promise(res => setTimeout(res, 50));
+      ok("EV. 設定で切れば、次からは自動で送らない", state.settings.micSend === false);
+      state.settings = Object.assign({}, state.settings, { micSend: true });
+
       // Android アプリ（殻）
       const sent = [];
       window.ReactNativeWebView = { postMessage: m => sent.push(JSON.parse(m)) };
@@ -9429,6 +9457,7 @@
       micNative = true; renderMic(); const nInst = inst.length; $("#say").value = "";
       await micToggle();
       ok("EV. APK では殻に「聞いて」と頼む", sent.some(m => m.kind === "speechrec" && m.action === "start") && inst.length === nInst && micOn, JSON.stringify(sent));
+      state.settings = Object.assign({}, state.settings, { micSend: false });
       nativeReply(JSON.stringify({ kind: "speechrec", type: "partial", text: "牛乳" }));
       nativeReply(JSON.stringify({ kind: "speechrec", type: "final", text: "牛乳を買う" }));
       ok("EV. 殻から届いた文字を入力欄へ", $("#say").value === "牛乳を買う", $("#say").value);
@@ -9439,6 +9468,13 @@
       ok("EV. もう一度押すと、殻に止めるよう頼む", sent.some(m => m.kind === "speechrec" && m.action === "stop"));
       nativeReply(JSON.stringify({ kind: "speechrec", type: "end" }));
       ok("EV. 殻が「終わった」と言えば、ボタンを戻す", !micOn && $("#btnMic").getAttribute("aria-pressed") === "false");
+      state.settings = Object.assign({}, state.settings, { micSend: true }); reset(); $("#say").value = ""; sent.length = 0;
+      await micToggle();
+      nativeReply(JSON.stringify({ kind: "speechrec", type: "final", text: "明日は牛乳を買う" }));
+      for (let i = 0; i < 100 && sending; i++) await new Promise(res => setTimeout(res, 20));
+      ok("EV. APK でも、話し終えたらそのまま送る（殻に止めるよう頼んでから）",
+         Object.values(state.turns).flat().some(t => t.role === "user" && t.text === "明日は牛乳を買う") && sent.some(m => m.kind === "speechrec" && m.action === "stop") && !micOn,
+         JSON.stringify(Object.values(state.turns).flat().map(t => t.text)));
       await micToggle();
       nativeReply(JSON.stringify({ kind: "speechrec", type: "error", error: "<img src=x>" }));
       ok("EV. 殻の失敗の言葉は、知っている形のときだけ見せる", !micOn && !/<img/.test($("#toast").innerHTML) && /声を文字にできませんでした。/.test(toastT()), $("#toast").innerHTML);
