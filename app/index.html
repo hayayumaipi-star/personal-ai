@@ -3486,7 +3486,7 @@ function nativeSend(msg) {
 /* ── 声で読み上げる（2026-10-08・本人の目標「ジャービスのような」・EU群）──
    **何を読むかはページが決め、殻は読むだけ**（決まり14）。Android アプリでは殻（`expo-speech`）に頼む——
    WebView の中の読み上げ（speechSynthesis）は端末によって動かないので使わない。殻が古くて答えなければ、欄を出さない。
-   Artifact（ブラウザ）では speechSynthesis。**読むのは返事の文だけ**（本人の発言・記録の中身を勝手に読まない）。 */
+   Artifact（ブラウザ）では speechSynthesis。**読むのは返事と、本人が「声で聞く」を押したカード**。自動で読むのは1日の最初のあいさつと件数だけ（`greetAloud`）。 */
 let speakNative = null;          // null＝まだ聞いていない／true＝殻が読める／false＝読めない（古い APK）
 async function speakProbe() {
   if (!nativeOn()) return false;
@@ -6420,7 +6420,7 @@ function greetWord(h) {
 }
 /* 今日の見通し。予定は時刻の幅だけ（名前は下の「次は」が言う＝同じものを2回出さない・決まり6f）、
    終日と時刻未定の予定は名前で、やることは件数で。アプリの提案・組み立ての枠は数えない（本人が言ったものだけ）。 */
-function briefLine(key, plan) {
+function briefLine(key, plan, noNames) {
   const mine = i => i && !i.suggested && !i.built;
   const evs = plan.events.filter(ev => mine(ev.item));
   const timed = evs.filter(ev => !ev.item.allDay && ev.e > plan.nowMin);
@@ -6430,8 +6430,8 @@ function briefLine(key, plan) {
   const tasks = [...leftIds(plan)].map(id => findItem(id)).filter(i => mine(i) && i.kind === "task").length;
   const bits = [];
   if (timed.length) bits.push(`予定が${timed.length}つ（${hhmm(timed[0].s)}〜${timed.reduce((m, ev) => Math.max(m, ev.e), 0) >= 24 * 60 ? "24:00" : hhmm(timed.reduce((m, ev) => Math.max(m, ev.e), 0))}）`);
-  if (allDay.length) bits.push(`終日の${allDay.slice(0, 2).map(t => `「${t.slice(0, 20)}」`).join("・")}`);
-  if (tl.length) bits.push(`時刻未定の${tl.slice(0, 2).map(t => `「${t.slice(0, 20)}」`).join("・")}${tl.length > 2 ? `ほか${tl.length - 2}つ` : ""}`);
+  if (allDay.length) bits.push(noNames ? `終日の予定が${allDay.length}つ` : `終日の${allDay.slice(0, 2).map(t => `「${t.slice(0, 20)}」`).join("・")}`);
+  if (tl.length) bits.push(noNames ? `時刻未定の予定が${tl.length}つ` : `時刻未定の${tl.slice(0, 2).map(t => `「${t.slice(0, 20)}」`).join("・")}${tl.length > 2 ? `ほか${tl.length - 2}つ` : ""}`);
   if (tasks) bits.push(`やることが${tasks}件`);
   if (!bits.length) return { text: "今日は入っている予定はありません。", empty: true };
   return { text: `今日は${past && timed.length ? "このあと" : ""}${bits.join("、")}です。`, empty: false };
@@ -6467,6 +6467,41 @@ function tomorrowLine(key) {
   if (allDay.length) return `明日は終日の「${allDay[0].item.title.slice(0, 20)}」${more(allDay.length)}。`;
   return "";
 }
+/* **時刻を言った用事の時間が過ぎたら「できましたか？」**（EU群・ベイマックスのように聞く・ジャービスのように状況を追う）。
+   過ぎた用事は予定表では「過ぎています」の側（`plan.unplaced`）に移るだけで、終わったかどうかは誰も聞かなかった。
+   その場で「できた」「明日へ」を押せる（`act` の done / defer＝決まり7f の入口）。**いちばん最近の1件だけ・終わる時刻から4時間まで**（しつこくしない）。 */
+function pastAsk(plan) {
+  if (!plan || plan.nowMin < 0) return null;
+  const tz = state.settings.timezone, est = state.settings.defaultEstimate || 30;
+  const c = (plan.unplaced || []).map(u => u && u.item).filter(i => i && i.kind === "task" && !i.repeat && !i.suggested && !i.built     // 済んだ用事は planFor が入れない
+      && i.duePrecision === "exact" && validISO(i.due) && dayKey(new Date(i.due), tz) === plan.key)
+    .map(i => ({ i, m: minOfDay(i.due, tz), end: i.dueIsDeadline ? minOfDay(i.due, tz) : minOfDay(i.due, tz) + (i.estimateMin || est) }))
+    .filter(x => x.end <= plan.nowMin && plan.nowMin - x.end <= 240)
+    .sort((a, b) => b.end - a.end);
+  return c[0] || null;
+}
+function pastAskHTML(plan) {
+  const x = pastAsk(plan);
+  if (!x) return "";
+  // 聞く用事は今日が期限なので、カードは必ず「今日やること」の枝か「次は」の枝を通る（この2つにだけ入れる）
+  return `<div class="nccare">「${esc(x.i.title.slice(0, 30))}」（${hhmm(x.m)}${x.i.dueIsDeadline ? "まで" : "から"}）はできましたか？</div>
+    <div class="row"><button class="btn sm" data-act="done" data-id="${esc(x.i.id)}" data-day="${esc(plan.key)}">できた</button><button class="btn sm" data-act="defer" data-id="${esc(x.i.id)}">明日へ</button></div>`;
+}
+/* **1日の最初に開いたとき、あいさつを声で**（EU群・ジャービスのように）。読み上げをオンにしていて、**殻が読める（APK）ときだけ**
+   ——ブラウザは押した操作が無いと声を出せない。**名前も体調の言葉も読まない**（あいさつと件数だけ・周りに人がいるかもしれない）。
+   名前まで聞きたければ「声で聞く」。同じ日に2回は言わない（覚えは端末の中だけ・消えても困らない）。 */
+const GREETED = "hitohi.greeted";
+function greetAloud() {
+  if (!state.settings || !state.settings.speak || !nativeOn() || speakNative !== true) return false;
+  const tz = state.settings.timezone, key = dayKey(new Date(), tz);
+  try { if (localStorage.getItem(GREETED) === key) return false; } catch {}
+  if (state.notes.length === 0 || turnsFor(key).some(t => t.role === "user")) return false;
+  let plan; try { plan = planFor(key); } catch { return false; }
+  const b = briefLine(key, plan, true);
+  if (b.empty) return false;
+  try { localStorage.setItem(GREETED, key); } catch {}
+  return speakOut(greetWord(parts(new Date(), tz).h) + b.text);
+}
 function briefHTML(key, plan) {
   if (turnsFor(key).some(t => t.role === "user")) return { html: "", has: false };
   const h = parts(new Date(), state.settings.timezone).h;
@@ -6486,6 +6521,7 @@ function nowCardHTML() {
   let plan; try { plan = planFor(key); } catch { return ""; }
   const na = nextAction(plan), done = doneOn(key), left = leftToday(plan);
   const top = briefHTML(key, plan);
+  const pa = pastAskHTML(plan);
   const tmrT = !na && parts(new Date(), tz).h >= 17 ? tomorrowLine(key) : "";      // `na` があるときの枝は明日の行を使わないので、計算もしない（明日の予定表を作る分の省略）
   const tmr = tmrT ? `<div class="ncr">${esc(tmrT)}</div>` : "";
   const btn = `<div class="row"><button class="btn sm" data-act="openday">今日の予定を見る</button></div>`;
@@ -6509,7 +6545,7 @@ function nowCardHTML() {
         <div class="ncr"><span class="mono">${hhmm(b.s)}–${hhmm(b.e)}</span>${running ? `・${hhmm(b.e)}まで` : soon}</div>
         ${why ? `<div class="ncw">${esc(why)}</div>` : ""}`;
     const got = done.length ? `<div class="ncdone">✓ 今日できたこと ${done.length}件</div>` : "";
-    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}${head}${got}${btn}${rv}</div></div>`;
+    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}${pa}${head}${got}${btn}${rv}</div></div>`;
   }
   if (done.length && !left) {
     const list = done.slice(0, 6).map(i => `<li>${esc(i.title)}</li>`).join("")
@@ -6519,14 +6555,14 @@ function nowCardHTML() {
       <div class="ncr">今日の予定は、これで全部です。お疲れさまでした。</div>${tmr}${rv}</div></div>`;
   }
   if (left) {
-    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.has ? top.html : `
+    return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${pa}${top.has ? top.html : `
       <span class="eyebrow">今日やること</span>
       <div class="ncr">時刻を決めていないものが ${left}件あります。</div>`}
       ${done.length ? `<div class="ncdone">✓ 今日できたこと ${done.length}件</div>` : ""}${tmr}${btn}${rv}</div></div>`;
   }
   if (rv) return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}${tmr}
       <span class="eyebrow">週に1回の見直し</span>${rv}</div></div>`;
-  if (top.has || tmr) return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}${tmr}</div></div>`;
+  if (top.has || tmr) return `<div class="nowcard" id="nowCard"><span class="ncdot"></span><div class="ncbody">${top.html}${pa}${tmr}</div></div>`;
   return "";
 }
 function refreshNowCard() {
@@ -7321,7 +7357,7 @@ window.addEventListener("pagehide", () => lsFlush());
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") lsFlush();
   // 前に出てきたら、30秒以上たっていれば Googleカレンダーと合わせ直す（決まり17・Google 側で入れて戻ってきたとき）
-  else gcalDue(GCAL_FRONT_MS);
+  else { gcalDue(GCAL_FRONT_MS); try { greetAloud(); } catch {} }     // 日をまたいで前に出てきたときも、その日の最初のあいさつ（EU群）
 });
 window.addEventListener("beforeunload", e => {
   lsFlush();
@@ -11414,7 +11450,7 @@ boot().then(() => {
   startClock();
   // Android アプリなら、Google を扱えるかを聞いて、つないでいれば合わせる（決まり17・殻が無ければ何もしない）
   if (nativeOn()) gcalProbe().then(ok => { try { renderGcal(); } catch {} if (ok && gcalGet().on) gcalSync(); });
-  if (nativeOn()) speakProbe().then(() => { try { renderSettings(); } catch {} });     // 読み上げられる殻か（古い APK は答えない＝欄を出さない）
+  if (nativeOn()) speakProbe().then(() => { try { renderSettings(); renderChat(); greetAloud(); } catch {} });     // 読み上げられる殻か（古い APK は答えない＝欄を出さない）・1日の最初ならあいさつを声で
   try { const d = localStorage.getItem(DRAFT); if (d) { $("#say").value = d; } } catch {}
   saveDraft();
 });

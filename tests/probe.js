@@ -9206,6 +9206,43 @@
       ok("EU. 今日も明日も何も無ければ、カードを出さない", nowCardHTML() === "");
       state.turns = {};
 
+      // ⑤ 時刻を言った用事の時間が過ぎたら「できましたか？」（その場で できた／明日へ）
+      {
+        const tk = (id, title, h, extra) => Object.assign({ id, noteId: "eu-n", kind: "task", title, status: "open", dayKey: "2026-09-15", due: isoEU(15, h), duePrecision: "exact", estimateMin: 30, history: [] }, extra || {});
+        fresh([tk("eu-p1", "資料を作る", 14)]);
+        state.turns = { "2026-09-15": [{ id: "eu-u", role: "user", text: "x", at: isoEU(15, 9) }] };
+        setNow(15, 14, 20);
+        ok("EU. 用事の時間が終わる前は聞かない", !/できましたか/.test(txt(nowCardHTML())), txt(nowCardHTML()));
+        setNow(15, 15, 0); h = nowCardHTML();
+        ok("EU. 時刻を言った用事の時間が過ぎたら「できましたか？」と聞き、その場で「できた」「明日へ」を押せる",
+           /「資料を作る」（14:00から）はできましたか？/.test(txt(h)) && /data-act="done" data-id="eu-p1" data-day="2026-09-15">できた/.test(h) && /data-act="defer" data-id="eu-p1">明日へ/.test(h), txt(h));
+        setNow(15, 18, 31);
+        ok("EU. 終わる時刻から4時間を過ぎたら、もう聞かない（しつこくしない）", !/できましたか/.test(txt(nowCardHTML())));
+        state.items.push({ id: "eu-p9", noteId: "eu-n", kind: "event", title: "面談", status: "open", fixed: true, dayKey: "2026-09-15", start: isoEU(15, 17), end: isoEU(15, 18) });
+        setNow(15, 15, 0); h = txt(nowCardHTML());
+        ok("EU. このあとの予定があっても（「次は」の枝でも）聞く", /「資料を作る」（14:00から）はできましたか？/.test(h) && /次は 面談/.test(h), h);
+        state.items.pop();
+        fresh([tk("eu-p2", "請求書を出す", 16, { dueIsDeadline: true }), tk("eu-p3", "資料を作る", 14)]);
+        state.turns = { "2026-09-15": [{ id: "eu-u", role: "user", text: "x", at: isoEU(15, 9) }] };
+        setNow(15, 16, 10); h = txt(nowCardHTML());
+        ok("EU. 締切の用事は「（16:00まで）」・聞くのはいちばん最近の1件だけ", /「請求書を出す」（16:00まで）はできましたか？/.test(h) && !/「資料を作る」（14:00から）/.test(h), h);
+        fresh([tk("eu-p4", "散歩", 14, { suggested: true }), tk("eu-p5", "薬を飲む", 14, { repeat: { kind: "daily" } }), tk("eu-p6", "洗濯", 14, { status: "done" })]);
+        setNow(15, 15, 0);
+        ok("EU. 提案・くり返し・済んだ用事には聞かない", !/できましたか/.test(txt(nowCardHTML())), txt(nowCardHTML()));
+        fresh([tk("eu-p1", "資料を作る", 14)]);
+        state.turns = { "2026-09-15": [{ id: "eu-u", role: "user", text: "x", at: isoEU(15, 9) }] };
+        setNow(15, 15, 0); showTab("p-chat"); renderChat();
+        const btnDone = document.querySelector('#nowCard [data-act="done"][data-id="eu-p1"]');
+        await act("done", "eu-p1", btnDone);
+        ok("EU. カードの「できた」で完了になり、もう聞かない", findItem("eu-p1").status === "done" && !/できましたか/.test(txt(nowCardHTML())), findItem("eu-p1").status);
+        fresh([tk("eu-p1", "資料を作る", 14)]);
+        state.turns = { "2026-09-15": [{ id: "eu-u", role: "user", text: "x", at: isoEU(15, 9) }] };
+        setNow(15, 15, 0); renderChat();
+        await act("defer", "eu-p1", document.querySelector('#nowCard [data-act="defer"]'));
+        ok("EU. カードの「明日へ」で明日へ移る", findItem("eu-p1").dayKey === "2026-09-16" && findItem("eu-p1").status === "open", JSON.stringify(findItem("eu-p1").dayKey));
+        state.turns = {};
+      }
+
       // ③ 出発の時間
       fresh(base()); setNow(15, 7, 0);
       const nl = notifyList("2026-09-15", 7 * 60);
@@ -9261,7 +9298,28 @@
          speakOut("こんにちは") === true && sent.some(m => m.kind === "speak" && m.action === "say" && m.text === "こんにちは") && spoke.length === 0, JSON.stringify(sent));
       speakStop();
       ok("EU. 止めるときも殻に頼む", sent.some(m => m.kind === "speak" && m.action === "stop"));
+      // 1日の最初に開いたとき、あいさつを声で（APK だけ・名前も体調の言葉も読まない・1日1回）
+      fresh(base()); setNow(15, 7, 0); state.settings.speak = true; sent.length = 0;
+      try { localStorage.removeItem(GREETED); } catch {}
+      const g1 = greetAloud();
+      const gm = sent.filter(m => m.kind === "speak" && m.action === "say").pop() || {};
+      ok("EU. APK で1日の最初に開くと、あいさつと件数を声で言う（名前と体調の言葉は読まない）",
+         g1 === true && /^おはようございます。今日は予定が2つ 10:00から16:00 、時刻未定の予定が1つ、やることが1件です。$/.test(gm.text || "") && !/病院|頭が痛い/.test(gm.text || ""), gm.text);
+      sent.length = 0;
+      ok("EU. 同じ日に2回は言わない", greetAloud() === false && !sent.length);
+      try { localStorage.removeItem(GREETED); } catch {}
+      state.turns = { "2026-09-15": [{ id: "eu-u", role: "user", text: "x", at: isoEU(15, 6) }] };
+      ok("EU. 今日もう話していれば言わない", greetAloud() === false);
+      state.turns = {}; state.settings.speak = false;
+      ok("EU. 読み上げがオフなら言わない", greetAloud() === false);
+      state.settings.speak = true; speakNative = false;
+      ok("EU. 殻が読めない（古い APK）なら言わない", greetAloud() === false);
+      speakNative = true; fresh([]); state.settings.speak = true; setNow(15, 7, 0);
+      ok("EU. 何も無い日は言わない", greetAloud() === false);
+      try { localStorage.removeItem(GREETED); } catch {}
       window.ReactNativeWebView = keepRN; speakNative = keepSN;
+      fresh(base()); setNow(15, 7, 0); state.settings.speak = true;
+      ok("EU. ブラウザでは、開いただけでは声を出さない（押した操作が無いと出せない）", greetAloud() === false);
       for (const k of ["ss", "su"]) { const name = k === "ss" ? "speechSynthesis" : "SpeechSynthesisUtterance";
         if (desc[k]) Object.defineProperty(window, name, desc[k]); else delete window[name]; }
 
