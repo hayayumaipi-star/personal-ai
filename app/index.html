@@ -10546,8 +10546,32 @@ function reviewAnswer(t, key, dw) {
   if (done.length) bits.push("おつかれさま。");
   return bits.join("");
 }
+/* **状況報告**（2026-10-08・ジャービスのように・EU群）。「状況は？」「いまどうなってる？」「ステータス」に、記録から答える
+   （前は「うん、聞いたよ。予定はそのままにしてある。」と返していた）。「おはよう」にも同じ見通しを添える。
+   中身はカードと同じ数え方（`briefLine`・`nextAction`・`doneOn`・`pastAsk`）。体調がよくないと言っていた日は、無理しないでと1言（点数にしない）。 */
+const RE_STATUS_Q = /^(?:今日の|きょうの|いまの|今の)?\s*(?:状況|ステータス|現状)\s*(?:は|を)?\s*(?:どう(?:なってる)?|どんな感じ|教えて|おしえて|知りたい|報告して)?\s*(?:？|\?|。)*$|^(?:いま|今)\s*(?:どう|どんな)\s*(?:なってる|感じ)\s*(?:？|\?)*$/;
+function statusAnswer(plan, key) {
+  const bits = [], b = briefLine(key, plan);
+  bits.push(b.empty ? "今日は入っている予定はないよ。" : b.text.replace(/です。$/, "。"));
+  const na = nextAction(plan);
+  if (na) {
+    const bb = na.block, run = bb.s <= na.nowMin && na.nowMin < bb.e;
+    bits.push(run ? `いまは「${blockTitle(bb)}」の最中（${hhmm(bb.e)}まで）。` : `次は${hhmm(bb.s)}の「${blockTitle(bb)}」。`);
+  }
+  const done = doneOn(key);
+  if (done.length) bits.push(`済んだのは${done.slice(0, 2).map(i => `「${i.title}」`).join("と")}${done.length > 2 ? `ほか${done.length - 2}件` : ""}。`);
+  const pa = pastAsk(plan);
+  if (pa) bits.push(`「${pa.i.title}」はできた？`);
+  const c = recentConditions(key)[0], ct = c ? (c.selfReport || c.title || "") : "";
+  if (c && RE_LOW_BODY.test(ct) && !RE_LOW_OK.test(ct)) bits.push(`「${ct.slice(0, 30)}」と言っていたから、無理しないでね。`);
+  return bits.join("");
+}
 function answerQuestion(rawText, plan, key, dw = "今日") {
   const t = halfWidth(rawText), tz = state.settings.timezone;
+  const isTodayKey = key === dayKey(new Date(), tz);
+  if (isTodayKey && RE_STATUS_Q.test(t.trim())) return statusAnswer(plan, key);
+  // 「おはよう」には、今日の見通しを添える（あいさつの言葉は templateReply か速いAIが言う）
+  if (isTodayKey && /^おはよう/.test(t.trim()) && RE_GREET.test(t.trim())) { const b = briefLine(key, plan); if (!b.empty) return statusAnswer(plan, key); }
   if (RE_REVIEW_Q.test(t.trim())) return reviewAnswer(t, key, dw);
   // 「今日何するんだっけ」の「っけ」も問いかけ（2026-09-27・テスターで発見。答えずに「予定はそのままにしてある」と返していた）
   if (!RE_ASK.test(t) && !RE_QUESTION_END.test(t)) return null;
@@ -10851,7 +10875,8 @@ function templateReply(ctx) {
   const bits = [];
   const only = k => kinds.length > 0 && kinds.every(x => k.includes(x));
 
-  if (answer) bits.push(answer);
+  const g0 = answer && !asks.length && greetReply(raw);     // 「おはよう」＋見通し（EU群）：あいさつを先に
+  if (answer) bits.push(g0 && !g0.night ? g0.text + answer : answer);
 
   if (feelingOnly && !changes.length) {
     // 気持ちを言っただけ。行動を押し付けない。

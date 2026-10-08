@@ -573,6 +573,9 @@
    周りに人がいるかもしれない）。同じ日に2回言わない（`hitohi.greeted`＝端末の中だけの覚え）・今日もう話していれば言わない。
    ⑤**時刻を言った用事の時間が過ぎたら「できましたか？」**（`pastAsk` / `pastAskHTML`）：過ぎた用事は `plan.unplaced` に移るだけで誰も聞かなかった。
    カードに「「資料を作る」（14:00から）はできましたか？」と「できた」「明日へ」（`act` の done / defer）。いちばん最近の1件・終わる時刻（締切ならその時刻）から4時間まで・提案とくり返しは聞かない。
+   ⑥**状況報告**（`statusAnswer` / `RE_STATUS_Q`・`answerQuestion` の頭＝AIの道でも返事に入る）：「状況は？」「いまどうなってる？」「ステータス」に、見通し・次（最中なら「いまは〜の最中」）・
+   済んだもの・「できた？」・今日つらいと言っていれば「無理しないでね」を記録から答える（前は「うん、聞いたよ」だった）。「おはよう」にも見通しを添える（何も無い日は今までどおり）。
+   **今日のことだけ**・名前の付いた「〜の状況は？」は当てない。
 
 ### Googleカレンダー（17）
 
@@ -791,7 +794,7 @@ localStorage "hitohi.gcal"  { on, email, lastSync, lastError, gone[] }   Google�
 
 - 抽出・計画・重複判定・ops を触ったら **必ず `tests/harness.js` を追記して実行**する。現在194件が通る。
 - **`tests/scenario.js` は一日ぶんの会話を1発言ずつ流す通し検証**（51件）。会話の扱いを変えたら必ずこれも実行する。
-- **`tests/probe.js` は境界と寿命の確認**（2100件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,433件）。
+- **`tests/probe.js` は境界と寿命の確認**（2108件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,441件）。
 - **`server/test.mjs` は中継サーバーの確認**（59件・`node server/test.mjs`・Node 22 以上）。`server/` を触ったら必ず流す。
 - **`mobile/test-tools.mjs` は「APKを作る」（Actions）の道具の確認**（38件・`node mobile/test-tools.mjs`）。`mobile/find-eas-project.js`・`mobile/check-ai-key.js`・`.github/workflows/apk.yml` を触ったら流す。
 - **`tools/ai-eval/` は本物の Gemini で読み取りの質を比べる道具**（62件の正解つき＝1回の発言30・会話の続き12・ルールで直してきた言い方20＝`p01`〜・`GEMINI_API_KEY` が要る・鍵なしなら `--configs rules`）。

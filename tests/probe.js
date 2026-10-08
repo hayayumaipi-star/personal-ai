@@ -9243,6 +9243,38 @@
         state.turns = {};
       }
 
+      // ⑥ 状況報告（「状況は？」「いまどうなってる？」「おはよう」）——記録から答える
+      {
+        const lastBot = () => (Object.values(state.turns).flat().filter(t => t.role === "assistant").pop() || {}).text || "";
+        fresh(base()); setNow(15, 9, 0); SAMPLEFN = null;
+        await sendTurn("状況は？");
+        ok("EU. 「状況は？」に、今日の見通しと次を記録から答える（前は「うん、聞いたよ」だった）",
+           /^今日は予定が2つ（10:00〜16:00）、時刻未定の「病院」、やることが1件。次は10:00の「会議」。$/.test(lastBot()), lastBot());
+        setNow(15, 10, 30); await sendTurn("いまどうなってる？");
+        ok("EU. 予定の最中なら「いまは〜の最中」", /いまは「会議」の最中（11:00まで）。/.test(lastBot()), lastBot());
+        state.items.push({ id: "eu-c9", noteId: "eu-n", kind: "condition", title: "だるい", selfReport: "だるい", status: "open", reportedAt: isoEU(15, 10) });
+        await sendTurn("ステータス");
+        ok("EU. 今日つらいと言っていたら「無理しないでね」（点数にしない）", /「だるい」と言っていたから、無理しないでね。/.test(lastBot()), lastBot());
+        fresh(base()); setNow(15, 7, 0);
+        await sendTurn("おはよう");
+        ok("EU. 「おはよう」には、あいさつのあとに今日の見通し", /^おはよう。今日は予定が2つ（10:00〜16:00）/.test(lastBot()), lastBot());
+        fresh([]); setNow(15, 7, 0); state.notes = [{ id: "eu-n", text: "x", hash: "eu", capturedAt: isoEU(14, 9), source: "talk", createdAt: isoEU(14, 9) }];
+        await sendTurn("おはよう");
+        ok("EU. 何も無い日の「おはよう」は今までどおり", lastBot() === "おはよう。", lastBot());
+        await sendTurn("状況は？");
+        ok("EU. 何も無い日の「状況は？」は「予定はないよ」", lastBot() === "今日は入っている予定はないよ。", lastBot());
+        fresh(base()); setNow(15, 9, 0);
+        await sendTurn("請求書の状況は？");
+        ok("EU. 名前の付いた「〜の状況は？」は状況報告にしない", !/^今日は予定が/.test(lastBot()), lastBot());
+        fresh(base()); setNow(15, 7, 0);
+        const stubEU = () => Promise.resolve({ text: "おはようございます！" });
+        stubEU.json = () => Promise.resolve({ ops: [], habit: "" });
+        SAMPLEFN = stubEU; await sendTurn("おはよう"); SAMPLEFN = null;
+        ok("EU. AIの道でも、速い返事のあとに見通しを足す（あいさつを2回言わない）",
+           /^おはようございます！\n今日は予定が2つ（10:00〜16:00）/.test(lastBot()) && !/おはよう。/.test(lastBot()), lastBot());
+        state.turns = {};
+      }
+
       // ③ 出発の時間
       fresh(base()); setNow(15, 7, 0);
       const nl = notifyList("2026-09-15", 7 * 60);
