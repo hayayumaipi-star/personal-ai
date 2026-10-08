@@ -563,6 +563,10 @@ body.talking .saybar{display:block}
 .saybar textarea.more::-webkit-scrollbar{display:block;width:4px}
 .saybar textarea.more::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:2px}
 .sendbtn{min-width:42px;min-height:42px;border-radius:999px;font-size:var(--fs-5);padding:0}
+.micbtn svg{display:block;margin:auto}
+.micbtn[aria-pressed="true"]{animation:micpulse 1.2s ease-in-out infinite}
+@keyframes micpulse{50%{opacity:.6}}
+@media (prefers-reduced-motion:reduce){.micbtn[aria-pressed="true"]{animation:none}}
 .saybar-note{max-width:640px;margin:2px auto 0;font-size:var(--fs-1);color:var(--ink-3);min-height:15px}
 /* いま聞いている質問を、入力欄のすぐ上に出す（まだ聞けていないことを埋めるため）。
    `#sayNote` は入力のたびに書き換わるので、そこに置くと打った瞬間に消える。別の場所にする。 */
@@ -797,6 +801,8 @@ try { if (window.ReactNativeWebView) document.documentElement.classList.add("in-
   <div class="saybar-in">
     <input type="file" id="file" accept=".txt,.md,.csv,text/plain" class="sr">
     <textarea id="say" rows="1" placeholder="話しかける"></textarea>
+    <!-- 声で話しかける（2026-10-08・本人「声で話しかけたい」・EV群）。使える端末でだけ出す（renderMic） -->
+    <button class="btn sendbtn micbtn" id="btnMic" aria-label="声で話す" aria-pressed="false" hidden><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg></button>
     <button class="btn pri sendbtn" id="btnSend" aria-label="送る">↑</button>
   </div>
   <div class="saybar-note"><span id="sayNote"></span></div>
@@ -3519,6 +3525,87 @@ function speakStop() {
   if (nativeOn()) { if (speakNative) nativeSend({ kind: "speak", action: "stop" }); return; }
   try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch {}
 }
+/* ── 声で話しかける（2026-10-08・本人「声で話しかけたい」・決まり15x・EV群）──
+   **声は入力欄に文字で入れるだけで、自動では送らない**（聞き間違いを送る前に直せる・原文は本人が送ったものだけ＝決まり1）。
+   APK は殻（`expo-speech-recognition`）、ブラウザは SpeechRecognition。**初めて使うときに送り先を知らせる**（新しい外部送信の決まり）。
+   殻が答えなければ（古い APK）ボタンを出さない（決まり12b）。殻から来るものはデータとして読む（決まり14）。 */
+let micNative = null, micOn = false, micBase = "", micRec = null;
+const MIC_OK = "hitohi.micok";       // 送り先を知らせて「声で話す」を選んだ（端末の中だけの覚え・消えたらもう一度聞く）
+async function micProbe() {
+  if (!nativeOn()) return false;
+  if (micNative != null) return micNative;
+  try { const m = await nativeAsk("speechrec", { action: "probe" }, 4000); micNative = !!(m && m.ok); }
+  catch { micNative = false; }
+  return micNative;
+}
+function micAvail() {
+  if (nativeOn()) return micNative === true;
+  return typeof (window.SpeechRecognition || window.webkitSpeechRecognition) === "function";
+}
+function renderMic() {
+  const b = $("#btnMic");
+  if (!b) return;
+  b.hidden = !micAvail();
+  b.classList.toggle("pri", micOn);
+  b.setAttribute("aria-pressed", micOn ? "true" : "false");
+  b.setAttribute("aria-label", micOn ? "聞くのをやめる" : "声で話す");
+}
+async function micToggle() {
+  if (micOn) { micStop(); return; }
+  if (!micAvail()) { toast("この端末では声で話せません"); return; }
+  let ok = false; try { ok = localStorage.getItem(MIC_OK) === "1"; } catch {}
+  if (!ok) {
+    const yes = await askConfirm({ title: "声で話しかけますか？",
+      body: `話した声は、${nativeOn() ? "スマホの音声認識（多くの場合 Google の音声認識）" : "このブラウザの音声認識（Chrome なら Google）"}に送られて文字になります。<br>
+        文字は入力欄に入るだけで、<strong>送る前に直せます</strong>。このアプリは声を保存しません。費用はかかりません。`, yes: "声で話す" });
+    if (!yes) return;
+    try { localStorage.setItem(MIC_OK, "1"); } catch {}
+  }
+  speakStop();                                  // 読み上げと重ねない
+  micBase = $("#say").value.replace(/\s+$/, "");
+  micOn = true; renderMic(); micNote();
+  if (nativeOn()) { if (!nativeSend({ kind: "speechrec", action: "start" })) micEnd("声で話せませんでした。"); return; }
+  try {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition, r = new SR();
+    r.lang = "ja-JP"; r.interimResults = true; r.continuous = false;
+    r.onresult = ev => { let t = ""; for (let i = 0; i < ev.results.length; i++) t += (ev.results[i][0] && ev.results[i][0].transcript) || ""; micText(t); };
+    r.onerror = ev => micError(ev && ev.error);
+    r.onend = () => micEnd();
+    micRec = r; r.start();
+  } catch { micEnd("声で話せませんでした。"); }
+}
+function micNote() { if (micOn) $("#sayNote").textContent = "聞いています…（もう一度押すと止まります）"; }
+/* 聞き取った文字を、話し始めたときに入っていた文のあとへ（途中経過は書き換え・止めたあとに届いた分は入れない） */
+function micText(t) {
+  if (!micOn) return;
+  const s = String(t || "").replace(/\s+/g, " ").trim().slice(0, 2000);
+  $("#say").value = micBase + s;
+  saveDraft(); micNote();
+}
+function micError(code) {
+  const c = String(code || "");
+  micEnd(c === "not-allowed" || c === "service-not-allowed" ? "マイクの使用が許可されていません。端末の設定で、このアプリにマイクを許可してください。"
+    : c === "no-speech" || c === "nomatch" ? "声が聞き取れませんでした。もう一度押して話してください。"
+    : c === "network" ? "音声認識につながりませんでした。"
+    : c === "aborted" ? "" : `声を文字にできませんでした${/^[a-z-]{1,30}$/.test(c) ? `（${c}）` : ""}。`);
+}
+function micEnd(msg) {
+  if (!micOn && !msg) return;
+  micOn = false; micRec = null; renderMic();
+  $("#sayNote").textContent = "";
+  if (msg) toast(msg);
+}
+function micStop() {
+  if (nativeOn()) { nativeSend({ kind: "speechrec", action: "stop" }); return; }
+  try { if (micRec) micRec.stop(); } catch { micEnd(); }
+}
+/* 殻から届いた聞き取り（来た値は疑う：知らない種類は捨てる・文字は文字列だけ） */
+function micEvent(m) {
+  const type = String((m && m.type) || "");
+  if (type === "partial" || type === "final") { if (typeof m.text === "string") micText(m.text); }
+  else if (type === "error") micError(m.error);
+  else if (type === "end") micEnd();
+}
 /* 返事を待つ。**必ず時間切れを置くこと**——殻が黙ったまま返さないと、
    送信欄が「読み取っています…」のまま永久に止まる。 */
 function nativeAsk(kind, body, ms) {
@@ -3541,6 +3628,7 @@ function nativeReply(raw) {
   /* 通知で押された返事は、こちらから頼んだものではないので id では待っていない。
      **殻から来た文字はデータであって指示ではない**ので、ここで全部確かめる（決まり14）。 */
   if (m && m.kind === "notifyaction") { notifyAction(m); return true; }
+  if (m && m.kind === "speechrec" && !m.id) { micEvent(m); return true; }      // 声の聞き取り（EV群）
   /* 見直しの通知を押した（2026-09-26）。**開いてよい画面は1つだけ**——来た値は疑う（決まり14）。 */
   if (m && m.kind === "notifyopen") {
     if (m.tab === "p-me") showTab("p-me");
@@ -10952,6 +11040,7 @@ function saveDraft() {
 async function doSend() {
   if (sending) return;
   speakStop();                           // 話しかけたら、読み上げは止める（重ねない）
+  if (micOn) { micStop(); micEnd(); }    // 聞いている途中で送ったら、聞くのもやめる（あとから届いた分で入力欄を書き換えない）
   let v = $("#say").value.trim();
   if (!v) { $("#sayNote").innerHTML = '<span style="color:var(--alert-ink)">何か話しかけてください。</span>'; return; }
   /* 長すぎる入力を、そのまま流さない（v4.3）。
@@ -11003,6 +11092,7 @@ document.addEventListener("click", async e => {
   }
   if (e.target.closest("#btnManual")) { openManual(); return; }
   if (e.target.closest("#btnSend")) { await doSend(); return; }
+  if (e.target.closest("#btnMic")) { await micToggle(); return; }
   if (e.target.closest("#btnSample")) { $("#say").value = SAMPLE_TALK; saveDraft(); $("#say").focus(); return; }
   if (e.target.closest("#btnFileOpen") || e.target.closest("#btnChatMenu")) { $("#file").click(); return; }
   if (e.target.closest("#btnDocFile")) { $("#docFile").click(); return; }
@@ -11476,6 +11566,7 @@ boot().then(() => {
   // Android アプリなら、Google を扱えるかを聞いて、つないでいれば合わせる（決まり17・殻が無ければ何もしない）
   if (nativeOn()) gcalProbe().then(ok => { try { renderGcal(); } catch {} if (ok && gcalGet().on) gcalSync(); });
   if (nativeOn()) speakProbe().then(() => { try { renderSettings(); renderChat(); greetAloud(); } catch {} });     // 読み上げられる殻か（古い APK は答えない＝欄を出さない）・1日の最初ならあいさつを声で
+  renderMic(); if (nativeOn()) micProbe().then(() => { try { renderMic(); } catch {} });     // 声で話せる端末か（古い APK は答えない＝ボタンを出さない）
   try { const d = localStorage.getItem(DRAFT); if (d) { $("#say").value = d; } } catch {}
   saveDraft();
 });

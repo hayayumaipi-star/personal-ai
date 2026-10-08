@@ -9361,6 +9361,96 @@
       renderSettings();
     }
 
+    /* ===== EV群：声で話しかける（2026-10-08・本人「声で話しかけたい」）=====
+       声は入力欄に文字で入れるだけ（自動で送らない）・初めてのときに送り先を知らせる・使えない端末ではボタンを出さない・殻から来た値は疑う。 */
+    {
+      const keepRN = window.ReactNativeWebView, keepAC = window.askConfirm, keepMN = micNative, keepAI = SAMPLEFN, keepTab = view.tab;
+      const keepSt = { notes: state.notes, items: state.items, turns: state.turns, docs: state.docs, settings: state.settings };
+      const desc = { a: Object.getOwnPropertyDescriptor(window, "SpeechRecognition"), b: Object.getOwnPropertyDescriptor(window, "webkitSpeechRecognition") };
+      const inst = [];
+      function FakeSR() { this.started = false; this.stopped = false; inst.push(this); }
+      FakeSR.prototype.start = function () { this.started = true; };
+      FakeSR.prototype.stop = function () { this.stopped = true; if (this.onend) this.onend(); };
+      Object.defineProperty(window, "SpeechRecognition", { configurable: true, writable: true, value: undefined });
+      Object.defineProperty(window, "webkitSpeechRecognition", { configurable: true, writable: true, value: undefined });
+      const toastT = () => ($("#toast") && $("#toast").textContent) || "";
+      showTab("p-chat");
+      renderMic();
+      ok("EV. 声を文字にできない端末では、マイクのボタンを出さない", $("#btnMic").hidden === true);
+      window.webkitSpeechRecognition = FakeSR; renderMic();
+      ok("EV. ブラウザで使えるなら、送るボタンの横にマイク", $("#btnMic").hidden === false && $("#btnMic").getAttribute("aria-label") === "声で話す");
+      try { localStorage.removeItem(MIC_OK); } catch {}
+      let asked = null;
+      window.askConfirm = async o => { asked = o; return false; };
+      $("#say").value = "";
+      await micToggle();
+      ok("EV. 初めて使うときは、声の送り先・送る前に直せること・保存しないこと・費用を知らせて聞く（断れば何もしない）",
+         !!asked && /音声認識/.test(asked.body) && /送る前に直せます/.test(asked.body) && /保存しません/.test(asked.body) && /費用はかかりません/.test(asked.body) && !inst.length && !micOn, asked && asked.body);
+      window.askConfirm = async o => { asked = o; return true; };
+      $("#say").value = "明日は";
+      await micToggle();
+      const r = inst[inst.length - 1] || {};
+      ok("EV. 「声で話す」を選ぶと、日本語で聞き始める（途中経過も受け取る）",
+         r.started === true && r.lang === "ja-JP" && r.interimResults === true && micOn && $("#btnMic").getAttribute("aria-pressed") === "true" && /聞いています/.test($("#sayNote").textContent), JSON.stringify({ lang: r.lang, on: micOn }));
+      const ev = (t, fin) => ({ results: [Object.assign([{ transcript: t }], { isFinal: !!fin })] });
+      r.onresult(ev("10時に"));
+      ok("EV. 聞き取った文字を、入っていた文のあとへ入れる（途中経過は書き換え）", $("#say").value === "明日は10時に" && /聞いています/.test($("#sayNote").textContent), $("#say").value);
+      const nT = Object.values(state.turns).flat().length;
+      r.onresult(ev("10時に歯医者", true));
+      ok("EV. 最後まで聞き取っても、自動では送らない（送る前に直せる）", $("#say").value === "明日は10時に歯医者" && Object.values(state.turns).flat().length === nT, $("#say").value);
+      await micToggle();
+      ok("EV. もう一度押すと聞くのをやめる", r.stopped === true && !micOn && $("#btnMic").getAttribute("aria-pressed") === "false");
+      asked = null; await micToggle();
+      ok("EV. 2回目からは送り先を聞き直さない", asked === null && micOn);
+      inst[inst.length - 1].onerror({ error: "not-allowed" });
+      ok("EV. マイクが許可されていなければ、そう言って止まる", !micOn && /マイクの使用が許可されていません/.test(toastT()), toastT());
+      await micToggle(); inst[inst.length - 1].onerror({ error: "no-speech" });
+      ok("EV. 聞き取れなければ、そう言う", !micOn && /聞き取れませんでした/.test(toastT()), toastT());
+      // 聞いている途中で送ったら、あとから届いた文字で入力欄を書き換えない
+      reset(); state.settings = Object.assign({}, DEFAULTS, { timezone: TZ }); SAMPLEFN = null;
+      $("#say").value = ""; await micToggle();
+      const r3 = inst[inst.length - 1];
+      r3.onresult(ev("牛乳を買う"));
+      await doSend();
+      r3.onresult(ev("牛乳を買う、あとから届いた"));
+      ok("EV. 聞いている途中で送ったら、聞くのもやめ、あとから届いた文字で入力欄を書き換えない",
+         !micOn && $("#say").value === "" && Object.values(state.turns).flat().some(t => t.role === "user" && t.text === "牛乳を買う"), $("#say").value);
+      // 読み上げと重ねない
+      { const keepSS = Object.getOwnPropertyDescriptor(window, "speechSynthesis"); let canceled = 0;
+        Object.defineProperty(window, "speechSynthesis", { configurable: true, value: { cancel() { canceled++; }, speak() {} } });
+        await micToggle(); ok("EV. 聞き始めるとき、読み上げは止める", canceled > 0); await micToggle();
+        if (keepSS) Object.defineProperty(window, "speechSynthesis", keepSS); else delete window.speechSynthesis; }
+
+      // Android アプリ（殻）
+      const sent = [];
+      window.ReactNativeWebView = { postMessage: m => sent.push(JSON.parse(m)) };
+      micNative = false; renderMic();
+      ok("EV. 古い APK（殻が答えない）ではボタンを出さない（WebView の音声認識は使わない）", $("#btnMic").hidden === true);
+      micNative = true; renderMic(); const nInst = inst.length; $("#say").value = "";
+      await micToggle();
+      ok("EV. APK では殻に「聞いて」と頼む", sent.some(m => m.kind === "speechrec" && m.action === "start") && inst.length === nInst && micOn, JSON.stringify(sent));
+      nativeReply(JSON.stringify({ kind: "speechrec", type: "partial", text: "牛乳" }));
+      nativeReply(JSON.stringify({ kind: "speechrec", type: "final", text: "牛乳を買う" }));
+      ok("EV. 殻から届いた文字を入力欄へ", $("#say").value === "牛乳を買う", $("#say").value);
+      nativeReply(JSON.stringify({ kind: "speechrec", type: "final", text: { evil: 1 } }));
+      nativeReply(JSON.stringify({ kind: "speechrec", type: "weird", text: "x" }));
+      ok("EV. 文字でないもの・知らない種類は入れない（来た値は疑う）", $("#say").value === "牛乳を買う" && micOn, $("#say").value);
+      await micToggle();
+      ok("EV. もう一度押すと、殻に止めるよう頼む", sent.some(m => m.kind === "speechrec" && m.action === "stop"));
+      nativeReply(JSON.stringify({ kind: "speechrec", type: "end" }));
+      ok("EV. 殻が「終わった」と言えば、ボタンを戻す", !micOn && $("#btnMic").getAttribute("aria-pressed") === "false");
+      await micToggle();
+      nativeReply(JSON.stringify({ kind: "speechrec", type: "error", error: "<img src=x>" }));
+      ok("EV. 殻の失敗の言葉は、知っている形のときだけ見せる", !micOn && !/<img/.test($("#toast").innerHTML) && /声を文字にできませんでした。/.test(toastT()), $("#toast").innerHTML);
+
+      window.ReactNativeWebView = keepRN; micNative = keepMN; window.askConfirm = keepAC; SAMPLEFN = keepAI;
+      for (const [k, name] of [["a", "SpeechRecognition"], ["b", "webkitSpeechRecognition"]]) {
+        if (desc[k]) Object.defineProperty(window, name, desc[k]); else delete window[name]; }
+      try { localStorage.removeItem(MIC_OK); } catch {}
+      micOn = false; $("#say").value = ""; saveDraft(); renderMic(); showTab(keepTab);
+      state.notes = keepSt.notes; state.items = keepSt.items; state.turns = keepSt.turns; state.docs = keepSt.docs; state.settings = keepSt.settings;
+    }
+
     /* ===== CJ. 速さと保存の仕組み（2026-09-27・本人の指示「ほかにも最適化できないか模索して」） =====
        3か月ぶんの記録で測ると、予定表の計算が1回140ミリ秒・1発言が19ミリ秒かかっていた。
        原因は ①日付を読むたびに書式の道具（Intl）を作り直していた ②項目を1つ足すたびに記録をまるごと書き直していた。

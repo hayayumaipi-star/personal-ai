@@ -3,7 +3,7 @@
 
    **この殻は、中身のロジックを1行も持ちません。**
    全部 `app/index.html` の側にあります（このファイルが唯一の正・決まり7e）。
-   殻がやるのは7つだけ：
+   殻がやるのは8つだけ：
 
      ① その `index.html` を WebView で開く
      ② AIへの通信を代わりに行う（WebView から直接だと相手の受け入れ設定に止められる）
@@ -14,6 +14,8 @@
         **Google でログインした証明（ID トークン）を殻が付ける。**ページには渡さない（⑤の鍵と同じ）。
      ⑦ 返事を声で読み上げる（2026-10-08・本人の目標「ジャービスのような」）。**何を読むかはページが決める**——
         殻は渡された文を端末の読み上げに渡すだけ。WebView の中の読み上げは端末によって動かないので、殻でやる。
+     ⑧ 声を文字にする（2026-10-08・本人「声で話しかけたい」）。ページが「聞いて」と頼んだときだけマイクを使い、
+        聞き取った文字をそのままページへ返す（入力欄に入れるのも、送るかどうかも、ページと本人が決める）。声は保存しない。
 
    ⑤も「運ぶ」だけです。**どの予定を読み書きするかは、殻は知りません**（`app/index.html` の `gcalTwoWay()`）。
    殻が持つのは2つだけ：**Google へのログイン**（Google は WebView の中でのログインを禁じているので、
@@ -75,6 +77,9 @@ try { GS = require("@react-native-google-signin/google-signin").GoogleSignin; } 
 /* ⑦ 読み上げ。**読み込めなければ何もしない**（古い Expo Go などで落とさない）。ページは probe に答えが無ければ欄を出さない。 */
 let TTS = null;
 try { TTS = require("expo-speech"); } catch (e) { TTS = null; }
+/* ⑧ 声を文字にする。**読み込めなければ何もしない**（Expo Go には入っていない）。ページは probe に答えが無ければボタンを出さない。 */
+let SR = null;
+try { SR = require("expo-speech-recognition").ExpoSpeechRecognitionModule || null; } catch (e) { SR = null; }
 /* 頼む権限は**1つだけ**：予定を見て編集する（`calendar.events`）。メインのカレンダーと同期するため（本人の指示・決まり17）。
    カレンダーそのものを作る・消す・共有する権限（`calendar`）は頼まない。決めるのは殻（ページからは広げられない）。
    **ログインのときには頼まない**（2026-09-28・決まり18）。配る版では AI を使うためだけにログインする人がいるので、
@@ -219,6 +224,21 @@ export default function App() {
     } catch (e) { console.warn("通知の返事を運べませんでした", e); }
   }, [post]);
 
+  /* ⑧ 聞き取った文字・終わり・失敗を、そのままページへ（意味を決めるのはページ）。文字は長さを切る。 */
+  useEffect(() => {
+    if (!SR || typeof SR.addListener !== "function") return;
+    const subs = [];
+    try {
+      subs.push(SR.addListener("result", ev => {
+        const r = ev && Array.isArray(ev.results) && ev.results[0];
+        post({ kind: "speechrec", type: ev && ev.isFinal ? "final" : "partial", text: String((r && r.transcript) || "").slice(0, 2000) });
+      }));
+      subs.push(SR.addListener("error", ev => post({ kind: "speechrec", type: "error", error: String((ev && ev.error) || "").slice(0, 40) })));
+      subs.push(SR.addListener("end", () => post({ kind: "speechrec", type: "end" })));
+    } catch (e) { console.warn("声の聞き取りの準備でつまずきました", e); }
+    return () => subs.forEach(x => { try { x && x.remove && x.remove(); } catch (e) {} });
+  }, [post]);
+
   useEffect(() => {
     const sub = addNotificationResponseReceivedListener(relay);
     getLastNotificationResponseAsync().then(relay).catch(() => {});
@@ -348,6 +368,25 @@ export default function App() {
       if (m.action === "say") {
         const text = String(m.text || "").slice(0, 400);
         if (text) { try { TTS.speak(text, { language: "ja-JP" }); } catch (e2) { console.warn("読み上げられませんでした", e2); } }
+      }
+      return;
+    }
+
+    /* ⑧ 声を文字にする（2026-10-08）。probe＝使えるか／start＝マイクの許可を聞いてから聞き始める／stop＝聞くのをやめる。 */
+    if (m.kind === "speechrec") {
+      if (!SR) { if (m.id) post({ id: m.id, error: "nosupport" }); return; }
+      if (m.action === "probe") {
+        let ok = false; try { ok = !!SR.isRecognitionAvailable(); } catch (e2) { ok = false; }
+        post({ id: m.id, ok }); return;
+      }
+      if (m.action === "stop") { try { SR.stop(); } catch (e2) {} return; }
+      if (m.action === "start") {
+        try {
+          const p = await SR.requestPermissionsAsync();
+          if (!p || !p.granted) { post({ kind: "speechrec", type: "error", error: "not-allowed" }); return; }
+          try { if (TTS) await TTS.stop(); } catch (e2) {}
+          SR.start({ lang: "ja-JP", interimResults: true, continuous: false, addsPunctuation: true });
+        } catch (e2) { post({ kind: "speechrec", type: "error", error: "start-failed" }); }
       }
       return;
     }

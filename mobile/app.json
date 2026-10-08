@@ -27,7 +27,14 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "話しかけた声を文字にするためにマイクを使います。",
+          "speechRecognitionPermission": "話しかけた声を文字にするために音声認識を使います。"
+        }
+      ]
     ]
   }
 }

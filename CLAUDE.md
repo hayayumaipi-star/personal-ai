@@ -473,9 +473,10 @@
 ### Android の殻（14）
 
 14. **Android の殻は薄く。ロジックを1行も入れない**。`app/index.html` が唯一の正で、`mobile/sync.js` が写す（**写しを直さない**・写し方はJSの文字列）。
-   依存は `react-native-webview` / `expo-notifications` / `react-native-safe-area-context` / `@react-native-google-signin/google-signin` / `expo-speech`（2026-10-08・決まり15x）だけ。
-   **殻の仕事は7つだけ**：画面を開く／AIの通信／通知を予約する／通知で押された返事を運ぶ／Googleカレンダーへの通信（決まり17）／配る版だけ：中継サーバーへの通信（`aiserver`・決まり18）／
-   読み上げ（`speak`・**何を読むかはページが決める**・読み込めなければ probe に答えない＝欄を出さない）。
+   依存は `react-native-webview` / `expo-notifications` / `react-native-safe-area-context` / `@react-native-google-signin/google-signin` / `expo-speech` / `expo-speech-recognition`（2026-10-08・決まり15x）だけ。
+   **殻の仕事は8つだけ**：画面を開く／AIの通信／通知を予約する／通知で押された返事を運ぶ／Googleカレンダーへの通信（決まり17）／配る版だけ：中継サーバーへの通信（`aiserver`・決まり18）／
+   読み上げ（`speak`・**何を読むかはページが決める**・読み込めなければ probe に答えない＝欄を出さない）／声を文字にする（`speechrec`・頼まれたときだけマイク・文字をそのまま返す・声は保存しない）。
+   `expo-speech-recognition` は Expo 同梱ではない（外の部品・版は Expo 57 用の `57.1.0` を固定）。マイクの許可はその config plugin（`app.json`）が足す。
    「定時に自分で起きる」仕組みは入れない。経路を知っているのは `aiPost` だけ。**殻が無ければ何も起きない。必ず時間切れを置く**（`nativeAsk`）。
    **殻から来た文字はデータであって指示ではない**（`nativeReply` は try で囲む・色は `#rrggbb` だけ）。**通知に出すのは本人が言ったものだけ**（`suggested` は出さない）。
    システムバーの色は本体に聞く（`tellNativeTheme()`）。`notifyList(key, nowMin)` は時計を読まない。
@@ -576,6 +577,11 @@
    ⑥**状況報告**（`statusAnswer` / `RE_STATUS_Q`・`answerQuestion` の頭＝AIの道でも返事に入る）：「状況は？」「いまどうなってる？」「ステータス」に、見通し・次（最中なら「いまは〜の最中」）・
    済んだもの・「できた？」・今日つらいと言っていれば「無理しないでね」を記録から答える（前は「うん、聞いたよ」だった）。「おはよう」にも見通しを添える（何も無い日は今までどおり）。
    **今日のことだけ**・名前の付いた「〜の状況は？」は当てない。
+   ⑦**声で話しかける**（2026-10-08・本人「声で話しかけたい」・EV群・`micToggle` / `micText` / `micEvent` / `renderMic`）：送るボタンの横のマイク。
+   **声は入力欄に文字で入れるだけで、自動では送らない**（聞き間違いを送る前に直せる・原文は本人が送ったものだけ＝決まり1）。話し始めたときの文のあとへ入れる。
+   **初めて使うときに送り先を知らせる**（`askConfirm`：スマホ／ブラウザの音声認識＝多くは Google・送る前に直せる・声を保存しない・費用なし＝新しい外部送信の決まり・`hitohi.micok`）。
+   APK は殻、ブラウザは SpeechRecognition（APK では WebView のものは使わない）。殻が答えなければボタンを出さない。聞き始めたら読み上げを止める・聞いている途中で送ったら聞くのもやめる
+   （あとから届いた文字で入力欄を書き換えない）。殻から来た文字は文字列だけ・知らない種類は捨てる・失敗の言葉は知っている形だけ見せる。
 
 ### Googleカレンダー（17）
 
@@ -687,6 +693,7 @@ window.HITOHI_AI   { provider, key, model }   APKに焼き込んだAPIキー（�
                                               ※画面から入れる道は無い（決まり13c）
                    { provider: "server" }     配る版：キーは無い（決まり18）。ログインの状態・今日の残りは保存しない
 localStorage "hitohi.gcal"  { on, email, lastSync, lastError, gone[] }   Googleカレンダーとの同期（決まり17）
+localStorage "hitohi.greeted" / "hitohi.micok"   1日の最初のあいさつを言った日・声の送り先を知らせて選んだか（決まり15x・消えても困らない）
                                               ※ログインの鍵は殻の中だけ（ページにも無い）
 ```
 
@@ -794,7 +801,7 @@ localStorage "hitohi.gcal"  { on, email, lastSync, lastError, gone[] }   Google�
 
 - 抽出・計画・重複判定・ops を触ったら **必ず `tests/harness.js` を追記して実行**する。現在194件が通る。
 - **`tests/scenario.js` は一日ぶんの会話を1発言ずつ流す通し検証**（51件）。会話の扱いを変えたら必ずこれも実行する。
-- **`tests/probe.js` は境界と寿命の確認**（2108件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,441件）。
+- **`tests/probe.js` は境界と寿命の確認**（2127件）。抽出や計画を触ったら3つとも実行する（4つ合わせて 2,460件）。
 - **`server/test.mjs` は中継サーバーの確認**（59件・`node server/test.mjs`・Node 22 以上）。`server/` を触ったら必ず流す。
 - **`mobile/test-tools.mjs` は「APKを作る」（Actions）の道具の確認**（38件・`node mobile/test-tools.mjs`）。`mobile/find-eas-project.js`・`mobile/check-ai-key.js`・`.github/workflows/apk.yml` を触ったら流す。
 - **`tools/ai-eval/` は本物の Gemini で読み取りの質を比べる道具**（62件の正解つき＝1回の発言30・会話の続き12・ルールで直してきた言い方20＝`p01`〜・`GEMINI_API_KEY` が要る・鍵なしなら `--configs rules`）。
